@@ -35,7 +35,12 @@ start() {
     rmdir "$PREFIX/var/run/keenetic-pilot-repair.lock" 2>/dev/null || true
     if [ -f "$LOGFILE" ] && [ "$(wc -c < "$LOGFILE")" -gt 131072 ]; then mv -f "$LOGFILE" "$LOGFILE.1"; fi
     umask 077
-    nohup "$BIN" --config "$CONFIG" --pidfile "$PIDFILE" --mode router >> "$LOGFILE" 2>&1 &
+    # POSIX shell builtins provide nohup semantics on minimal Entware installs.
+    # The ignored HUP disposition survives exec; all terminal FDs are detached.
+    (
+        trap '' HUP
+        exec "$BIN" --config "$CONFIG" --pidfile "$PIDFILE" --mode router
+    ) </dev/null >> "$LOGFILE" 2>&1 &
     CHILD=$!
     for ATTEMPT in 1 2 3 4 5 6 7 8 9 10; do
         if ! kill -0 "$CHILD" 2>/dev/null; then echo "Controller exited; inspect $LOGFILE" >&2; return 1; fi

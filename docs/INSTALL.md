@@ -117,14 +117,14 @@ Entware и файлы других проектов не удаляются. Н�
 
 ## Установка при приватном репозитории
 
-На компьютере получите файл `keenetic-pilot-offline-0.1.0-alpha.4-arm64.tar.gz`
+На компьютере получите файл `keenetic-pilot-offline-0.1.0-alpha.5-arm64.tar.gz`
 для KN-1811 и перенесите его по SFTP/SCP в `/tmp` роутера. В комплект входят
 контроллер, исходный архив движка с проверкой SHA-256 и подписанный каталог.
 Приватный GitHub при установке не требуется; зависимости Entware устанавливаются
 из обычного репозитория пакетов.
 
 ```sh
-cd /tmp && tar -xzf keenetic-pilot-offline-0.1.0-alpha.4-arm64.tar.gz && sh keenetic-pilot-offline/install.sh
+cd /tmp && tar -xzf keenetic-pilot-offline-0.1.0-alpha.5-arm64.tar.gz && sh keenetic-pilot-offline/install.sh
 ```
 
 Затем откройте напечатанный адрес и используйте код первого входа.

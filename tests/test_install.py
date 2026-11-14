@@ -15,6 +15,7 @@ import urllib.request
 import urllib.error
 import shutil
 import stat
+import signal
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -111,6 +112,26 @@ class Installation(unittest.TestCase):
         self.assertEqual(token_before, self.token_path.read_bytes())
         self.assertEqual(self.health()["mode"], "router")
         self.assertFalse(list(self.prefix.glob("keenetic-pilot.backup.*")))
+
+    def test_service_does_not_require_nohup_and_survives_hangup(self):
+        self.run_cmd([self.init,'stop'])
+        bindir=self.prefix/'bin'
+        bindir.mkdir(exist_ok=True)
+        marker=self.base/'nohup-was-called'
+        poison=bindir/'nohup'
+        poison.write_text('#!/bin/sh\ntouch '+str(marker)+'\nexit 127\n')
+        poison.chmod(0o755)
+        self.run_cmd([self.init,'start'])
+        self.assertFalse(marker.exists(),'service still invokes external nohup')
+        pidfile=self.prefix/'var/run/keenetic-pilot.pid'
+        pid=int(pidfile.read_text())
+        os.kill(pid,signal.SIGHUP)
+        time.sleep(0.1)
+        self.assertEqual(self.health()['mode'],'router')
+        self.assertEqual(int(pidfile.read_text()),pid)
+        self.run_cmd([self.init,'restart'])
+        self.assertFalse(marker.exists())
+        self.assertEqual(self.health()['mode'],'router')
 
     def test_engine_resources_readable_after_privilege_drop(self):
         app=self.prefix/'keenetic-pilot'
