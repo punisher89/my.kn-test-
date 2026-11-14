@@ -39,7 +39,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "application/javascript",
             )
         if self.path == "/api/adaptive":
-            return self.send({"enabled": False, "hosts": [], "discovered": []})
+            return self.send((HERE / "demo-adaptive.json").read_bytes())
         if self.path == "/api/status":
             return self.send((HERE / "demo-state.json").read_bytes())
         if self.path == "/api/logs":

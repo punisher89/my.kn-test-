@@ -11,6 +11,7 @@ type Strategy struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
 	Actions     []string `json:"actions,omitempty"`
+	Family      string   `json:"family,omitempty"`
 }
 
 // Fixed argument vectors, never shell fragments. All actions are from nfqws2's
@@ -46,6 +47,28 @@ var Strategies = []Strategy{
 	{ID: "fakedsplit-ts-11", Name: "Fake split / TS ×11", Description: "Семейство fakedsplit с TCP timestamp.", Actions: []string{"fakedsplit:pos=midsld:tcp_ts=-600000:tcp_ts_up:repeats=11"}},
 }
 
+func StrategyFamily(s Strategy) string {
+	if len(s.Actions) == 0 {
+		return "direct"
+	}
+	for _, a := range s.Actions {
+		if strings.Contains(a, ":seqovl=") {
+			return "overlap"
+		}
+	}
+	for _, a := range s.Actions {
+		if strings.HasPrefix(a, "hostfakesplit:") {
+			return "hostfake"
+		}
+	}
+	for _, a := range s.Actions {
+		if strings.HasPrefix(a, "fake:") || strings.HasPrefix(a, "fakedsplit:") {
+			return "fake"
+		}
+	}
+	return "split"
+}
+
 func StrategyByID(id string) (Strategy, bool) {
 	for _, s := range Strategies {
 		if s.ID == id {
@@ -56,7 +79,11 @@ func StrategyByID(id string) (Strategy, bool) {
 }
 
 func StrategiesFor(c Config) []Strategy {
-	return append(append([]Strategy{}, Strategies...), c.Catalog...)
+	pool := append(append([]Strategy{}, Strategies...), c.Catalog...)
+	for i := range pool {
+		pool[i].Family = StrategyFamily(pool[i])
+	}
+	return pool
 }
 func strategyFor(c Config, id string) (Strategy, bool) {
 	for _, s := range StrategiesFor(c) {
@@ -70,7 +97,7 @@ func strategyFor(c Config, id string) (Strategy, bool) {
 func EngineArgs(c Config) []string {
 	args := []string{fmt.Sprintf("--qnum=%d", c.Queue), "--fwmark=0x40000000", "--lua-init=@" + filepath.Join(c.EngineDir, "lua", "zapret-lib.lua.gz"), "--lua-init=@" + filepath.Join(c.EngineDir, "lua", "zapret-antidpi.lua.gz")}
 	if c.Adaptive && !c.tuning {
-		args = append(args, "--lua-init=@"+filepath.Join(c.EngineDir, "lua", "zapret-auto.lua.gz"), "--lua-init=pilot_runtime="+luaString(c.RuntimeDir), "--lua-init=@"+filepath.Join(filepath.Dir(c.EngineDir), "lua", "pilot-auto.lua"))
+		args = append(args, "--lua-init=@"+filepath.Join(c.EngineDir, "lua", "zapret-auto.lua.gz"), "--lua-init=pilot_runtime="+luaString(c.RuntimeDir), "--lua-init=pilot_network="+luaString(c.WAN), fmt.Sprintf("--lua-init=pilot_reuse=%t", c.AdaptiveReuse), "--lua-init=@"+filepath.Join(filepath.Dir(c.EngineDir), "lua", "pilot-auto.lua"))
 	}
 	haveProfile := false
 	profile := func(a ...string) {

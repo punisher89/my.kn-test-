@@ -1,0 +1,213 @@
+{
+  "enabled": true,
+  "reuse": true,
+  "boxes": [
+    {
+      "id": "box-5dbb6b69dd9e6f06",
+      "tls": "tls12",
+      "family": "ipv4",
+      "network": "ppp0",
+      "port": 443,
+      "symptom": "rst",
+      "updated": 1794658699,
+      "hosts": [
+        {
+          "group": "discovered_p443_tls12_ipv4",
+          "host": "example.com",
+          "strategy": "fake-md5",
+          "status": "probing",
+          "updated": 1794658699,
+          "symptom": "rst",
+          "network": "ppp0",
+          "port": 443,
+          "origin": "learned"
+        },
+        {
+          "group": "youtube_split-sni_p443_tls12_ipv4",
+          "host": "rr1---sn.example.googlevideo.com",
+          "strategy": "hostfake-md5",
+          "status": "connected",
+          "updated": 1794658694,
+          "symptom": "rst",
+          "network": "ppp0",
+          "port": 443,
+          "origin": "pool"
+        },
+        {
+          "group": "youtube_split-sni_p443_tls12_ipv4",
+          "host": "www.youtube.com",
+          "strategy": "hostfake-md5",
+          "status": "connected",
+          "updated": 1794658689,
+          "symptom": "rst",
+          "network": "ppp0",
+          "port": 443,
+          "origin": "learned"
+        }
+      ],
+      "methods": [
+        {
+          "id": "hostfake-md5",
+          "name": "HostFake / md5",
+          "family": "hostfake",
+          "hosts": 2,
+          "latest": 1794658694,
+          "reusable": true
+        }
+      ],
+      "history": [
+        {
+          "group": "youtube_split-sni_p443_tls12_ipv4",
+          "host": "www.youtube.com",
+          "strategy": "none",
+          "status": "failed",
+          "updated": 1794658619,
+          "symptom": "rst",
+          "network": "ppp0",
+          "port": 443,
+          "origin": "initial"
+        },
+        {
+          "group": "youtube_split-sni_p443_tls12_ipv4",
+          "host": "www.youtube.com",
+          "strategy": "hostfake-md5",
+          "status": "selected",
+          "updated": 1794658629,
+          "symptom": "rst",
+          "network": "ppp0",
+          "port": 443,
+          "origin": "learned"
+        },
+        {
+          "group": "youtube_split-sni_p443_tls12_ipv4",
+          "host": "www.youtube.com",
+          "strategy": "hostfake-md5",
+          "status": "connected",
+          "updated": 1794658689,
+          "symptom": "rst",
+          "network": "ppp0",
+          "port": 443,
+          "origin": "learned"
+        }
+      ]
+    },
+    {
+      "id": "box-f4c74e07d2db96bb",
+      "tls": "tls13",
+      "family": "ipv4",
+      "network": "ppp0",
+      "port": 443,
+      "symptom": "retransmission",
+      "updated": 1794658669,
+      "hosts": [
+        {
+          "group": "discord_split-sni_p443_tls13_ipv4",
+          "host": "discord.com",
+          "strategy": "fake-md5",
+          "status": "connected",
+          "updated": 1794658669,
+          "symptom": "retransmission",
+          "network": "ppp0",
+          "port": 443,
+          "origin": "pool"
+        }
+      ],
+      "methods": [
+        {
+          "id": "fake-md5",
+          "name": "Fake + MD5",
+          "family": "fake",
+          "hosts": 1,
+          "latest": 1794658669,
+          "reusable": true
+        }
+      ],
+      "history": []
+    }
+  ],
+  "history": [
+    {
+      "group": "youtube_split-sni_p443_tls12_ipv4",
+      "host": "www.youtube.com",
+      "strategy": "none",
+      "status": "failed",
+      "updated": 1794658619,
+      "symptom": "rst",
+      "network": "ppp0",
+      "port": 443,
+      "origin": "initial"
+    },
+    {
+      "group": "youtube_split-sni_p443_tls12_ipv4",
+      "host": "www.youtube.com",
+      "strategy": "hostfake-md5",
+      "status": "selected",
+      "updated": 1794658629,
+      "symptom": "rst",
+      "network": "ppp0",
+      "port": 443,
+      "origin": "learned"
+    },
+    {
+      "group": "youtube_split-sni_p443_tls12_ipv4",
+      "host": "www.youtube.com",
+      "strategy": "hostfake-md5",
+      "status": "connected",
+      "updated": 1794658689,
+      "symptom": "rst",
+      "network": "ppp0",
+      "port": 443,
+      "origin": "learned"
+    }
+  ],
+  "generation": 7,
+  "hosts": [
+    {
+      "group": "youtube_split-sni_p443_tls12_ipv4",
+      "host": "www.youtube.com",
+      "strategy": "hostfake-md5",
+      "status": "connected",
+      "updated": 1794658689,
+      "symptom": "rst",
+      "network": "ppp0",
+      "port": 443,
+      "origin": "learned"
+    },
+    {
+      "group": "youtube_split-sni_p443_tls12_ipv4",
+      "host": "rr1---sn.example.googlevideo.com",
+      "strategy": "hostfake-md5",
+      "status": "connected",
+      "updated": 1794658694,
+      "symptom": "rst",
+      "network": "ppp0",
+      "port": 443,
+      "origin": "pool"
+    },
+    {
+      "group": "discord_split-sni_p443_tls13_ipv4",
+      "host": "discord.com",
+      "strategy": "fake-md5",
+      "status": "connected",
+      "updated": 1794658669,
+      "symptom": "retransmission",
+      "network": "ppp0",
+      "port": 443,
+      "origin": "pool"
+    },
+    {
+      "group": "discovered_p443_tls12_ipv4",
+      "host": "example.com",
+      "strategy": "fake-md5",
+      "status": "probing",
+      "updated": 1794658699,
+      "symptom": "rst",
+      "network": "ppp0",
+      "port": 443,
+      "origin": "learned"
+    }
+  ],
+  "discovered": [
+    "example.com"
+  ]
+}

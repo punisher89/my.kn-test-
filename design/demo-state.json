@@ -1,5 +1,5 @@
 {
-  "version": "0.1.0",
+  "version": "0.2.0-alpha.2",
   "mode": "mockup",
   "running": true,
   "busy": false,
@@ -65,7 +65,9 @@
           }
         ]
       }
-    ]
+    ],
+    "adaptive": true,
+    "adaptive_reuse": true
   },
   "job": {
     "profile": "youtube",
@@ -222,42 +224,262 @@
     {
       "id": "none",
       "name": "Без вмешательства",
-      "description": "Обычное соединение; выбирается, если все прямые проверки проходят."
+      "description": "Обычное соединение; выбирается, если все прямые проверки проходят.",
+      "family": "direct"
     },
     {
       "id": "split-sni",
       "name": "Разделение SNI",
-      "description": "Разделение ClientHello внутри имени сервера."
+      "description": "Разделение ClientHello внутри имени сервера.",
+      "actions": [
+        "multisplit:pos=1,midsld"
+      ],
+      "family": "split"
     },
     {
       "id": "split-host",
       "name": "Разделение имени",
-      "description": "Разделение перед и после SNI."
+      "description": "Разделение перед и после SNI.",
+      "actions": [
+        "multisplit:pos=1,host,endhost"
+      ],
+      "family": "split"
     },
     {
       "id": "disorder",
       "name": "Изменение порядка",
-      "description": "Отправка частей ClientHello в обратном порядке."
+      "description": "Отправка частей ClientHello в обратном порядке.",
+      "actions": [
+        "multidisorder:pos=1,midsld"
+      ],
+      "family": "split"
     },
     {
       "id": "fake-md5",
       "name": "Fake + MD5",
-      "description": "Ложный ClientHello с TCP MD5 и разделение SNI."
+      "description": "Ложный ClientHello с TCP MD5 и разделение SNI.",
+      "actions": [
+        "fake:blob=fake_default_tls:tcp_md5:repeats=6",
+        "multisplit:pos=1,midsld"
+      ],
+      "family": "fake"
     },
     {
       "id": "fake-seq",
       "name": "Fake + SEQ",
-      "description": "Ложный ClientHello с неверным номером последовательности."
+      "description": "Ложный ClientHello с неверным номером последовательности.",
+      "actions": [
+        "fake:blob=fake_default_tls:tcp_seq=-10000:repeats=6",
+        "multidisorder:pos=1,midsld"
+      ],
+      "family": "fake"
     },
     {
       "id": "fake-autottl",
       "name": "Fake + auto TTL",
-      "description": "TTL ложного пакета определяется по ответу сервера."
+      "description": "TTL ложного пакета определяется по ответу сервера.",
+      "actions": [
+        "fake:blob=fake_default_tls:ip_autottl=-1,3-20:ip6_autottl=-1,3-20:repeats=6",
+        "multisplit:pos=1,midsld"
+      ],
+      "family": "fake"
     },
     {
       "id": "fake-split",
       "name": "Fake split",
-      "description": "Чередование ложных и настоящих частей ClientHello."
+      "description": "Чередование ложных и настоящих частей ClientHello.",
+      "actions": [
+        "fakedsplit:pos=midsld:tcp_md5"
+      ],
+      "family": "fake"
+    },
+    {
+      "id": "hostfake-md5",
+      "name": "HostFake / md5",
+      "description": "Адаптация семейства hostfakesplit (Flowseal / zapret-gui).",
+      "actions": [
+        "hostfakesplit:host=www.google.com:midhost=midsld:tcp_md5"
+      ],
+      "family": "hostfake"
+    },
+    {
+      "id": "fake-host-md5",
+      "name": "Fake + HostFake / md5",
+      "description": "Ложный ClientHello и разделение с подставным именем.",
+      "actions": [
+        "fake:blob=fake_default_tls:tcp_md5:repeats=6:tls_mod=rnd,dupsid,sni=www.google.com",
+        "hostfakesplit:host=www.google.com:midhost=midsld:tcp_md5"
+      ],
+      "family": "hostfake"
+    },
+    {
+      "id": "fake-split-md5",
+      "name": "Fake + split / md5",
+      "description": "Семейство fake,multisplit с TLS random и SNI Google.",
+      "actions": [
+        "fake:blob=fake_default_tls:tcp_md5:repeats=8:tls_mod=rnd,dupsid,sni=www.google.com",
+        "multisplit:pos=1,midsld"
+      ],
+      "family": "fake"
+    },
+    {
+      "id": "hostfake-ts",
+      "name": "HostFake / ts",
+      "description": "Адаптация семейства hostfakesplit (Flowseal / zapret-gui).",
+      "actions": [
+        "hostfakesplit:host=www.google.com:midhost=midsld:tcp_ts=-600000:tcp_ts_up"
+      ],
+      "family": "hostfake"
+    },
+    {
+      "id": "fake-host-ts",
+      "name": "Fake + HostFake / ts",
+      "description": "Ложный ClientHello и разделение с подставным именем.",
+      "actions": [
+        "fake:blob=fake_default_tls:tcp_ts=-600000:tcp_ts_up:repeats=6:tls_mod=rnd,dupsid,sni=www.google.com",
+        "hostfakesplit:host=www.google.com:midhost=midsld:tcp_ts=-600000:tcp_ts_up"
+      ],
+      "family": "hostfake"
+    },
+    {
+      "id": "fake-split-ts",
+      "name": "Fake + split / ts",
+      "description": "Семейство fake,multisplit с TLS random и SNI Google.",
+      "actions": [
+        "fake:blob=fake_default_tls:tcp_ts=-600000:tcp_ts_up:repeats=8:tls_mod=rnd,dupsid,sni=www.google.com",
+        "multisplit:pos=1,midsld"
+      ],
+      "family": "fake"
+    },
+    {
+      "id": "hostfake-seq",
+      "name": "HostFake / seq",
+      "description": "Адаптация семейства hostfakesplit (Flowseal / zapret-gui).",
+      "actions": [
+        "hostfakesplit:host=www.google.com:midhost=midsld:tcp_seq=-10000"
+      ],
+      "family": "hostfake"
+    },
+    {
+      "id": "fake-host-seq",
+      "name": "Fake + HostFake / seq",
+      "description": "Ложный ClientHello и разделение с подставным именем.",
+      "actions": [
+        "fake:blob=fake_default_tls:tcp_seq=-10000:repeats=6:tls_mod=rnd,dupsid,sni=www.google.com",
+        "hostfakesplit:host=www.google.com:midhost=midsld:tcp_seq=-10000"
+      ],
+      "family": "hostfake"
+    },
+    {
+      "id": "fake-split-seq",
+      "name": "Fake + split / seq",
+      "description": "Семейство fake,multisplit с TLS random и SNI Google.",
+      "actions": [
+        "fake:blob=fake_default_tls:tcp_seq=-10000:repeats=8:tls_mod=rnd,dupsid,sni=www.google.com",
+        "multisplit:pos=1,midsld"
+      ],
+      "family": "fake"
+    },
+    {
+      "id": "overlap-1",
+      "name": "Split / SEQ overlap 1",
+      "description": "Адаптация SEQ-overlap с встроенным TLS-шаблоном.",
+      "actions": [
+        "multisplit:pos=1,midsld:seqovl=1:seqovl_pattern=fake_default_tls"
+      ],
+      "family": "overlap"
+    },
+    {
+      "id": "disorder-overlap-1",
+      "name": "Disorder / SEQ overlap 1",
+      "description": "Перестановка сегментов с SEQ-overlap.",
+      "actions": [
+        "multidisorder:pos=1,midsld:seqovl=1:seqovl_pattern=fake_default_tls"
+      ],
+      "family": "overlap"
+    },
+    {
+      "id": "overlap-32",
+      "name": "Split / SEQ overlap 32",
+      "description": "Адаптация SEQ-overlap с встроенным TLS-шаблоном.",
+      "actions": [
+        "multisplit:pos=1,midsld:seqovl=32:seqovl_pattern=fake_default_tls"
+      ],
+      "family": "overlap"
+    },
+    {
+      "id": "disorder-overlap-32",
+      "name": "Disorder / SEQ overlap 32",
+      "description": "Перестановка сегментов с SEQ-overlap.",
+      "actions": [
+        "multidisorder:pos=1,midsld:seqovl=32:seqovl_pattern=fake_default_tls"
+      ],
+      "family": "overlap"
+    },
+    {
+      "id": "overlap-256",
+      "name": "Split / SEQ overlap 256",
+      "description": "Адаптация SEQ-overlap с встроенным TLS-шаблоном.",
+      "actions": [
+        "multisplit:pos=1,midsld:seqovl=256:seqovl_pattern=fake_default_tls"
+      ],
+      "family": "overlap"
+    },
+    {
+      "id": "fake-disorder-md5",
+      "name": "Fake + disorder / MD5",
+      "description": "Ложный ClientHello и обратный порядок сегментов.",
+      "actions": [
+        "fake:blob=fake_default_tls:tcp_md5:repeats=8:tls_mod=rnd,dupsid,sni=www.google.com",
+        "multidisorder:pos=1,midsld"
+      ],
+      "family": "fake"
+    },
+    {
+      "id": "overlap-681",
+      "name": "Split / SEQ overlap 681",
+      "description": "Адаптация SEQ-overlap с встроенным TLS-шаблоном.",
+      "actions": [
+        "multisplit:pos=1,midsld:seqovl=681:seqovl_pattern=fake_default_tls"
+      ],
+      "family": "overlap"
+    },
+    {
+      "id": "fake-disorder-ts",
+      "name": "Fake + disorder / TS",
+      "description": "Ложный ClientHello с timestamp и обратный порядок сегментов.",
+      "actions": [
+        "fake:blob=fake_default_tls:tcp_ts=-600000:tcp_ts_up:repeats=11:tls_mod=rnd,dupsid,sni=www.google.com",
+        "multidisorder:pos=1,midsld"
+      ],
+      "family": "fake"
+    },
+    {
+      "id": "fakedsplit-ts-4",
+      "name": "Fake split / TS ×4",
+      "description": "Семейство fakedsplit с TCP timestamp.",
+      "actions": [
+        "fakedsplit:pos=midsld:tcp_ts=-600000:tcp_ts_up:repeats=4"
+      ],
+      "family": "fake"
+    },
+    {
+      "id": "fakedsplit-ts-8",
+      "name": "Fake split / TS ×8",
+      "description": "Семейство fakedsplit с TCP timestamp.",
+      "actions": [
+        "fakedsplit:pos=midsld:tcp_ts=-600000:tcp_ts_up:repeats=8"
+      ],
+      "family": "fake"
+    },
+    {
+      "id": "fakedsplit-ts-11",
+      "name": "Fake split / TS ×11",
+      "description": "Семейство fakedsplit с TCP timestamp.",
+      "actions": [
+        "fakedsplit:pos=midsld:tcp_ts=-600000:tcp_ts_up:repeats=11"
+      ],
+      "family": "fake"
     }
   ]
 }

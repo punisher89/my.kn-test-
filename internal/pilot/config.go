@@ -34,9 +34,10 @@ type Profile struct {
 type Config struct {
 	probeFailFast bool
 
-	Adaptive   bool   `json:"adaptive"`
-	RuntimeDir string `json:"runtime_dir"`
-	tuning     bool
+	Adaptive      bool   `json:"adaptive"`
+	AdaptiveReuse bool   `json:"adaptive_reuse"`
+	RuntimeDir    string `json:"runtime_dir"`
+	tuning        bool
 
 	Catalog         []Strategy `json:"catalog,omitempty"`
 	CatalogRevision uint64     `json:"catalog_revision,omitempty"`
@@ -61,7 +62,7 @@ type Config struct {
 
 func DefaultConfig() Config {
 	return Config{
-		RuntimeDir: "/opt/keenetic-pilot-state", Listen: "127.0.0.1:9080", EngineDir: "/opt/keenetic-pilot/engine", Queue: 220,
+		AdaptiveReuse: true, RuntimeDir: "/opt/keenetic-pilot-state", Listen: "127.0.0.1:9080", EngineDir: "/opt/keenetic-pilot/engine", Queue: 220,
 		AutoCatalog: true, PPE: true, QUIC: true, DiscordVoice: false, Auto: true,
 		IntervalMinutes: 15, TimeoutSeconds: 8, Attempts: 2,
 		Exclusions: []string{},
