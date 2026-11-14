@@ -1,0 +1,178 @@
+package pilot
+
+import (
+	"context"
+	"crypto/tls"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
+	"strings"
+	"syscall"
+	"time"
+)
+
+type ProbeResult struct {
+	URL        string `json:"url"`
+	TLS        string `json:"tls"`
+	Family     string `json:"family"`
+	Direct     bool   `json:"direct"`
+	Attempt    int    `json:"attempt"`
+	OK         bool   `json:"ok"`
+	Status     int    `json:"status,omitempty"`
+	DurationMS int64  `json:"duration_ms"`
+	Error      string `json:"error,omitempty"`
+}
+
+type Prober interface {
+	Check(context.Context, Profile, Config, bool) []ProbeResult
+}
+
+type HTTPProber struct{ MarkDirect bool }
+
+func publicIP(ip net.IP) bool {
+	return ip.IsGlobalUnicast() && !ip.IsPrivate() && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() &&
+		!net.ParseIP("100.64.0.0").Equal(ip.Mask(net.CIDRMask(10, 32))) &&
+		!net.ParseIP("198.18.0.0").Equal(ip.Mask(net.CIDRMask(15, 32)))
+}
+
+func (p HTTPProber) Check(ctx context.Context, profile Profile, c Config, direct bool) []ProbeResult {
+	results := []ProbeResult{}
+	families := []string{"tcp4"}
+	if c.IPv6 {
+		families = append(families, "tcp6")
+	}
+	for _, target := range profile.Targets {
+		for _, family := range families {
+			for _, version := range []uint16{tls.VersionTLS12, tls.VersionTLS13} {
+				for attempt := 1; attempt <= c.Attempts; attempt++ {
+					if ctx.Err() != nil {
+						return results
+					}
+					r := p.probe(ctx, target, family, version, time.Duration(c.TimeoutSeconds)*time.Second, direct)
+					r.Attempt = attempt
+					results = append(results, r)
+				}
+			}
+		}
+	}
+	return results
+}
+
+func (p HTTPProber) probe(parent context.Context, target Target, family string, version uint16, timeout time.Duration, direct bool) (r ProbeResult) {
+	r = ProbeResult{URL: target.URL, Family: family, TLS: map[uint16]string{tls.VersionTLS12: "1.2", tls.VersionTLS13: "1.3"}[version], Direct: direct}
+	start := time.Now()
+	defer func() { r.DurationMS = time.Since(start).Milliseconds() }()
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
+	u, err := url.Parse(target.URL)
+	if err != nil {
+		r.Error = err.Error()
+		return
+	}
+	transport := &http.Transport{
+		Proxy: nil, DisableKeepAlives: true, ForceAttemptHTTP2: false,
+		TLSClientConfig: &tls.Config{MinVersion: version, MaxVersion: version, ServerName: u.Hostname()},
+		DialContext: func(ctx context.Context, _, address string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(address)
+			if err != nil {
+				return nil, err
+			}
+			if host != u.Hostname() {
+				return nil, errors.New("неожиданный хост")
+			}
+			ips, err := net.DefaultResolver.LookupIP(ctx, "ip"+strings.TrimPrefix(family, "tcp"), host)
+			if err != nil {
+				return nil, fmt.Errorf("DNS: %w", err)
+			}
+			if len(ips) == 0 {
+				return nil, errors.New("DNS: нет адресов выбранного семейства")
+			}
+			// Pin the resolved address for the actual socket: a second DNS lookup
+			// must not allow DNS rebinding to the router or another LAN service.
+			for _, ip := range ips {
+				if !publicIP(ip) {
+					return nil, errors.New("DNS вернул непубличный адрес; проверка запрещена")
+				}
+			}
+			d := net.Dialer{Timeout: timeout}
+			if direct && p.MarkDirect {
+				d.Control = func(_, _ string, raw syscall.RawConn) error {
+					var socketErr error
+					err := raw.Control(func(fd uintptr) {
+						socketErr = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_MARK, 0x40000000)
+					})
+					if err != nil {
+						return err
+					}
+					return socketErr
+				}
+			}
+			var last error
+			for _, ip := range ips {
+				conn, err := d.DialContext(ctx, family, net.JoinHostPort(ip.String(), port))
+				if err == nil {
+					return conn, nil
+				}
+				last = err
+			}
+			return nil, last
+		},
+	}
+	defer transport.CloseIdleConnections()
+	result, err := performRequest(ctx, transport, target)
+	if err != nil {
+		r.Error = err.Error()
+		return
+	}
+	r.Status = result
+	r.OK = true
+	return
+}
+
+func performRequest(ctx context.Context, transport *http.Transport, target Target) (int, error) {
+	client := &http.Client{Transport: transport, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target.URL, nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("User-Agent", "Keenetic-Pilot/"+Version)
+	req.Header.Set("Cache-Control", "no-cache")
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != target.Status {
+		return resp.StatusCode, fmt.Errorf("HTTP %d; ожидался %d", resp.StatusCode, target.Status)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		return resp.StatusCode, fmt.Errorf("чтение ответа: %w", err)
+	}
+	if target.Contains != "" && !strings.Contains(string(body), target.Contains) {
+		return resp.StatusCode, errors.New("ответ не содержит контрольный фрагмент")
+	}
+	if len(body) == 0 && target.Status != 204 {
+		return resp.StatusCode, errors.New("пустой ответ")
+	}
+	return resp.StatusCode, nil
+}
+
+func allPassed(r []ProbeResult, p Profile, c Config) bool {
+	want := len(p.Targets) * 2 * c.Attempts
+	if c.IPv6 {
+		want *= 2
+	}
+	if len(r) != want {
+		return false
+	}
+	for _, v := range r {
+		if !v.OK {
+			return false
+		}
+	}
+	return true
+}

@@ -1,0 +1,8 @@
+/build/
+/dist/
+/.cache/
+/local/
+*.test
+coverage.out
+__pycache__/
+*.pyc

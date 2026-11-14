@@ -1,0 +1,263 @@
+{
+  "version": "0.1.0",
+  "mode": "mockup",
+  "running": true,
+  "busy": false,
+  "config": {
+    "listen": "127.0.0.1:9080",
+    "wan": "ppp0",
+    "engine_dir": "/opt/keenetic-pilot/engine",
+    "queue": 220,
+    "enabled": true,
+    "ipv6": false,
+    "ppe": true,
+    "quic": true,
+    "discord_voice": false,
+    "auto": true,
+    "interval_minutes": 15,
+    "timeout_seconds": 8,
+    "attempts": 2,
+    "exclusions": [],
+    "profiles": [
+      {
+        "id": "youtube",
+        "name": "YouTube",
+        "domains": [
+          "youtube.com",
+          "youtu.be",
+          "googlevideo.com",
+          "ytimg.com",
+          "ggpht.com",
+          "youtubei.googleapis.com",
+          "youtube-nocookie.com"
+        ],
+        "strategy": "split-sni",
+        "targets": [
+          {
+            "url": "https://www.youtube.com/",
+            "status": 200,
+            "contains": "ytInitialData"
+          },
+          {
+            "url": "https://i.ytimg.com/vi/jNQXAC9IVRw/default.jpg",
+            "status": 200
+          }
+        ]
+      },
+      {
+        "id": "discord",
+        "name": "Discord",
+        "domains": [
+          "discord.com",
+          "discord.gg",
+          "discord.media",
+          "discordapp.com",
+          "discordapp.net",
+          "discordcdn.com",
+          "discord.dev"
+        ],
+        "strategy": "split-sni",
+        "targets": [
+          {
+            "url": "https://discord.com/api/v10/gateway",
+            "status": 200,
+            "contains": "wss://gateway.discord.gg"
+          }
+        ]
+      }
+    ]
+  },
+  "job": {
+    "profile": "youtube",
+    "stage": "done",
+    "started": "2026-11-14T10:22:00+03:00",
+    "finished": "2026-11-14T10:24:10+03:00",
+    "selected": "split-sni",
+    "trials": [
+      {
+        "strategy": "direct",
+        "passed": false,
+        "results": [
+          {
+            "url": "https://www.youtube.com/",
+            "tls": "1.2",
+            "family": "tcp4",
+            "direct": true,
+            "attempt": 1,
+            "ok": false,
+            "status": 0,
+            "duration_ms": 8000,
+            "error": "Таймаут TLS handshake (пример)"
+          },
+          {
+            "url": "https://www.youtube.com/",
+            "tls": "1.2",
+            "family": "tcp4",
+            "direct": true,
+            "attempt": 2,
+            "ok": false,
+            "status": 0,
+            "duration_ms": 8000,
+            "error": "Таймаут TLS handshake (пример)"
+          },
+          {
+            "url": "https://www.youtube.com/",
+            "tls": "1.3",
+            "family": "tcp4",
+            "direct": true,
+            "attempt": 1,
+            "ok": false,
+            "status": 0,
+            "duration_ms": 8000,
+            "error": "Таймаут TLS handshake (пример)"
+          },
+          {
+            "url": "https://www.youtube.com/",
+            "tls": "1.3",
+            "family": "tcp4",
+            "direct": true,
+            "attempt": 2,
+            "ok": false,
+            "status": 0,
+            "duration_ms": 8000,
+            "error": "Таймаут TLS handshake (пример)"
+          }
+        ]
+      },
+      {
+        "strategy": "split-sni",
+        "passed": true,
+        "results": [
+          {
+            "url": "https://www.youtube.com/",
+            "tls": "1.2",
+            "family": "tcp4",
+            "direct": false,
+            "attempt": 1,
+            "ok": true,
+            "status": 200,
+            "duration_ms": 187
+          },
+          {
+            "url": "https://www.youtube.com/",
+            "tls": "1.2",
+            "family": "tcp4",
+            "direct": false,
+            "attempt": 2,
+            "ok": true,
+            "status": 200,
+            "duration_ms": 190
+          },
+          {
+            "url": "https://www.youtube.com/",
+            "tls": "1.3",
+            "family": "tcp4",
+            "direct": false,
+            "attempt": 1,
+            "ok": true,
+            "status": 200,
+            "duration_ms": 139
+          },
+          {
+            "url": "https://www.youtube.com/",
+            "tls": "1.3",
+            "family": "tcp4",
+            "direct": false,
+            "attempt": 2,
+            "ok": true,
+            "status": 200,
+            "duration_ms": 142
+          }
+        ]
+      },
+      {
+        "strategy": "confirm:split-sni",
+        "passed": true,
+        "results": [
+          {
+            "url": "https://www.youtube.com/",
+            "tls": "1.2",
+            "family": "tcp4",
+            "direct": false,
+            "attempt": 1,
+            "ok": true,
+            "status": 200,
+            "duration_ms": 187
+          },
+          {
+            "url": "https://www.youtube.com/",
+            "tls": "1.2",
+            "family": "tcp4",
+            "direct": false,
+            "attempt": 2,
+            "ok": true,
+            "status": 200,
+            "duration_ms": 190
+          },
+          {
+            "url": "https://www.youtube.com/",
+            "tls": "1.3",
+            "family": "tcp4",
+            "direct": false,
+            "attempt": 1,
+            "ok": true,
+            "status": 200,
+            "duration_ms": 139
+          },
+          {
+            "url": "https://www.youtube.com/",
+            "tls": "1.3",
+            "family": "tcp4",
+            "direct": false,
+            "attempt": 2,
+            "ok": true,
+            "status": 200,
+            "duration_ms": 142
+          }
+        ]
+      }
+    ]
+  },
+  "strategies": [
+    {
+      "id": "none",
+      "name": "Без вмешательства",
+      "description": "Обычное соединение; выбирается, если все прямые проверки проходят."
+    },
+    {
+      "id": "split-sni",
+      "name": "Разделение SNI",
+      "description": "Разделение ClientHello внутри имени сервера."
+    },
+    {
+      "id": "split-host",
+      "name": "Разделение имени",
+      "description": "Разделение перед и после SNI."
+    },
+    {
+      "id": "disorder",
+      "name": "Изменение порядка",
+      "description": "Отправка частей ClientHello в обратном порядке."
+    },
+    {
+      "id": "fake-md5",
+      "name": "Fake + MD5",
+      "description": "Ложный ClientHello с TCP MD5 и разделение SNI."
+    },
+    {
+      "id": "fake-seq",
+      "name": "Fake + SEQ",
+      "description": "Ложный ClientHello с неверным номером последовательности."
+    },
+    {
+      "id": "fake-autottl",
+      "name": "Fake + auto TTL",
+      "description": "TTL ложного пакета определяется по ответу сервера."
+    },
+    {
+      "id": "fake-split",
+      "name": "Fake split",
+      "description": "Чередование ложных и настоящих частей ClientHello."
+    }
+  ]
+}

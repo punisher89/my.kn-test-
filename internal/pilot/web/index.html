@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark"><title>Keenetic Pilot</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <section id="login" class="login-screen">
+    <form id="login-form" class="login-card">
+      <div class="brand-mark">kp<span>↗</span></div><div class="eyebrow">KEENETIC PILOT</div>
+      <h1>Ваша сеть.<br>Больше возможностей.</h1>
+      <p>Войдите в локальную панель управления обходом.</p>
+      <label for="token">Ключ доступа</label><input id="token" type="password" autocomplete="current-password" required minlength="32" placeholder="Ключ из файла access-token">
+      <button class="primary" type="submit">Войти в панель <span>↗</span></button>
+      <p id="login-error" class="error" role="alert"></p>
+      <small>Ключ создан при установке. Панель работает без внешних сервисов.</small>
+    </form>
+  </section>
+  <div id="shell" class="shell hidden">
+    <aside class="sidebar">
+      <a class="brand" href="#overview"><div class="brand-mark small">kp<span>↗</span></div><div>Keenetic <b>Pilot</b><small>УПРАВЛЕНИЕ СЕТЬЮ</small></div></a>
+      <div class="nav-caption">РАБОЧЕЕ ПРОСТРАНСТВО</div>
+      <nav aria-label="Основное меню">
+        <a href="#overview" data-page="overview"><span class="nav-icon">◫</span>Обзор</a>
+        <a href="#profiles" data-page="profiles"><span class="nav-icon">☷</span>Сервисы и домены</a>
+        <a href="#tune" data-page="tune"><span class="nav-icon">⌁</span>Подбор стратегий</a>
+        <a href="#logs" data-page="logs"><span class="nav-icon">▤</span>Журнал</a>
+        <a href="#settings" data-page="settings"><span class="nav-icon">⚙</span>Настройки</a>
+      </nav>
+      <div class="sidebar-bottom"><div class="device-icon">▰</div><strong>Keenetic / Entware</strong><span id="device-detail">Локальная панель</span><div class="separator"></div><span id="version">—</span><button id="logout" class="text-button">Выйти ↗</button></div>
+    </aside>
+    <div class="workspace">
+      <header class="topbar"><div><span class="subtle">Рабочее пространство</span><span class="slash">/</span><strong id="breadcrumb">Обзор</strong></div><span class="local-indicator"><i></i> Локальное подключение</span></header>
+      <main>
+        <div id="dev-banner" class="notice hidden">Режим разработки. Панель и проверки доступны; обработка трафика выключена.</div>
+        <div id="service-error" class="notice danger hidden" role="alert"></div>
+        <section id="content" aria-live="polite"></section>
+        <footer><span>KEENETIC PILOT <span class="footer-dot">•</span> Всё под вашим контролем</span><span>Без облака. Без телеметрии.</span></footer>
+      </main>
+    </div>
+  </div>
+  <div id="toast" class="toast hidden" role="status"></div>
+</body>
+</html>

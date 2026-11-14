@@ -1,0 +1,203 @@
+package pilot
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net"
+	"net/url"
+	"os"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strings"
+)
+
+const Version = "0.1.0"
+
+type Target struct {
+	URL      string `json:"url"`
+	Status   int    `json:"status"`
+	Contains string `json:"contains,omitempty"`
+}
+
+type Profile struct {
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	Domains  []string `json:"domains"`
+	Strategy string   `json:"strategy"`
+	Targets  []Target `json:"targets"`
+}
+
+type Config struct {
+	Listen          string    `json:"listen"`
+	WAN             string    `json:"wan"`
+	EngineDir       string    `json:"engine_dir"`
+	Queue           int       `json:"queue"`
+	Enabled         bool      `json:"enabled"`
+	IPv6            bool      `json:"ipv6"`
+	PPE             bool      `json:"ppe"`
+	QUIC            bool      `json:"quic"`
+	DiscordVoice    bool      `json:"discord_voice"`
+	Auto            bool      `json:"auto"`
+	IntervalMinutes int       `json:"interval_minutes"`
+	TimeoutSeconds  int       `json:"timeout_seconds"`
+	Attempts        int       `json:"attempts"`
+	Exclusions      []string  `json:"exclusions"`
+	Profiles        []Profile `json:"profiles"`
+}
+
+func DefaultConfig() Config {
+	return Config{
+		Listen: "127.0.0.1:9080", EngineDir: "/opt/keenetic-pilot/engine", Queue: 220,
+		PPE: true, QUIC: true, DiscordVoice: false, Auto: true,
+		IntervalMinutes: 15, TimeoutSeconds: 8, Attempts: 2,
+		Exclusions: []string{},
+		Profiles: []Profile{
+			{ID: "youtube", Name: "YouTube", Strategy: "split-sni", Domains: []string{"youtube.com", "youtu.be", "googlevideo.com", "ytimg.com", "ggpht.com", "youtubei.googleapis.com", "youtube-nocookie.com"}, Targets: []Target{
+				{URL: "https://www.youtube.com/", Status: 200, Contains: "ytInitialData"},
+				{URL: "https://i.ytimg.com/vi/jNQXAC9IVRw/default.jpg", Status: 200},
+			}},
+			{ID: "discord", Name: "Discord", Strategy: "split-sni", Domains: []string{"discord.com", "discord.gg", "discord.media", "discordapp.com", "discordapp.net", "discordcdn.com", "discord.dev"}, Targets: []Target{
+				{URL: "https://discord.com/api/v10/gateway", Status: 200, Contains: "wss://gateway.discord.gg"},
+			}},
+		},
+	}
+}
+
+var domainRE = regexp.MustCompile(`^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
+var interfaceRE = regexp.MustCompile(`^[a-zA-Z0-9_.:-]{1,15}$`)
+var idRE = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
+
+func ValidDomain(s string) bool { return len(s) <= 253 && domainRE.MatchString(s) }
+
+func (c Config) Validate() error {
+	if c.Queue < 1 || c.Queue > 65535 {
+		return errors.New("queue: требуется 1–65535")
+	}
+	if c.WAN != "" && !interfaceRE.MatchString(c.WAN) {
+		return errors.New("некорректное имя WAN-интерфейса")
+	}
+	if !filepath.IsAbs(c.EngineDir) || strings.ContainsAny(c.EngineDir, "\n\r\x00") {
+		return errors.New("engine_dir: требуется абсолютный путь")
+	}
+	host, _, err := net.SplitHostPort(c.Listen)
+	if err != nil {
+		return errors.New("listen: требуется IP:порт")
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || !(ip.IsPrivate() || ip.IsLoopback()) {
+		return errors.New("панель разрешено привязывать только к конкретному LAN или loopback IP")
+	}
+	_, port, _ := net.SplitHostPort(c.Listen)
+	if port == "" || port == "0" {
+		return errors.New("listen: нужен фиксированный порт")
+	}
+	if c.Attempts < 1 || c.Attempts > 3 || c.TimeoutSeconds < 2 || c.TimeoutSeconds > 20 || c.IntervalMinutes < 5 || c.IntervalMinutes > 1440 {
+		return errors.New("attempts: 1–3; timeout_seconds: 2–20; interval_minutes: 5–1440")
+	}
+	if len(c.Profiles) == 0 || len(c.Profiles) > 12 || len(c.Exclusions) > 300 {
+		return errors.New("требуется 1–12 профилей; не более 300 исключений")
+	}
+	for _, d := range c.Exclusions {
+		if !ValidDomain(d) {
+			return fmt.Errorf("некорректный домен исключения: %q", d)
+		}
+	}
+	ids := map[string]bool{}
+	domains := []string{}
+	for _, p := range c.Profiles {
+		if !idRE.MatchString(p.ID) || ids[p.ID] || len(p.Name) > 80 {
+			return errors.New("ID профилей должны быть уникальны; имя до 80 символов")
+		}
+		ids[p.ID] = true
+		if _, ok := StrategyByID(p.Strategy); !ok {
+			return fmt.Errorf("неизвестная стратегия %q", p.Strategy)
+		}
+		if len(p.Domains) == 0 || len(p.Domains) > 300 || len(p.Targets) == 0 || len(p.Targets) > 6 {
+			return errors.New("профиль: требуется 1–300 доменов и 1–6 проверок")
+		}
+		for _, d := range p.Domains {
+			if !ValidDomain(d) {
+				return fmt.Errorf("некорректный домен: %q", d)
+			}
+			for _, prev := range domains {
+				if hostMatches(d, prev) || hostMatches(prev, d) {
+					return fmt.Errorf("пересекающиеся домены профилей: %s и %s", prev, d)
+				}
+			}
+			domains = append(domains, d)
+		}
+		for _, t := range p.Targets {
+			u, err := url.Parse(t.URL)
+			if err != nil || u.Scheme != "https" || u.User != nil || u.Fragment != "" || u.Port() != "" || !ValidDomain(u.Hostname()) || len(t.URL) > 2048 {
+				return errors.New("проверка: требуется публичный HTTPS URL без порта, пароля и фрагмента")
+			}
+			if t.Status < 200 || t.Status > 399 || len(t.Contains) > 512 {
+				return errors.New("проверка: status 200–399, contains до 512 байт")
+			}
+			if !slices.ContainsFunc(p.Domains, func(d string) bool { return hostMatches(u.Hostname(), d) }) {
+				return fmt.Errorf("хост проверки %s отсутствует в доменах профиля", u.Hostname())
+			}
+			if slices.ContainsFunc(c.Exclusions, func(d string) bool { return hostMatches(u.Hostname(), d) }) {
+				return fmt.Errorf("хост проверки %s исключён из обработки", u.Hostname())
+			}
+		}
+	}
+	return nil
+}
+
+func hostMatches(host, domain string) bool {
+	return host == domain || strings.HasSuffix(host, "."+domain)
+}
+
+func LoadConfig(path string) (Config, error) {
+	c := DefaultConfig()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return c, err
+	}
+	err = json.Unmarshal(b, &c)
+	if err != nil {
+		return c, err
+	}
+	return c, c.Validate()
+}
+
+func WriteJSON(path string, v any) error {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(filepath.Dir(path), ".pilot-*")
+	if err != nil {
+		return err
+	}
+	name := f.Name()
+	defer os.Remove(name)
+	if err = f.Chmod(0600); err == nil {
+		_, err = f.Write(append(b, '\n'))
+	}
+	if err == nil {
+		err = f.Sync()
+	}
+	closeErr := f.Close()
+	if err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return err
+	}
+	if err = os.Rename(name, path); err != nil {
+		return err
+	}
+	d, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
+}
