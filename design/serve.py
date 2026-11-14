@@ -25,6 +25,8 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if self.path == "/auth/status":
+            return self.send({"configured": True, "authenticated": True, "pairing_available": False})
         if self.path in ("/", "/index.html"):
             html = (WEB / "index.html").read_text().replace(
                 '<script src="/app.js" defer></script>',

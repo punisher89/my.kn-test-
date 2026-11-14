@@ -21,7 +21,8 @@ trap 'rm -rf "$NATIVE"' EXIT HUP INT TERM
 sh scripts/fetch-engine.sh "$NATIVE/engine" amd64
 PILOT_TEST_ENGINE=$NATIVE/engine "$GO" test -race ./...
 "$GO" vet ./...
-for FILE in scripts/*.sh packaging/*; do sh -n "$FILE"; done
+for FILE in install.sh scripts/*.sh packaging/*; do sh -n "$FILE"; done
 if command -v node >/dev/null 2>&1; then node --check internal/pilot/web/app.js; fi
 GO=$GO sh scripts/build.sh
+python3 scripts/publish-packages.py
 python3 tests/test_install.py

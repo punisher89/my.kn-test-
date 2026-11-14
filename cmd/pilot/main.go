@@ -41,7 +41,23 @@ func run() error {
 	health := flag.Bool("health", false, "состояние уже запущенного контроллера через локальный сокет")
 	repair := flag.Bool("repair-firewall", false, "восстановить правила через запущенный контроллер")
 	pidFile := flag.String("pidfile", "", "файл PID службы; записывает только экземпляр, получивший блокировку")
+	autoNetwork := flag.Bool("auto-network", false, "при --init определить LAN/WAN автоматически")
+	detectNetwork := flag.Bool("detect-network", false, "показать интерфейсы и предложенные LAN/WAN без изменений")
+	pair := flag.Bool("pair", false, "создать одноразовый код для первого входа (15 минут)")
+	panelInfo := flag.Bool("panel-info", false, "адрес работающей панели и состояние установки пароля")
+	prepareLAN := flag.String("prepare-lan-config", "", "подготовить копию конфигурации с доступом к панели из LAN")
 	flag.Parse()
+	if *detectNetwork {
+		return json.NewEncoder(os.Stdout).Encode(pilot.DetectNetwork())
+	}
+	if *pair {
+		code, err := pilot.Pair(filepath.Dir(*configPath))
+		if err != nil {
+			return err
+		}
+		fmt.Println("Код первого входа (15 минут):", code)
+		return nil
+	}
 	if *versionOnly {
 		fmt.Println(pilot.Version)
 		return nil
@@ -74,7 +90,19 @@ func run() error {
 			return fmt.Errorf("ключ уже существует либо недоступен: %s", tokenPath)
 		}
 		c := pilot.DefaultConfig()
-		c.WAN = *wan
+		if *autoNetwork {
+			info := pilot.DetectNetwork()
+			c.WAN = info.WAN
+			if *listen == "" {
+				if info.Listen == "" {
+					return fmt.Errorf("не удалось однозначно определить LAN; передайте --listen LAN_IP:9080")
+				}
+				c.Listen = info.Listen
+			}
+		}
+		if *wan != "" {
+			c.WAN = *wan
+		}
 		if *listen != "" {
 			c.Listen = *listen
 		}
@@ -113,6 +141,34 @@ func run() error {
 	c, err := pilot.LoadConfig(*configPath)
 	if err != nil {
 		return err
+	}
+	if *prepareLAN != "" {
+		info := pilot.DetectNetwork()
+		host, port, _ := net.SplitHostPort(c.Listen)
+		if *listen != "" {
+			c.Listen = *listen
+		} else if net.ParseIP(host).IsLoopback() {
+			if info.LAN == "" {
+				return fmt.Errorf("LAN не определён; укажите --listen LAN_IP:9080")
+			}
+			c.Listen = net.JoinHostPort(info.LAN, port)
+		}
+		if c.WAN == "" {
+			c.WAN = info.WAN
+		}
+		if err := c.Validate(); err != nil {
+			return err
+		}
+		return pilot.WriteJSON(*prepareLAN, c)
+	}
+	if *panelInfo {
+		fmt.Println("Панель: http://" + c.Listen)
+		if _, err := os.Stat(filepath.Join(filepath.Dir(*configPath), "password.json")); err == nil {
+			fmt.Println("Вход: используйте заданный пароль")
+		} else {
+			fmt.Println("Первый вход: создайте пароль по одноразовому коду")
+		}
+		return nil
 	}
 	if *printArgs {
 		return json.NewEncoder(os.Stdout).Encode(pilot.EngineArgs(c))
@@ -189,7 +245,7 @@ func run() error {
 	m.Boot()
 	watchCtx, stopWatch := context.WithCancel(ctx)
 	go m.Watch(watchCtx)
-	server := &http.Server{Handler: pilot.Handler(m, strings.TrimSpace(string(token))), BaseContext: func(net.Listener) context.Context { return ctx }, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 6 * time.Minute, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8 << 10}
+	server := &http.Server{Handler: pilot.Handler(m, strings.TrimSpace(string(token)), pilot.NewAuth(filepath.Dir(*configPath))), BaseContext: func(net.Listener) context.Context { return ctx }, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 6 * time.Minute, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8 << 10}
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
 	controlServer := &http.Server{Handler: pilot.ControlHandler(m), ReadHeaderTimeout: 3 * time.Second, IdleTimeout: 5 * time.Second, WriteTimeout: 30 * time.Second}

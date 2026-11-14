@@ -7,6 +7,7 @@
     <title>Keenetic Pilot</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/setup.css" />
     <script src="/app.js" defer></script>
   </head>
   <body>
@@ -15,24 +16,32 @@
         <div class="brand-mark">kp<span>↗</span></div>
         <div class="eyebrow">KEENETIC PILOT</div>
         <h1>Ваша сеть.<br />Больше возможностей.</h1>
-        <p>Войдите в локальную панель управления обходом.</p>
-        <label for="token">Ключ доступа</label
+        <p id="login-hint">Войдите в локальную панель управления обходом.</p>
+        <div id="pairing-field" class="field hidden">
+          <label for="pairing-code">Код первого входа из окна SSH</label
+          ><input
+            id="pairing-code"
+            inputmode="numeric"
+            autocomplete="one-time-code"
+            pattern="[0-9]{8}"
+            maxlength="8"
+            placeholder="8 цифр"
+          />
+        </div>
+        <label id="password-label" for="password">Пароль</label
         ><input
-          id="token"
+          id="password"
           type="password"
           autocomplete="current-password"
           required
-          minlength="32"
-          placeholder="Ключ из файла access-token"
+          maxlength="128"
+          placeholder="Ваш пароль панели"
         />
-        <button class="primary" type="submit">
+        <button id="login-submit" class="primary" type="submit">
           Войти в панель <span>↗</span>
         </button>
         <p id="login-error" class="error" role="alert"></p>
-        <small
-          >Ключ создан при установке. Панель работает без внешних
-          сервисов.</small
-        >
+        <small>Панель работает локально на роутере.</small>
       </form>
     </section>
     <div id="shell" class="shell hidden">
@@ -70,6 +79,9 @@
       </aside>
       <div class="workspace">
         <header class="topbar">
+          <button id="logout-mobile" class="text-button mobile-logout">
+            Выйти
+          </button>
           <div>
             <span class="subtle">Рабочее пространство</span
             ><span class="slash">/</span><strong id="breadcrumb">Обзор</strong>

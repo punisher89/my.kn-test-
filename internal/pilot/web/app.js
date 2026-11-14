@@ -15,11 +15,15 @@ const labels = {
   tune: "Подбор стратегий",
   logs: "Журнал",
   settings: "Настройки",
+  connect: "Первый запуск",
 };
 let state,
   page = "overview",
   token = sessionStorage.getItem("pilot-token") || "",
   toastTimer;
+let signedIn = false,
+  authInfo = { configured: true },
+  networkInfo;
 
 async function api(path, method = "GET", data) {
   const response = await fetch(`/api/${path}`, {
@@ -44,11 +48,21 @@ function notify(message, error = false) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => toast.classList.add("hidden"), 6000);
 }
-function logout() {
+async function logout() {
+  signedIn = false;
   token = "";
   sessionStorage.removeItem("pilot-token");
   $("#shell").classList.add("hidden");
   $("#login").classList.remove("hidden");
+  $("#login-submit").disabled = true;
+  try {
+    await fetch("/auth/logout", { method: "POST" });
+    await loadAuth();
+  } catch (e) {
+    $("#login-error").textContent = e.message;
+  } finally {
+    $("#login-submit").disabled = false;
+  }
 }
 function strategyName(id) {
   return state.strategies.find((s) => s.id === id)?.name || id;
@@ -78,6 +92,9 @@ function overview() {
       "Обзор сети",
       "Обход блокировок и доступность сервисов в одном месте.",
     ) +
+    (!c.enabled && !state.job
+      ? `<div class="panel welcome"><div><h2>Готовы к первому запуску?</h2><p>Подключение уже определено. Проверьте его и включите обход.</p></div><a class="button-link primary" href="#connect">Настроить подключение ↗</a></div>`
+      : "") +
     `<div class="status-card"><div class="status-main"><div class="status-orb">${state.running ? "↗" : "○"}</div><div><div class="eyebrow">СОСТОЯНИЕ ОБХОДА</div><h2>${state.running ? "Сеть под управлением" : "Обход остановлен"}</h2><p>${state.running ? "Обработка трафика на роутере · " + esc(c.wan) : "Запустите сервис, когда настройки готовы"}</p></div></div><button id="service-toggle" ${state.busy ? "disabled" : ""} class="${state.running ? "" : "primary"}">${state.running ? "Остановить" : "Запустить обход"} ${state.running ? "Ⅱ" : "↗"}</button></div>
   <div class="stats-grid"><div class="stat"><div class="stat-top">Подключённые профили <span class="stat-symbol">◫</span></div><div class="stat-value">${c.profiles.length}<em>сервиса</em></div><small>${totalDomains} доменов и их поддомены</small></div><div class="stat"><div class="stat-top">Автоподбор <span class="stat-symbol">⌁</span></div><div class="stat-value">${c.auto ? "Включён" : "Выключен"}</div><small>${c.auto ? `Проверка каждые ${c.interval_minutes} мин` : "Ручное управление стратегиями"}</small></div><div class="stat"><div class="stat-top">Совместимость <span class="stat-symbol">▱</span></div><div class="stat-value">TLS 1.2<em>и TLS 1.3</em></div><small>Отдельные пробы для каждого протокола</small></div></div>
   <div class="dashboard-columns"><div><div class="panel"><div class="panel-head"><h2>Ваши сервисы</h2><a href="#profiles">Все профили ↗</a></div>${c.profiles.map((p) => `<div class="service-row">${logo(p)}<div class="service-meta"><h3>${esc(p.name)}</h3><span>${esc(strategyName(p.strategy))} · ${p.domains.length} доменов</span></div>${badge(p.strategy === "none" ? "Без вмешательства" : "Профиль настроен", "neutral")}</div>`).join("")}</div><div class="panel"><div class="panel-head"><h2>Одна настройка — для всех устройств</h2>${badge("НА РОУТЕРЕ", "neutral")}</div><div class="compat-grid"><div class="compat-item"><div class="compat-icon">▯</div><strong>Телефон</strong><small>Android и iOS<br>Без отдельного клиента</small></div><div class="compat-item"><div class="compat-icon">▱</div><strong>Компьютер</strong><small>Windows, macOS, Linux<br>Обход в локальной сети</small></div><div class="compat-item"><div class="compat-icon">▣</div><strong>Телевизор</strong><small>webOS / Smart TV<br>Проверка TLS 1.2</small></div></div><div class="info-note">Проба TLS 1.2 проверяет протокол, но не заменяет испытание приложения YouTube на телевизоре. Видео и голос проверяются на устройствах отдельно.</div></div></div>
@@ -133,6 +150,18 @@ function lines(value) {
     .map((v) => v.trim().toLowerCase())
     .filter(Boolean);
 }
+function connectPage() {
+  if (!networkInfo)
+    return heading("Первый запуск", "Определяем доступные подключения…");
+  const selected = state.config.wan || networkInfo.wan;
+  return (
+    heading(
+      "Первый запуск",
+      "Проверьте подключение к провайдеру. Остальные настройки уже подготовлены.",
+    ) +
+    `<form id="connect-form" class="panel setup-panel"><div class="eyebrow">ШАГ 1 ИЗ 1</div><h2>Подключение к интернету</h2><p>Выбрано автоматически по маршруту роутера. При необходимости выберите другое подключение.</p><div class="field"><label for="connect-wan">Подключение провайдера</label><select id="connect-wan" required><option value="">Выберите подключение</option>${networkInfo.interfaces.map((i) => `<option value="${esc(i.name)}" ${i.name === selected ? "selected" : ""}>${esc(i.name)}${i.addresses.length ? " — " + esc(i.addresses.join(", ")) : ""}</option>`).join("")}</select></div><label class="check-label"><input id="connect-tune" type="checkbox" checked> Сразу подобрать стратегию YouTube</label><div class="info-note">На время подбора возможны краткие перебои соединений. Discord можно подобрать отдельно в разделе «Сервисы и домены».</div><div class="form-actions"><button class="primary" type="submit">Сохранить и включить обход ↗</button></div><p id="connect-error" class="error" role="alert"></p></form>`
+  );
+}
 async function refresh(render = false) {
   state = await api("status");
   updateChrome();
@@ -178,14 +207,23 @@ function renderPage() {
           ? tune()
           : page === "settings"
             ? settings()
-            : heading(
-                "Журнал",
-                "События контроллера и движка. Последние 200 строк.",
-                '<button id="refresh-logs">Обновить ↻</button>',
-              ) +
-              '<div class="panel"><pre id="log-view" class="log-view">Загрузка…</pre></div>';
+            : page === "connect"
+              ? connectPage()
+              : heading(
+                  "Журнал",
+                  "События контроллера и движка. Последние 200 строк.",
+                  '<button id="refresh-logs">Обновить ↻</button>',
+                ) +
+                '<div class="panel"><pre id="log-view" class="log-view">Загрузка…</pre></div>';
   bindActions();
   if (page === "logs") loadLogs();
+  if (page === "connect" && !networkInfo)
+    api("network")
+      .then((info) => {
+        networkInfo = info;
+        if (page === "connect") renderPage();
+      })
+      .catch((e) => notify(e.message, true));
 }
 async function action(fn) {
   try {
@@ -196,6 +234,26 @@ async function action(fn) {
   }
 }
 function bindActions() {
+  $("#connect-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = event.currentTarget.querySelector("button");
+    button.disabled = true;
+    const tune = $("#connect-tune").checked;
+    try {
+      const c = structuredClone(state.config);
+      c.wan = $("#connect-wan").value;
+      await api("config", "PUT", c);
+      await api("service", "POST", { enabled: true });
+      if (tune && c.profiles.some((p) => p.id === "youtube"))
+        await api("tune", "POST", { profile: "youtube" });
+      await refresh();
+      location.hash = tune ? "tune" : "overview";
+      notify("Обход включён");
+    } catch (e) {
+      $("#connect-error").textContent = e.message;
+      button.disabled = false;
+    }
+  });
   $("#service-toggle")?.addEventListener("click", () =>
     action(() => api("service", "POST", { enabled: !state.config.enabled })),
   );
@@ -267,32 +325,80 @@ async function loadLogs() {
 }
 async function enter() {
   await refresh();
-  sessionStorage.setItem("pilot-token", token);
+  signedIn = true;
+  if (token) sessionStorage.setItem("pilot-token", token);
   $("#login").classList.add("hidden");
   $("#shell").classList.remove("hidden");
   renderPage();
 }
+async function loadAuth() {
+  const response = await fetch("/auth/status");
+  if (!response.ok)
+    throw new Error(
+      "Не удалось связаться с панелью. Обновите страницу или проверьте службу.",
+    );
+  authInfo = await response.json();
+  const setup = !authInfo.configured;
+  $("#pairing-field").classList.toggle("hidden", !setup);
+  $("#pairing-code").required = setup;
+  $("#password").minLength = setup ? 10 : 1;
+  $("#password").autocomplete = setup ? "new-password" : "current-password";
+  $("#password-label").textContent = setup
+    ? "Придумайте пароль панели"
+    : "Пароль";
+  $("#login-submit").textContent = setup
+    ? "Создать пароль и открыть панель ↗"
+    : "Войти в панель ↗";
+  $("#login-hint").textContent = setup
+    ? authInfo.pairing_available
+      ? "Введите код, который показала установка, и задайте свой пароль."
+      : "Код истёк или ещё не создан. В SSH выполните: /opt/keenetic-pilot/bin/pilot --pair"
+    : "Введите пароль, который задали при первом входе.";
+  return authInfo;
+}
 $("#login-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  token = $("#token").value.trim();
+  $("#login-submit").disabled = true;
   try {
+    const response = await fetch(
+      authInfo.configured ? "/auth/login" : "/auth/setup",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: $("#pairing-code").value.trim(),
+          password: $("#password").value,
+        }),
+      },
+    );
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Вход не выполнен");
+    authInfo.configured = true;
+    token = "";
+    sessionStorage.removeItem("pilot-token");
     await enter();
-    $("#token").value = "";
+    $("#password").value = "";
+    $("#pairing-code").value = "";
     $("#login-error").textContent = "";
   } catch (e) {
     $("#login-error").textContent = e.message;
+  } finally {
+    $("#login-submit").disabled = false;
   }
 });
 $("#logout").addEventListener("click", logout);
+$("#logout-mobile").addEventListener("click", logout);
 window.addEventListener("hashchange", () => {
-  if (state && token) renderPage();
+  if (state && signedIn) renderPage();
 });
-if (token)
-  enter().catch((e) => {
-    logout();
+loadAuth()
+  .then((info) => {
+    if (info.authenticated || token) return enter();
+  })
+  .catch((e) => {
     $("#login-error").textContent = e.message;
   });
 setInterval(() => {
-  if (token && state && !document.hidden)
+  if (signedIn && state && !document.hidden)
     refresh().catch((e) => notify(e.message, true));
 }, 4000);

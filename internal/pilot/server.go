@@ -16,8 +16,13 @@ import (
 //go:embed web/*
 var assets embed.FS
 
-func Handler(m *Manager, token string) http.Handler {
+func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 	mux := http.NewServeMux()
+	var auth *Auth
+	if len(authOptions) > 0 {
+		auth = authOptions[0]
+		auth.Register(mux)
+	}
 	expected := sha256.Sum256([]byte(token))
 	jsonReply := func(w http.ResponseWriter, code int, value any) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -36,7 +41,8 @@ func Handler(m *Manager, token string) http.Handler {
 			}
 			value := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 			actual := sha256.Sum256([]byte(value))
-			if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") || len(token) < 32 || subtle.ConstantTimeCompare(expected[:], actual[:]) != 1 {
+			bearerOK := strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") && len(token) >= 32 && subtle.ConstantTimeCompare(expected[:], actual[:]) == 1
+			if !bearerOK && (auth == nil || !auth.validSession(r)) {
 				jsonReply(w, 401, map[string]string{"error": "требуется ключ доступа"})
 				return
 			}
@@ -73,6 +79,7 @@ func Handler(m *Manager, token string) http.Handler {
 	})
 	api("GET /api/status", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, m.Snapshot()) })
 	api("GET /api/logs", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, m.log.Lines()) })
+	api("GET /api/network", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, DetectNetwork()) })
 	api("PUT /api/config", func(w http.ResponseWriter, r *http.Request) {
 		var c Config
 		if !read(w, r, &c) {

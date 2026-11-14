@@ -4,9 +4,10 @@ set -eu
 BASE=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 PREFIX=/opt
 WAN=
-LISTEN=127.0.0.1:9080
+LISTEN=
 START=1
 PACKAGES=1
+LAN_PANEL=0
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --prefix) PREFIX=$2; shift 2;;
@@ -14,6 +15,7 @@ while [ "$#" -gt 0 ]; do
         --listen) LISTEN=$2; shift 2;;
         --no-start) START=0; shift;;
         --skip-packages) PACKAGES=0; shift;;
+        --lan-panel) LAN_PANEL=1; shift;;
         *) echo "Usage: $0 --wan INTERFACE [--listen LAN_IP:9080] [--no-start] [--skip-packages] [--prefix /opt]" >&2; exit 2;;
     esac
 done
@@ -62,6 +64,7 @@ cleanup() {
             case "$NAME" in init) LIVE=$INIT;; hook) LIVE=$HOOK;; esac
             if [ -f "$STAGE/old-$NAME" ]; then cp "$STAGE/old-$NAME" "$LIVE"; else rm -f "$LIVE"; fi
         done
+        if [ -f "$STAGE/old-config" ]; then cp "$STAGE/old-config" "$CONFIG_DIR/config.json"; fi
     fi
     if [ "$RESULT" != 0 ] && [ "$OLD_STOPPED" = 1 ] && [ -x "$INIT" ]; then "$INIT" start || true; fi
     rm -rf "$STAGE"
@@ -75,9 +78,13 @@ if [ -f "$CONFIG_DIR/config.json" ]; then
     "$STAGE/app/bin/pilot" --config "$CONFIG_DIR/config.json" --check-config
     [ -f "$CONFIG_DIR/access-token" ] || { echo "Existing configuration has no access token" >&2; exit 1; }
     CHECK_CONFIG=$CONFIG_DIR/config.json
+    if [ "$LAN_PANEL" = 1 ]; then
+        cp "$CONFIG_DIR/config.json" "$STAGE/old-config"
+        "$STAGE/app/bin/pilot" --config "$CONFIG_DIR/config.json" --prepare-lan-config "$STAGE/config-candidate.json" --listen "$LISTEN"
+        CHECK_CONFIG=$STAGE/config-candidate.json
+    fi
 else
-    [ -n "$WAN" ] || { echo "Pass --wan with the provider's actual interface (ip route)" >&2; exit 2; }
-    "$STAGE/app/bin/pilot" --init --config "$STAGE/new-config/config.json" --wan "$WAN" --listen "$LISTEN" --engine-dir "$APP/engine"
+    "$STAGE/app/bin/pilot" --init --auto-network --config "$STAGE/new-config/config.json" --wan "$WAN" --listen "$LISTEN" --engine-dir "$APP/engine"
     CHECK_CONFIG=$STAGE/new-config/config.json
 fi
 "$STAGE/app/bin/pilot" --config "$CHECK_CONFIG" --engine-dir "$STAGE/app/engine" --check-engine
@@ -92,12 +99,14 @@ printf '%s\n' keenetic-pilot > "$APP/.pilot-managed"
 sed "s|@PREFIX@|$PREFIX|g" "$BASE/packaging/S98keenetic-pilot" > "$INIT"
 sed "s|@PREFIX@|$PREFIX|g" "$BASE/packaging/095-keenetic-pilot.sh" > "$HOOK"
 chmod 755 "$INIT" "$HOOK"
+if [ -f "$STAGE/config-candidate.json" ]; then mv "$STAGE/config-candidate.json" "$CONFIG_DIR/config.json"; fi
 if [ -d "$STAGE/new-config" ]; then
     [ ! -e "$CONFIG_DIR" ] || { echo "Configuration directory exists without config.json; refusing to overwrite" >&2; exit 1; }
     mv "$STAGE/new-config" "$CONFIG_DIR"
 fi
 if [ "$START" = 1 ]; then "$INIT" start; fi
-echo "Keenetic Pilot installed in $APP"
-echo "Access key file: $CONFIG_DIR/access-token (not printed by installer)"
-echo "New installations leave bypass disabled. Open the panel and check WAN before enabling."
+echo "Keenetic Pilot установлен."
+"$APP/bin/pilot" --config "$CONFIG_DIR/config.json" --panel-info
+if [ ! -f "$CONFIG_DIR/password.json" ]; then "$APP/bin/pilot" --config "$CONFIG_DIR/config.json" --pair; fi
+echo "Откройте панель, задайте пароль и нажмите «Настроить подключение»."
 if [ "$HAD_APP" = 1 ]; then echo "Previous application retained: $BACKUP"; fi

@@ -8,6 +8,11 @@ import tarfile
 import tempfile
 import time
 import unittest
+import re
+import json
+import http.cookiejar
+import urllib.request
+import urllib.error
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -39,7 +44,8 @@ class Installation(unittest.TestCase):
         with socket.socket() as s:
             s.bind(("127.0.0.1", 0))
             self.port = s.getsockname()[1]
-        self.install()
+        installed = self.install()
+        self.pairing_code = re.search(r"Код первого входа \(15 минут\): ([0-9]{8})", installed.stdout).group(1)
         self.addCleanup(self.stop)
 
     def run_cmd(self, args, *, ok=True, env=None):
@@ -112,6 +118,85 @@ class Installation(unittest.TestCase):
         self.assertEqual(token_before, self.token_path.read_bytes())
         self.assertEqual(self.health()["mode"], "router")
         self.assertFalse(list(self.prefix.glob("keenetic-pilot.backup.*")))
+
+    def test_real_panel_password_login_update_and_restart(self):
+        jar = http.cookiejar.CookieJar()
+        browser = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+        base = f"http://127.0.0.1:{self.port}"
+
+        def call(path, data=None):
+            request = urllib.request.Request(base + path, None if data is None else json.dumps(data).encode(),
+                                             {"Content-Type": "application/json"})
+            return json.load(browser.open(request, timeout=5))
+
+        with browser.open(base) as page:
+            self.assertIn(b'login-form', page.read())
+        self.assertFalse(call("/auth/status")["configured"])
+        call("/auth/setup", {"code": self.pairing_code, "password": "integration-panel-password"})
+        self.assertTrue(call("/auth/status")["authenticated"])
+        self.assertFalse(call("/api/status")["running"])
+        self.assertIn("interfaces", call("/api/network"))
+        password_before = (self.config.parent / "password.json").read_bytes()
+        self.install()
+        self.assertEqual(password_before, (self.config.parent / "password.json").read_bytes())
+        call("/auth/login", {"password": "integration-panel-password"})
+        self.assertEqual(call("/api/status")["mode"], "router")
+        call("/auth/logout", {})
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            call("/api/status")
+        self.assertEqual(caught.exception.code, 401)
+
+    def test_existing_panel_address_can_be_migrated_without_resetting_config(self):
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        before = json.loads(self.config.read_text())
+        token = self.token_path.read_bytes()
+        self.run_cmd(["sh", self.package_dir / "scripts/install.sh", "--prefix", self.prefix,
+                      "--lan-panel", "--listen", f"127.0.0.1:{port}"])
+        after = json.loads(self.config.read_text())
+        self.assertEqual(after.pop("listen"), f"127.0.0.1:{port}")
+        before.pop("listen")
+        self.assertEqual(before, after)
+        self.assertEqual(token, self.token_path.read_bytes())
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/healthz", timeout=5) as response:
+            self.assertEqual(response.status, 200)
+
+    def test_one_command_entry_downloads_verifies_and_installs_native_package(self):
+        prefix = self.base / "one-command"
+        (prefix / "bin").mkdir(parents=True)
+        fixture = self.base / "download-fixture"
+        fixture.mkdir()
+        (fixture / "SHA256SUMS").write_bytes((ROOT / ".cache/published-manifest/SHA256SUMS").read_bytes())
+        (fixture / self.package.name).write_bytes(self.package.read_bytes())
+        curl = prefix / "bin/curl"
+        curl.write_text(
+            "#!/usr/bin/env python3\nimport sys,shutil\nfrom pathlib import Path\n"
+            "args=sys.argv[1:]\nurl=next(v for v in args if v.startswith('https://'))\n"
+            "assert url.startswith('https://raw.githubusercontent.com/punisher89/my.kn-test-/refs/heads/packages/v')\n"
+            f"source=Path({str(fixture)!r})/url.rsplit('/',1)[-1]\n"
+            "shutil.copyfile(source,args[args.index('-o')+1])\n"
+        )
+        curl.chmod(0o755)
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        env = {**self.env, "PILOT_PREFIX": str(prefix)}
+        result = self.run_cmd(["sh", ROOT / ".cache/installer/install.sh", "--wan", "lo",
+                               "--listen", f"127.0.0.1:{port}"], env=env)
+        init = prefix / "etc/init.d/S98keenetic-pilot"
+        self.addCleanup(lambda: subprocess.run([str(init), "stop"], capture_output=True, timeout=40))
+        self.assertIn(f"http://127.0.0.1:{port}", result.stdout)
+        self.assertRegex(result.stdout, r"Код первого входа \(15 минут\): [0-9]{8}")
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/healthz", timeout=5) as response:
+            self.assertEqual(response.status, 200)
+
+        # A modified remote manifest must fail before touching this installation.
+        (fixture / "SHA256SUMS").write_bytes(b"tampered manifest\n")
+        rejected = self.run_cmd(["sh", ROOT / ".cache/installer/install.sh"], ok=False, env=env)
+        self.assertNotEqual(rejected.returncode, 0)
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/healthz", timeout=5) as response:
+            self.assertEqual(response.status, 200)
 
     def test_failure_after_swap_restores_old_application_and_service(self):
         fake_bin = self.base / "fault-injection"
