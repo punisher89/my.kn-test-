@@ -27,10 +27,11 @@ else
     # Custom prefixes are for local staging tests; do not modify system packages.
     PACKAGES=0
 fi
-if [ "$PACKAGES" = 1 ]; then opkg update; opkg install curl ca-bundle iptables kmod_ndms xtables-addons_legacy; fi
+command -v sha256sum >/dev/null || { echo "sha256sum is required before installation" >&2; exit 1; }
 (cd "$BASE" && sha256sum -c SHA256SUMS)
 ARCH=$(cat "$BASE/PLATFORM")
 case "$(uname -m):$ARCH" in aarch64:arm64|arm64:arm64|armv7*:arm|armv8l:arm|x86_64:amd64|mipsel:mipsle|mips:mips|mips:mipsle) ;; *) echo "Package architecture does not match this machine ($ARCH)" >&2; exit 1;; esac
+if [ "$PACKAGES" = 1 ]; then opkg update; opkg install curl ca-bundle iptables kmod_ndms xtables-addons_legacy; fi
 APP=$PREFIX/keenetic-pilot
 CONFIG_DIR=$PREFIX/etc/keenetic-pilot
 INIT=$PREFIX/etc/init.d/S98keenetic-pilot

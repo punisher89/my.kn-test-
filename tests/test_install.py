@@ -104,6 +104,15 @@ class Installation(unittest.TestCase):
         self.assertEqual(self.health()["mode"], "router")
         self.assertFalse(list(self.prefix.glob("keenetic-pilot.backup.*")))
 
+    def test_modified_controller_package_is_rejected_before_update(self):
+        (self.package_dir / "README.md").write_text("modified after packaging")
+        token_before = self.token_path.read_bytes()
+        result = self.install(ok=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(token_before, self.token_path.read_bytes())
+        self.assertEqual(self.health()["mode"], "router")
+        self.assertFalse(list(self.prefix.glob("keenetic-pilot.backup.*")))
+
     def test_failure_after_swap_restores_old_application_and_service(self):
         fake_bin = self.base / "fault-injection"
         fake_bin.mkdir()
