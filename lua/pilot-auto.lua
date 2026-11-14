@@ -4,6 +4,8 @@ local cache, generation, dirty, last_write = {}, 0, false, 0
 local maximum = 512
 local discovered, discovered_count = {}, 0
 local queues = {}
+-- Router builds use LuaJIT / Lua 5.1; desktop builds may use Lua 5.3/5.4.
+local unpack_fields = table.unpack or unpack
 local history = {}
 local history_limit = 128
 local learned_lifetime = 7*24*60*60
@@ -55,10 +57,10 @@ local function read_slot(path)
             local fields={};for v in (line..'\t'):gmatch('(.-)\t') do fields[#fields+1]=v end
             local kind,group,host,id,status,stamp,reason,net,port,origin
             if version=='1' and #fields==5 then
-                kind='R';group,host,id,status,stamp=table.unpack(fields)
+                kind='R';group,host,id,status,stamp=unpack_fields(fields)
                 reason,net,port,origin='unknown','-',0,'restored'
             elseif version=='2' and #fields==10 then
-                kind,group,host,id,status,stamp,reason,net,port,origin=table.unpack(fields);port=tonumber(port)
+                kind,group,host,id,status,stamp,reason,net,port,origin=unpack_fields(fields);port=tonumber(port)
             end
             stamp=tonumber(stamp)
             local valid_status=(kind=='R' and (status=='probing' or status=='connected')) or (kind=='E' and (status=='failed' or status=='selected' or status=='connected'))

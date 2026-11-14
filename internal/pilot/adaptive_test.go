@@ -232,7 +232,7 @@ apply_execution_plan=function(d,i) d.arg=i.arg end
 	if err = os.WriteFile(path, []byte(program), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := exec.Command("python3", "../../scripts/run-lua-test.py", path).CombinedOutput(); err != nil {
+	if out, err := exec.Command("python3", "../../scripts/run-lua-test.py", path, c.RuntimeDir).CombinedOutput(); err != nil {
 		t.Fatalf("Lua controller test failed: %v\n%s", err, out)
 	}
 }
@@ -242,7 +242,14 @@ local now=1000
 os.time=function() return now end
 local sent={}
 TH_RST,TH_FIN=4,1
-bitand=function(a,b) return a & b end
+bitand=function(a,b)
+ local result,p=0,1
+ while a>0 and b>0 do
+  if a%2==1 and b%2==1 then result=result+p end
+  a=math.floor(a/2);b=math.floor(b/2);p=p*2
+ end
+ return result
+end
 pos_get=function(d) return d.success and 5000 or 1 end
 is_retransmission=function(d) return d.retrans or false end
 plan_instance_execute=function(d,v,i) apply_execution_plan(d,i);sent[#sent+1]=i.arg.pilot_id;return VERDICT_PASS end
