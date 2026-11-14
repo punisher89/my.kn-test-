@@ -1,5 +1,5 @@
 {
-  "version": "0.2.0-alpha.2",
+  "version": "0.2.0-alpha.4",
   "mode": "mockup",
   "running": true,
   "busy": false,
@@ -67,7 +67,9 @@
       }
     ],
     "adaptive": true,
-    "adaptive_reuse": true
+    "adaptive_reuse": true,
+    "adaptive_cooldown_seconds": 30,
+    "adaptive_max_switches": 6
   },
   "job": {
     "profile": "youtube",

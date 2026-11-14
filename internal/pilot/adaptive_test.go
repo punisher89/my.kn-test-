@@ -227,7 +227,7 @@ orchestrate=function(ctx,d) assert(d.plan,'missing test execution plan') end
 plan_instance_pop=function(d) return table.remove(d.plan,1) end
 apply_execution_plan=function(d,i) d.arg=i.arg end
 `
-	program := prelude + "\n" + string(auto) + "\npilot_runtime=" + luaString(c.RuntimeDir) + "\nPILOT_SCRIPT=" + luaString(filepath.Join(filepath.Dir(c.EngineDir), "lua/pilot-auto.lua")) + "\npilot_network=\"ppp0\"\npilot_reuse=true\ndofile(PILOT_SCRIPT)\n" + script
+	program := prelude + "\n" + string(auto) + "\npilot_runtime=" + luaString(c.RuntimeDir) + "\nPILOT_SCRIPT=" + luaString(filepath.Join(filepath.Dir(c.EngineDir), "lua/pilot-auto.lua")) + "\npilot_network=\"ppp0\"\npilot_reuse=true\npilot_cooldown=0\npilot_max_switches=1000\ndofile(PILOT_SCRIPT)\n" + script
 	path := filepath.Join(filepath.Dir(c.RuntimeDir), "controller-test.lua")
 	if err = os.WriteFile(path, []byte(program), 0600); err != nil {
 		t.Fatal(err)
@@ -263,7 +263,7 @@ local function packet(host,fail,success,payload,opts)
  if opts.third then d.plan[#d.plan+1]={arg={strategy='3',pilot_id='hostfake-md5'},func='pilot_pass'} end
  if opts.outgoing then d.outgoing=true end
  if opts.retrans then d.retrans=true end
- pilot_auto(nil,d);if not host then assert(#sent==0,'actions ran without SNI');return end
+ pilot_auto(nil,d);if not host or opts.noaction then assert(#sent==0,'actions ran without SNI');return end
  assert(#sent==1,host..": unexpected action count "..#sent);return sent[1]
 end
 -- A framing-complete ClientHello with/without supported_versions=TLS 1.3.

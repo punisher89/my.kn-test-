@@ -3,6 +3,8 @@ package pilot
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -96,8 +98,8 @@ func strategyFor(c Config, id string) (Strategy, bool) {
 
 func EngineArgs(c Config) []string {
 	args := []string{fmt.Sprintf("--qnum=%d", c.Queue), "--fwmark=0x40000000", "--lua-init=@" + filepath.Join(c.EngineDir, "lua", "zapret-lib.lua.gz"), "--lua-init=@" + filepath.Join(c.EngineDir, "lua", "zapret-antidpi.lua.gz")}
-	if c.Adaptive && !c.tuning {
-		args = append(args, "--lua-init=@"+filepath.Join(c.EngineDir, "lua", "zapret-auto.lua.gz"), "--lua-init=pilot_runtime="+luaString(c.RuntimeDir), "--lua-init=pilot_network="+luaString(c.WAN), fmt.Sprintf("--lua-init=pilot_reuse=%t", c.AdaptiveReuse), "--lua-init=@"+filepath.Join(filepath.Dir(c.EngineDir), "lua", "pilot-auto.lua"))
+	if c.usesAdaptiveController() {
+		args = append(args, "--lua-init=@"+filepath.Join(c.EngineDir, "lua", "zapret-auto.lua.gz"), "--lua-init=pilot_runtime="+luaString(c.RuntimeDir), "--lua-init=pilot_network="+luaString(c.WAN), fmt.Sprintf("--lua-init=pilot_reuse=%t", c.AdaptiveReuse), fmt.Sprintf("--lua-init=pilot_adaptive=%t", c.Adaptive && !c.tuning), fmt.Sprintf("--lua-init=pilot_cooldown=%d", c.AdaptiveCooldownSeconds), fmt.Sprintf("--lua-init=pilot_max_switches=%d", c.AdaptiveMaxSwitches), "--lua-init="+domainControlsLua(c), "--lua-init=@"+filepath.Join(filepath.Dir(c.EngineDir), "lua", "pilot-auto.lua"))
 	}
 	haveProfile := false
 	profile := func(a ...string) {
@@ -108,15 +110,16 @@ func EngineArgs(c Config) []string {
 		haveProfile = true
 	}
 	exclude := []string{}
-	if len(c.Exclusions) > 0 {
-		exclude = append(exclude, "--hostlist-exclude-domains="+strings.Join(c.Exclusions, ","))
+	excludedDomains := append(append([]string{}, c.Exclusions...), c.PausedDomains...)
+	if len(excludedDomains) > 0 {
+		exclude = append(exclude, "--hostlist-exclude-domains="+strings.Join(excludedDomains, ","))
 	}
 	for _, p := range c.Profiles {
 		s, _ := strategyFor(c, p.Strategy)
-		if len(s.Actions) > 0 || (c.Adaptive && !c.tuning) {
+		if len(s.Actions) > 0 || (c.usesAdaptiveController()) {
 			profile("--filter-tcp=443,2053,2083,2087,2096,8443", "--filter-l7=tls", "--hostlist-domains="+strings.Join(p.Domains, ","))
 			args = append(args, exclude...)
-			if c.Adaptive && !c.tuning {
+			if c.usesAdaptiveController() {
 				args = appendAdaptive(args, c, p.ID+"_"+p.Strategy, p.Strategy)
 			} else {
 				args = append(args, "--payload=tls_client_hello")
@@ -136,9 +139,15 @@ func EngineArgs(c Config) []string {
 			args = append(args, "--payload=quic_initial", "--lua-desync=fake:blob=fake_default_quic:repeats=6")
 		}
 	}
-	if c.Adaptive && !c.tuning {
-		profile("--filter-tcp=443", "--filter-l7=tls")
-		excluded := append([]string{}, c.Exclusions...)
+	if c.usesAdaptiveController() {
+		ports := []string{"443"}
+		for _, pin := range c.DomainPins {
+			if pin.Port > 0 && !slices.Contains(ports, strconv.Itoa(pin.Port)) {
+				ports = append(ports, strconv.Itoa(pin.Port))
+			}
+		}
+		profile("--filter-tcp="+strings.Join(ports, ","), "--filter-l7=tls")
+		excluded := append([]string{}, excludedDomains...)
 		for _, p := range c.Profiles {
 			excluded = append(excluded, p.Domains...)
 		}
@@ -183,4 +192,21 @@ func appendAdaptive(args []string, c Config, key, preferred string) []string {
 		}
 	}
 	return args
+}
+
+func (c Config) usesAdaptiveController() bool {
+	return c.Adaptive && !c.tuning || len(c.DomainPins) > 0
+}
+func domainControlsLua(c Config) string {
+	pins := []string{}
+	for _, p := range c.DomainPins {
+		pins = append(pins, "{host="+luaString(p.Host)+",id="+luaString(p.Strategy)+",tls="+luaString(p.TLS)+",family="+luaString(p.Family)+",port="+strconv.Itoa(p.Port)+"}")
+	}
+	excluded := []string{}
+	for _, list := range [][]string{c.Exclusions, c.PausedDomains} {
+		for _, d := range list {
+			excluded = append(excluded, luaString(d))
+		}
+	}
+	return "pilot_pins={" + strings.Join(pins, ",") + "};pilot_exclusions={" + strings.Join(excluded, ",") + "}"
 }

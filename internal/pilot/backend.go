@@ -172,7 +172,7 @@ func CheckEngine(c Config) error {
 	if err := c.Validate(); err != nil {
 		return err
 	}
-	if c.Adaptive && !c.tuning {
+	if c.usesAdaptiveController() {
 		if err := PrepareAdaptive(c); err != nil {
 			return err
 		}

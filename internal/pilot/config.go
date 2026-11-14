@@ -34,10 +34,14 @@ type Profile struct {
 type Config struct {
 	probeFailFast bool
 
-	Adaptive      bool   `json:"adaptive"`
-	AdaptiveReuse bool   `json:"adaptive_reuse"`
-	RuntimeDir    string `json:"runtime_dir"`
-	tuning        bool
+	Adaptive                bool        `json:"adaptive"`
+	AdaptiveReuse           bool        `json:"adaptive_reuse"`
+	AdaptiveCooldownSeconds int         `json:"adaptive_cooldown_seconds"`
+	AdaptiveMaxSwitches     int         `json:"adaptive_max_switches"`
+	DomainPins              []DomainPin `json:"domain_pins,omitempty"`
+	PausedDomains           []string    `json:"paused_domains,omitempty"`
+	RuntimeDir              string      `json:"runtime_dir"`
+	tuning                  bool
 
 	Catalog         []Strategy `json:"catalog,omitempty"`
 	CatalogRevision uint64     `json:"catalog_revision,omitempty"`
@@ -62,7 +66,7 @@ type Config struct {
 
 func DefaultConfig() Config {
 	return Config{
-		AdaptiveReuse: true, RuntimeDir: "/opt/keenetic-pilot-state", Listen: "127.0.0.1:9080", EngineDir: "/opt/keenetic-pilot/engine", Queue: 220,
+		AdaptiveReuse: true, AdaptiveCooldownSeconds: 30, AdaptiveMaxSwitches: 6, RuntimeDir: "/opt/keenetic-pilot-state", Listen: "127.0.0.1:9080", EngineDir: "/opt/keenetic-pilot/engine", Queue: 220,
 		AutoCatalog: true, PPE: true, QUIC: true, DiscordVoice: false, Auto: true,
 		IntervalMinutes: 15, TimeoutSeconds: 8, Attempts: 2,
 		Exclusions: []string{},
@@ -85,6 +89,9 @@ var idRE = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 func ValidDomain(s string) bool { return len(s) <= 253 && domainRE.MatchString(s) }
 
 func (c Config) Validate() error {
+	if err := c.validateDomainControls(); err != nil {
+		return err
+	}
 	if err := validateCatalog(c.Catalog); err != nil {
 		return err
 	}

@@ -10,7 +10,7 @@ local history = {}
 local history_limit = 128
 local learned_lifetime = 7*24*60*60
 local reasons = {unknown=true, rst=true, retransmission=true, tls_alert=true}
-local origins = {initial=true, pool=true, learned=true, restored=true}
+local origins = {initial=true, pool=true, learned=true, restored=true, manual=true}
 local function network() return pilot_network and #pilot_network>0 and pilot_network or '-' end
 local function valid_network(s) return type(s)=='string' and #s>0 and #s<=15 and s:match('^[a-zA-Z0-9_.:%-]+$') end
 local function context(group)
@@ -49,23 +49,25 @@ end
 local function read_slot(path)
     local f=io.open(path,'r'); if not f then return nil end
     local header=f:read('*l'); local version,n
-    if header then version,n=header:match('^PILOT([12])\t(%d+)$');n=tonumber(n) end
+    if header then version,n=header:match('^PILOT([123])\t(%d+)$');n=tonumber(n) end
     local records,events={},{};local count=0;local complete=false
     if n then
         for line in f:lines() do
             if line=='END\t'..n then complete=true;break end
             local fields={};for v in (line..'\t'):gmatch('(.-)\t') do fields[#fields+1]=v end
             local kind,group,host,id,status,stamp,reason,net,port,origin
+            local switched,window,switches,hold,hold_reason=0,0,0,0,'none'
             if version=='1' and #fields==5 then
                 kind='R';group,host,id,status,stamp=unpack_fields(fields)
                 reason,net,port,origin='unknown','-',0,'restored'
-            elseif version=='2' and #fields==10 then
+            elseif (version=='2' and #fields==10) or (version=='3' and #fields==15) then
                 kind,group,host,id,status,stamp,reason,net,port,origin=unpack_fields(fields);port=tonumber(port)
+                if version=='3' then switched,window,switches,hold,hold_reason=unpack_fields(fields,11,15);switched=tonumber(switched);window=tonumber(window);switches=tonumber(switches);hold=tonumber(hold) end
             end
             stamp=tonumber(stamp)
-            local valid_status=(kind=='R' and (status=='probing' or status=='connected')) or (kind=='E' and (status=='failed' or status=='selected' or status=='connected'))
-            if not (valid_id(group) and valid_host(host) and valid_id(id) and valid_status and stamp and stamp>=0 and reasons[reason] and valid_network(net) and port and port>=0 and port<=65535 and port%1==0 and origins[origin]) then break end
-            local row={group=group,host=host,id=id,status=status,stamp=stamp,reason=reason,network=net,port=port,origin=origin}
+            local valid_status=(kind=='R' and (status=='probing' or status=='connected')) or (kind=='E' and (status=='failed' or status=='selected' or status=='connected' or status=='held'))
+            if not (valid_id(group) and valid_host(host) and valid_id(id) and valid_status and stamp and stamp>=0 and reasons[reason] and valid_network(net) and port and port>=0 and port<=65535 and port%1==0 and origins[origin] and switched and switched>=0 and window and window>=0 and switches and switches>=0 and switches%1==0 and hold and hold>=0 and (hold_reason=='none' or hold_reason=='cooldown' or hold_reason=='limit')) then break end
+            local row={group=group,host=host,id=id,status=status,stamp=stamp,reason=reason,network=net,port=port,origin=origin,switched=switched,window=window,switches=switches,hold=hold,hold_reason=hold_reason}
             if kind=='R' then
                 count=count+1;if count>maximum then break end
                 records[group..'\t'..host]=row
@@ -89,35 +91,46 @@ local function flush()
     local now=os.time();if not dirty or now-last_write<2 or not pilot_runtime then return end
     local n=generation+1;local f=io.open(pilot_runtime..'/state'..(n%2)..'.tsv','w')
     if not f then return end
-    f:write('PILOT2\t',n,'\n')
+    f:write('PILOT3\t',n,'\n')
     local function row(kind,r)
-        f:write(kind,'\t',r.group,'\t',r.host,'\t',r.id,'\t',r.status,'\t',r.stamp,'\t',r.reason,'\t',r.network,'\t',r.port,'\t',r.origin,'\n')
+        f:write(kind,'\t',r.group,'\t',r.host,'\t',r.id,'\t',r.status,'\t',r.stamp,'\t',r.reason,'\t',r.network,'\t',r.port,'\t',r.origin,'\t',r.switched or 0,'\t',r.window or 0,'\t',r.switches or 0,'\t',r.hold or 0,'\t',r.hold_reason or 'none','\n')
     end
     for _,r in pairs(cache) do row('R',r) end
     for _,r in ipairs(history) do row('E',r) end
     f:write('END\t',n,'\n');f:close();generation=n;last_write=now;dirty=false
 end
 local function remember(group,host,id,status,newsite,h)
-    if newsite and id=='none' then return end
-    if newsite and not discovered[host] and discovered_count<1000 and pilot_runtime then
+    if newsite and id=='none' and h.pilot_origin~='manual' then return end
+    if newsite and id~='none' and not discovered[host] and discovered_count<1000 and pilot_runtime then
         local f=io.open(pilot_runtime..'/autohosts.txt','a')
         if f then f:write(host,'\n');f:close();discovered[host]=true;discovered_count=discovered_count+1 end
     end
     if h.pilot_legacy then cache[h.pilot_legacy]=nil;h.pilot_legacy=nil end
     local key=group..'\t'..host;local old=cache[key]
-    if old and old.id==id and old.status==status and old.reason==h.pilot_reason and old.network==network() and old.port==h.pilot_port and os.time()-old.stamp<3600 then return end
+    if old and old.id==id and old.status==status and old.reason==h.pilot_reason and old.network==network() and old.port==h.pilot_port and old.origin==h.pilot_origin and old.switched==(h.pilot_switched or 0) and old.window==(h.pilot_window or 0) and old.switches==(h.pilot_switches or 0) and old.hold==(h.pilot_hold or 0) and old.hold_reason==(h.pilot_hold_reason or 'none') and os.time()-old.stamp<3600 then return end
     local count=0;local oldest_key,oldest_stamp
     for k,r in pairs(cache) do count=count+1;if not oldest_stamp or r.stamp<oldest_stamp then oldest_key=k;oldest_stamp=r.stamp end end
     if not old and count>=maximum then cache[oldest_key]=nil end
-    cache[key]={group=group,host=host,id=id,status=status,stamp=os.time(),reason=h.pilot_reason or 'unknown',network=network(),port=h.pilot_port or 0,origin=h.pilot_origin or 'initial'};dirty=true
+    cache[key]={group=group,host=host,id=id,status=status,stamp=os.time(),reason=h.pilot_reason or 'unknown',network=network(),port=h.pilot_port or 0,origin=h.pilot_origin or 'initial',switched=h.pilot_switched or 0,window=h.pilot_window or 0,switches=h.pilot_switches or 0,hold=h.pilot_hold or 0,hold_reason=h.pilot_hold_reason or 'none'};dirty=true
     print('PILOT adaptive '..host..' '..id..' '..status)
     flush()
 end
 local function event(group,host,id,status,h,origin)
     if not id then return end
-    history[#history+1]={group=group,host=host,id=id,status=status,stamp=os.time(),reason=h.pilot_reason or 'unknown',network=network(),port=h.pilot_port or 0,origin=origin or h.pilot_origin or 'initial'}
+    history[#history+1]={group=group,host=host,id=id,status=status,stamp=os.time(),reason=h.pilot_reason or 'unknown',network=network(),port=h.pilot_port or 0,origin=origin or h.pilot_origin or 'initial',switched=h.pilot_switched or 0,window=h.pilot_window or 0,switches=h.pilot_switches or 0,hold=h.pilot_hold or 0,hold_reason=h.pilot_hold_reason or 'none'}
     if #history>history_limit then table.remove(history,1) end
     dirty=true
+end
+local function excluded(host)
+    for _,domain in ipairs(pilot_exclusions or {}) do
+        if host==domain or host:sub(-#domain-1)=='.'..domain then return true end
+    end
+    return false
+end
+local function pinned(host,tls,family,port)
+    for _,pin in ipairs(pilot_pins or {}) do
+        if host==pin.host and (pin.tls=='any' or pin.tls==tls) and (pin.family=='any' or pin.family==family) and (pin.port==0 or pin.port==port) then return pin.id end
+    end
 end
 -- Similar observations propose candidates; each new destination still has to
 -- succeed with its own traffic. Unknown, stale and other-route records cannot donate.
@@ -134,7 +147,7 @@ local function learned_candidates(group,host,h,indices)
     end
     for _,r in pairs(latest) do
         local rtls,rip=context(r.group)
-        if r.host~=host and r.status=='connected' and r.id~='none' and indices[r.id] and r.reason==h.pilot_reason and r.network==network() and r.port==h.pilot_port and rtls==tls and rip==ip and now>=r.stamp and now-r.stamp<=learned_lifetime then
+        if not excluded(r.host) and not pinned(r.host,rtls,rip,r.port) and r.origin~='manual' and r.host~=host and r.status=='connected' and r.id~='none' and indices[r.id] and r.reason==h.pilot_reason and r.network==network() and r.port==h.pilot_port and rtls==tls and rip==ip and now>=r.stamp and now-r.stamp<=learned_lifetime then
             local score=scores[r.id] or {id=r.id,count=0,latest=0,hosts={}};scores[r.id]=score
             if not score.hosts[r.host] then score.count=score.count+1;score.hosts[r.host]=true end;score.latest=math.max(score.latest,r.stamp)
         end
@@ -147,6 +160,20 @@ end
 local function rotation(h,group,host,ids,indices)
     -- Upstream circular has already advanced its index. Override only the next
     -- connection's choice; the native per-connection generation remains intact.
+    local now=os.time()
+    if now<(h.pilot_switched or 0) or now<(h.pilot_window or 0) then
+        h.pilot_switched=0;h.pilot_window=0;h.pilot_switches=0
+    end
+    if not h.pilot_window or h.pilot_window==0 or now>=h.pilot_window+600 then h.pilot_window=now;h.pilot_switches=0 end
+    local until_time,reason=0,'none'
+    if (h.pilot_switches or 0)>=(pilot_max_switches or 6) then until_time=h.pilot_window+600;reason='limit'
+    elseif (h.pilot_switched or 0)>0 and now<h.pilot_switched+(pilot_cooldown or 30) then until_time=h.pilot_switched+(pilot_cooldown or 30);reason='cooldown' end
+    if until_time>now then
+        h.nstrategy=h.pilot_before;h.pilot_hold=until_time;h.pilot_hold_reason=reason
+        circular_sync_generation(h)
+        return
+    end
+    h.pilot_hold=0;h.pilot_hold_reason='none'
     if not h.pilot_order then
         local order={{n=h.pilot_before,origin=h.pilot_origin or 'initial'}};local used={[h.pilot_before]=true}
         for _,candidate in ipairs(learned_candidates(group,host,h,indices)) do
@@ -162,6 +189,7 @@ local function rotation(h,group,host,ids,indices)
     h.pilot_cursor=h.pilot_cursor%#h.pilot_order+1
     local next=h.pilot_order[h.pilot_cursor]
     h.nstrategy=next.n;h.pilot_origin=next.origin
+    if h.nstrategy~=h.pilot_before then h.pilot_switched=now;h.pilot_switches=(h.pilot_switches or 0)+1 end
     circular_sync_generation(h)
     if h.pilot_cursor==1 then h.pilot_order=nil end
 end
@@ -196,7 +224,7 @@ function pilot_auto(ctx,d)
     orchestrate(ctx,d)
     if not d.track then return VERDICT_PASS end
     local host=d.track.hostname
-    if not valid_host(host) then return VERDICT_PASS end
+    if not valid_host(host) or excluded(host) then return VERDICT_PASS end
     local group=d.arg.key or 'unknown';local newsite=group=='discovered'
     d.track.lua_state=d.track.lua_state or {}
     local variant=d.track.lua_state.pilot_tls_variant
@@ -228,21 +256,40 @@ function pilot_auto(ctx,d)
             old=cache[h.pilot_legacy]
         end
         h.pilot_port=port
-        if old and indices[old.id] then
+        if pilot_adaptive~=false and old and indices[old.id] then
             h.nstrategy=indices[old.id];h.pilot_origin=old.origin
+            h.pilot_switched=old.switched;h.pilot_window=old.window;h.pilot_switches=old.switches;h.pilot_hold=old.hold;h.pilot_hold_reason=old.hold_reason
             if old.network==network() and old.port==h.pilot_port then h.pilot_reason=old.reason end
         end
         h.pilot_reason=h.pilot_reason or 'unknown';h.pilot_origin=h.pilot_origin or 'initial'
         h.on_strategy_changed=function(record) rotation(record,group,host,ids,indices) end
         h.pilot_loaded=true
     end
+    local pin_id=pinned(host,variant or 'unknown',d.dis.ip6 and 'ipv6' or 'ipv4',port)
+    local announce_manual=false
+    if pin_id and indices[pin_id] then
+        h.nstrategy=indices[pin_id];h.final=h.nstrategy;h.pilot_origin='manual'
+        h.pilot_hold=0;h.pilot_hold_reason='none'
+        announce_manual=not h.pilot_manual_announced;h.pilot_manual_announced=true
+        circular_sync_generation(h)
+    elseif pilot_adaptive==false then h.nstrategy=1;h.final=1 end
     local before=h.nstrategy or 1;local before_origin=h.pilot_origin;h.pilot_before=before;h.pilot_connected=nil
     d.pilot_ids=ids
     local verdict=circular(ctx,d)
     local current=h.nstrategy or 1
+    if pin_id then h.pilot_connected=standard_success_detector(d,automate_conn_record(d,h)) end
+    if pilot_adaptive==false and not pin_id then return verdict end
+    if h.pilot_connected then h.pilot_hold=0;h.pilot_hold_reason='none';h.pilot_reported_hold=nil end
     if d.pilot_failed_strategy then
         -- Attribute the failure to the old method, before recording its replacement.
         event(group,host,d.pilot_failed_strategy,'failed',h,before_origin)
+    end
+    if (h.pilot_hold or 0)>os.time() and h.pilot_reported_hold~=h.pilot_hold then
+        event(group,host,ids[current],'held',h);h.pilot_reported_hold=h.pilot_hold
+    end
+    if announce_manual then
+        event(group,host,ids[current],'selected',h)
+        remember(group,host,ids[current],'probing',false,h)
     end
     if current~=before and ids[current] then
         event(group,host,ids[current],'selected',h)

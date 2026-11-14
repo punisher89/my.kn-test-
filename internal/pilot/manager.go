@@ -69,6 +69,8 @@ func cloneConfig(c Config) Config {
 		c.Catalog[i].Actions = append([]string{}, c.Catalog[i].Actions...)
 	}
 
+	c.DomainPins = append([]DomainPin{}, c.DomainPins...)
+	c.PausedDomains = append([]string{}, c.PausedDomains...)
 	c.Exclusions = append([]string{}, c.Exclusions...)
 	c.Profiles = append([]Profile{}, c.Profiles...)
 	for i := range c.Profiles {
@@ -123,6 +125,10 @@ func (m *Manager) Change(c Config) error {
 		return ErrBusy
 	}
 	defer m.op.Unlock()
+	return m.changeLocked(c)
+}
+
+func (m *Manager) changeLocked(c Config) error {
 	old := m.Config()
 	if c.RuntimeDir != old.RuntimeDir || c.Listen != old.Listen || c.EngineDir != old.EngineDir || c.Queue != old.Queue {
 		return errors.New("listen, engine_dir, runtime_dir и queue меняются в config.json с перезапуском службы")
@@ -200,6 +206,12 @@ func (m *Manager) BeginTune(id string) error {
 	for i, p := range c.Profiles {
 		if p.ID == id {
 			idx = i
+		}
+	}
+	if idx >= 0 {
+		if reason := profileControlReason(c, c.Profiles[idx]); reason != "" {
+			m.op.Unlock()
+			return errors.New(reason)
 		}
 	}
 	if idx < 0 {
@@ -406,6 +418,10 @@ func (m *Manager) Watch(ctx context.Context) {
 			next = time.Now().Add(time.Duration(c.IntervalMinutes) * time.Minute)
 			toTune := ""
 			for _, p := range c.Profiles {
+				if profileControlReason(c, p) != "" {
+					failures[p.ID] = 0
+					continue
+				}
 				r := m.prober.Check(ctx, p, c, false)
 				if allPassed(r, p, c) {
 					failures[p.ID] = 0

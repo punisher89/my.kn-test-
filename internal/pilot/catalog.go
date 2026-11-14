@@ -156,6 +156,9 @@ func (m *Manager) acceptCatalog(ctx context.Context, doc catalogDocument) error 
 	for _, p := range c.Profiles {
 		selected[p.Strategy] = true
 	}
+	for _, pin := range c.DomainPins {
+		selected[pin.Strategy] = true
+	}
 	pool := []Strategy{}
 	for _, old := range c.Catalog {
 		if selected[old.ID] {

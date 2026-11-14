@@ -86,6 +86,17 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 		jsonReply(w, 200, m.Snapshot())
 	})
 	api("GET /api/logs", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, m.log.Lines()) })
+	api("POST /api/adaptive/domain", func(w http.ResponseWriter, r *http.Request) {
+		var a DomainAction
+		if !read(w, r, &a) {
+			return
+		}
+		if err := m.ControlDomain(a); err != nil {
+			replyError(w, err)
+			return
+		}
+		jsonReply(w, 200, ReadAdaptive(m.Config()))
+	})
 	api("GET /api/adaptive", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, ReadAdaptive(m.Config())) })
 	api("GET /api/network", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, DetectNetwork()) })
 	api("PUT /api/config", func(w http.ResponseWriter, r *http.Request) {

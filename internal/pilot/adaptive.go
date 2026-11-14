@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -70,15 +71,22 @@ func PrepareAdaptive(c Config) error {
 }
 
 type AdaptiveHost struct {
-	Group    string `json:"group"`
-	Host     string `json:"host"`
-	Strategy string `json:"strategy"`
-	Status   string `json:"status"`
-	Updated  int64  `json:"updated"`
-	Symptom  string `json:"symptom"`
-	Network  string `json:"network"`
-	Port     int    `json:"port"`
-	Origin   string `json:"origin"`
+	Group       string `json:"group"`
+	Host        string `json:"host"`
+	Strategy    string `json:"strategy"`
+	Status      string `json:"status"`
+	Updated     int64  `json:"updated"`
+	Symptom     string `json:"symptom"`
+	Network     string `json:"network"`
+	Port        int    `json:"port"`
+	Origin      string `json:"origin"`
+	LastSwitch  int64  `json:"last_switch"`
+	WindowStart int64  `json:"window_start"`
+	Switches    int    `json:"switches"`
+	HoldUntil   int64  `json:"hold_until"`
+	HoldReason  string `json:"hold_reason"`
+	Pinned      string `json:"pinned,omitempty"`
+	Paused      bool   `json:"paused"`
 }
 type AdaptiveSnapshot struct {
 	Enabled    bool           `json:"enabled"`
@@ -111,7 +119,7 @@ func readAdaptiveSlot(path string) (uint64, []AdaptiveHost, []AdaptiveHost, erro
 		return 0, nil, nil, io.ErrUnexpectedEOF
 	}
 	header := strings.Split(scanner.Text(), "\t")
-	if len(header) != 2 || (header[0] != "PILOT1" && header[0] != "PILOT2") {
+	if len(header) != 2 || (header[0] != "PILOT1" && header[0] != "PILOT2" && header[0] != "PILOT3") {
 		return 0, nil, nil, errors.New("неполный заголовок adaptive")
 	}
 	generation, err := strconv.ParseUint(header[1], 10, 53)
@@ -131,8 +139,8 @@ func readAdaptiveSlot(path string) (uint64, []AdaptiveHost, []AdaptiveHost, erro
 		}
 		fields := strings.Split(line, "\t")
 		kind := "R"
-		if header[0] == "PILOT2" {
-			if len(fields) != 10 {
+		if header[0] == "PILOT2" || header[0] == "PILOT3" {
+			if header[0] == "PILOT2" && len(fields) != 10 || header[0] == "PILOT3" && len(fields) != 15 {
 				return 0, nil, nil, errors.New("неполная запись adaptive")
 			}
 			kind = fields[0]
@@ -141,17 +149,31 @@ func readAdaptiveSlot(path string) (uint64, []AdaptiveHost, []AdaptiveHost, erro
 			return 0, nil, nil, errors.New("неполная запись adaptive")
 		}
 		stamp, err := strconv.ParseInt(fields[4], 10, 64)
-		r := AdaptiveHost{Group: fields[0], Host: fields[1], Strategy: fields[2], Status: fields[3], Updated: stamp, Symptom: "unknown", Network: "-", Origin: "restored"}
-		validStatus := (kind == "R" && (r.Status == "probing" || r.Status == "connected")) || (kind == "E" && (r.Status == "failed" || r.Status == "selected" || r.Status == "connected"))
+		r := AdaptiveHost{Group: fields[0], Host: fields[1], Strategy: fields[2], Status: fields[3], Updated: stamp, Symptom: "unknown", Network: "-", Origin: "restored", HoldReason: "none"}
+		validStatus := (kind == "R" && (r.Status == "probing" || r.Status == "connected")) || (kind == "E" && (r.Status == "failed" || r.Status == "selected" || r.Status == "connected" || r.Status == "held"))
 		if err != nil || stamp < 0 || !groupRE.MatchString(r.Group) || !ValidDomain(r.Host) || !idRE.MatchString(r.Strategy) || !validStatus {
 			return 0, nil, nil, errors.New("некорректная запись adaptive")
 		}
-		if len(fields) == 9 {
+		if len(fields) >= 9 {
 			r.Symptom, r.Network, r.Origin = fields[5], fields[6], fields[8]
 			r.Port, err = strconv.Atoi(fields[7])
 			if err != nil || r.Port < 0 || r.Port > 65535 || !interfaceRE.MatchString(r.Network) || !allowedSymptom(r.Symptom) || !allowedOrigin(r.Origin) {
 				return 0, nil, nil, errors.New("некорректный контекст adaptive")
 			}
+		}
+		if len(fields) == 14 {
+			nums := []int64{}
+			for _, v := range fields[9:13] {
+				n, e := strconv.ParseInt(v, 10, 53)
+				if e != nil || n < 0 {
+					return 0, nil, nil, errors.New("некорректный бюджет смены")
+				}
+				nums = append(nums, n)
+			}
+			if nums[2] > 1000000 || !slices.Contains([]string{"none", "cooldown", "limit"}, fields[13]) {
+				return 0, nil, nil, errors.New("некорректная пауза смены")
+			}
+			r.LastSwitch, r.WindowStart, r.Switches, r.HoldUntil, r.HoldReason = nums[0], nums[1], int(nums[2]), nums[3], fields[13]
 		}
 		if kind == "E" {
 			if len(events) >= 128 {
@@ -174,12 +196,19 @@ func allowedSymptom(s string) bool {
 	return s == "unknown" || s == "rst" || s == "retransmission" || s == "tls_alert"
 }
 func allowedOrigin(s string) bool {
-	return s == "initial" || s == "pool" || s == "learned" || s == "restored"
+	return s == "initial" || s == "pool" || s == "learned" || s == "restored" || s == "manual"
 }
 
 func ReadAdaptive(c Config) (result AdaptiveSnapshot) {
 	result = AdaptiveSnapshot{Enabled: c.Adaptive, Reuse: c.AdaptiveReuse, Hosts: []AdaptiveHost{}, Discovered: []string{}, History: []AdaptiveHost{}, Boxes: []AdaptiveBox{}}
-	defer func() { result.Boxes = adaptiveBoxes(result.Hosts, result.History, c, time.Now().Unix()) }()
+	defer func() {
+		for i, r := range result.Hosts {
+			b := boxContext(r)
+			result.Hosts[i].Pinned = c.pinFor(r.Host, b.TLS, b.Family, r.Port)
+			result.Hosts[i].Paused = c.excludedBy(r.Host) != ""
+		}
+		result.Boxes = adaptiveBoxes(result.Hosts, result.History, c, time.Now().Unix())
+	}()
 	for i := 0; i < 2; i++ {
 		n, hosts, events, err := readAdaptiveSlot(filepath.Join(c.RuntimeDir, fmt.Sprintf("state%d.tsv", i)))
 		if err == nil && n > result.Generation {
@@ -305,7 +334,7 @@ func adaptiveBoxes(hosts, events []AdaptiveHost, c Config, now int64) []Adaptive
 			if r.Updated > m.Latest {
 				m.Latest = r.Updated
 			}
-			if b.TLS != "unknown" && b.TLS != "legacy" && b.Family != "unknown" && b.Symptom != "unknown" && b.Network == c.WAN && b.Network != "-" && b.Port > 0 && now >= r.Updated && now-r.Updated <= 7*24*60*60 {
+			if !r.Paused && r.Pinned == "" && r.Origin != "manual" && b.TLS != "unknown" && b.TLS != "legacy" && b.Family != "unknown" && b.Symptom != "unknown" && b.Network == c.WAN && b.Network != "-" && b.Port > 0 && now >= r.Updated && now-r.Updated <= 7*24*60*60 {
 				m.Reusable = true
 			}
 		}
