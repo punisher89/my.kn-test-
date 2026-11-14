@@ -1,0 +1,66 @@
+{
+  "revision": 1,
+  "engine": "nfqws2-v1.0.7",
+  "expires": "2027-02-12T04:15:01.992359+00:00",
+  "strategies": [
+    {
+      "id": "net-split-2",
+      "name": "Split 2,midsld",
+      "description": "Разделение ClientHello; результат проверяется подбором.",
+      "actions": [
+        "multisplit:pos=2,midsld"
+      ]
+    },
+    {
+      "id": "net-split-3",
+      "name": "Split 3,midsld",
+      "description": "Разделение ClientHello; результат проверяется подбором.",
+      "actions": [
+        "multisplit:pos=3,midsld"
+      ]
+    },
+    {
+      "id": "net-split-5",
+      "name": "Split 5,midsld",
+      "description": "Разделение ClientHello; результат проверяется подбором.",
+      "actions": [
+        "multisplit:pos=5,midsld"
+      ]
+    },
+    {
+      "id": "net-split-10",
+      "name": "Split 10,midsld",
+      "description": "Разделение ClientHello; результат проверяется подбором.",
+      "actions": [
+        "multisplit:pos=10,midsld"
+      ]
+    },
+    {
+      "id": "net-md5-4",
+      "name": "Fake MD5 ×4",
+      "description": "Ложный ClientHello и разделение SNI.",
+      "actions": [
+        "fake:blob=fake_default_tls:tcp_md5:repeats=4",
+        "multisplit:pos=1,midsld"
+      ]
+    },
+    {
+      "id": "net-md5-8",
+      "name": "Fake MD5 ×8",
+      "description": "Ложный ClientHello и разделение SNI.",
+      "actions": [
+        "fake:blob=fake_default_tls:tcp_md5:repeats=8",
+        "multisplit:pos=1,midsld"
+      ]
+    },
+    {
+      "id": "net-md5-12",
+      "name": "Fake MD5 ×12",
+      "description": "Ложный ClientHello и разделение SNI.",
+      "actions": [
+        "fake:blob=fake_default_tls:tcp_md5:repeats=12",
+        "multisplit:pos=1,midsld"
+      ]
+    }
+  ]
+}

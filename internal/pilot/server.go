@@ -78,6 +78,13 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 		jsonReply(w, 200, map[string]string{"status": "ok", "version": Version, "mode": m.backend.Kind()})
 	})
 	api("GET /api/status", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, m.Snapshot()) })
+	api("POST /api/catalog/update", func(w http.ResponseWriter, r *http.Request) {
+		if err := m.UpdateCatalog(r.Context()); err != nil {
+			replyError(w, err)
+			return
+		}
+		jsonReply(w, 200, m.Snapshot())
+	})
 	api("GET /api/logs", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, m.log.Lines()) })
 	api("GET /api/network", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, DetectNetwork()) })
 	api("PUT /api/config", func(w http.ResponseWriter, r *http.Request) {

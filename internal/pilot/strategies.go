@@ -10,7 +10,7 @@ type Strategy struct {
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
-	Actions     []string `json:"-"`
+	Actions     []string `json:"actions,omitempty"`
 }
 
 // Fixed argument vectors, never shell fragments. All actions are from nfqws2's
@@ -35,6 +35,18 @@ func StrategyByID(id string) (Strategy, bool) {
 	return Strategy{}, false
 }
 
+func StrategiesFor(c Config) []Strategy {
+	return append(append([]Strategy{}, Strategies...), c.Catalog...)
+}
+func strategyFor(c Config, id string) (Strategy, bool) {
+	for _, s := range StrategiesFor(c) {
+		if s.ID == id {
+			return s, true
+		}
+	}
+	return Strategy{}, false
+}
+
 func EngineArgs(c Config) []string {
 	args := []string{fmt.Sprintf("--qnum=%d", c.Queue), "--fwmark=0x40000000", "--lua-init=@" + filepath.Join(c.EngineDir, "lua", "zapret-lib.lua.gz"), "--lua-init=@" + filepath.Join(c.EngineDir, "lua", "zapret-antidpi.lua.gz")}
 	profile := func(a ...string) {
@@ -48,7 +60,7 @@ func EngineArgs(c Config) []string {
 		exclude = append(exclude, "--hostlist-exclude-domains="+strings.Join(c.Exclusions, ","))
 	}
 	for _, p := range c.Profiles {
-		s, _ := StrategyByID(p.Strategy)
+		s, _ := strategyFor(c, p.Strategy)
 		if len(s.Actions) > 0 {
 			profile("--filter-tcp=443,2053,2083,2087,2096,8443", "--filter-l7=tls", "--hostlist-domains="+strings.Join(p.Domains, ","))
 			args = append(args, exclude...)

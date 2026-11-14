@@ -32,6 +32,10 @@ type Profile struct {
 }
 
 type Config struct {
+	Catalog         []Strategy `json:"catalog,omitempty"`
+	CatalogRevision uint64     `json:"catalog_revision,omitempty"`
+	AutoCatalog     bool       `json:"auto_catalog"`
+
 	Listen          string    `json:"listen"`
 	WAN             string    `json:"wan"`
 	EngineDir       string    `json:"engine_dir"`
@@ -52,7 +56,7 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		Listen: "127.0.0.1:9080", EngineDir: "/opt/keenetic-pilot/engine", Queue: 220,
-		PPE: true, QUIC: true, DiscordVoice: false, Auto: true,
+		AutoCatalog: true, PPE: true, QUIC: true, DiscordVoice: false, Auto: true,
 		IntervalMinutes: 15, TimeoutSeconds: 8, Attempts: 2,
 		Exclusions: []string{},
 		Profiles: []Profile{
@@ -74,6 +78,10 @@ var idRE = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 func ValidDomain(s string) bool { return len(s) <= 253 && domainRE.MatchString(s) }
 
 func (c Config) Validate() error {
+	if err := validateCatalog(c.Catalog); err != nil {
+		return err
+	}
+
 	if c.Queue < 1 || c.Queue > 65535 {
 		return errors.New("queue: требуется 1–65535")
 	}
@@ -114,7 +122,7 @@ func (c Config) Validate() error {
 			return errors.New("ID профилей должны быть уникальны; имя до 80 символов")
 		}
 		ids[p.ID] = true
-		if _, ok := StrategyByID(p.Strategy); !ok {
+		if _, ok := strategyFor(c, p.Strategy); !ok {
 			return fmt.Errorf("неизвестная стратегия %q", p.Strategy)
 		}
 		if len(p.Domains) == 0 || len(p.Domains) > 300 || len(p.Targets) == 0 || len(p.Targets) > 6 {

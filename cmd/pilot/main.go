@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -46,7 +48,45 @@ func run() error {
 	pair := flag.Bool("pair", false, "создать одноразовый код для первого входа (15 минут)")
 	panelInfo := flag.Bool("panel-info", false, "адрес работающей панели и состояние установки пароля")
 	prepareLAN := flag.String("prepare-lan-config", "", "подготовить копию конфигурации с доступом к панели из LAN")
+	importCatalog := flag.String("import-catalog", "", "импортировать локальный подписанный каталог без сети")
+	tokenStdin := flag.Bool("github-token-stdin", false, "сохранить токен чтения приватного репозитория из stdin")
 	flag.Parse()
+	if *importCatalog != "" {
+		return pilot.ImportCatalog(*configPath, *importCatalog)
+	}
+	if *tokenStdin {
+		fmt.Fprintln(os.Stderr, "Введите GitHub token с Contents: read для этого репозитория:")
+		b, err := bufio.NewReader(io.LimitReader(os.Stdin, 4097)).ReadString('\n')
+		if err != nil && err != io.EOF {
+			return err
+		}
+		v := strings.TrimSpace(b)
+		if len(v) < 10 || len(v) > 4096 || strings.ContainsAny(v, "\r\n\x00") {
+			return fmt.Errorf("некорректный токен")
+		}
+		path := filepath.Join(filepath.Dir(*configPath), "github-token")
+		f, err := os.CreateTemp(filepath.Dir(path), ".token-*")
+		if err != nil {
+			return err
+		}
+		defer os.Remove(f.Name())
+		if err = f.Chmod(0600); err == nil {
+			_, err = f.WriteString(v + "\n")
+		}
+		if err == nil {
+			err = f.Sync()
+		}
+		f.Close()
+		if err != nil {
+			return err
+		}
+		if err = os.Rename(f.Name(), path); err != nil {
+			return err
+		}
+		fmt.Println("Токен сохранён локально; в панели нажмите загрузку каталога.")
+		return nil
+	}
+
 	if *detectNetwork {
 		return json.NewEncoder(os.Stdout).Encode(pilot.DetectNetwork())
 	}

@@ -64,6 +64,11 @@ func NewManager(c Config, path string, b Backend, p Prober, log *LogBuffer) *Man
 }
 
 func cloneConfig(c Config) Config {
+	c.Catalog = append([]Strategy{}, c.Catalog...)
+	for i := range c.Catalog {
+		c.Catalog[i].Actions = append([]string{}, c.Catalog[i].Actions...)
+	}
+
 	c.Exclusions = append([]string{}, c.Exclusions...)
 	c.Profiles = append([]Profile{}, c.Profiles...)
 	for i := range c.Profiles {
@@ -86,7 +91,7 @@ func (m *Manager) Snapshot() Snapshot {
 		j.Trials = append([]Trial{}, m.job.Trials...)
 		job = &j
 	}
-	return Snapshot{Version: Version, Mode: m.backend.Kind(), Running: m.backend.Running(), Busy: busy, Config: cloneConfig(m.c), Job: job, Error: m.lastError, Strategies: Strategies}
+	return Snapshot{Version: Version, Mode: m.backend.Kind(), Running: m.backend.Running(), Busy: busy, Config: cloneConfig(m.c), Job: job, Error: m.lastError, Strategies: StrategiesFor(m.c)}
 }
 func (m *Manager) setError(err error) error {
 	m.mu.Lock()
@@ -119,6 +124,11 @@ func (m *Manager) Change(c Config) error {
 	old := m.Config()
 	if c.Listen != old.Listen || c.EngineDir != old.EngineDir || c.Queue != old.Queue {
 		return errors.New("listen, engine_dir и queue меняются в config.json с перезапуском службы")
+	}
+	c.Catalog = old.Catalog
+	c.CatalogRevision = old.CatalogRevision
+	if err := c.Validate(); err != nil {
+		return err
 	}
 	c.Enabled = old.Enabled
 	if c.Enabled {
@@ -272,7 +282,7 @@ func (m *Manager) tune(ctx context.Context, old Config, idx int) {
 	if directOK {
 		selected = "none"
 	}
-	for _, s := range Strategies {
+	for _, s := range StrategiesFor(old) {
 		if selected != "" || ctx.Err() != nil {
 			break
 		}
@@ -342,6 +352,7 @@ func (m *Manager) Watch(ctx context.Context) {
 	defer ticker.Stop()
 	next := time.Now()
 	failures := map[string]int{}
+	nextCatalog := time.Now()
 	for {
 		select {
 		case <-ctx.Done():
@@ -351,6 +362,13 @@ func (m *Manager) Watch(ctx context.Context) {
 				continue
 			}
 			c := m.Config()
+			if c.AutoCatalog && time.Now().After(nextCatalog) {
+				nextCatalog = time.Now().Add(24 * time.Hour)
+				if err := m.updateCatalog(ctx); err != nil {
+					m.log.Add("Каталог стратегий: " + err.Error())
+				}
+				c = m.Config()
+			}
 			if !c.Enabled {
 				m.op.Unlock()
 				continue
