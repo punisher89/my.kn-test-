@@ -20,6 +20,9 @@ for ARCH in $ARCHES; do
     cp dependencies/nfqws2.env "$PKG/dependencies/"
     cp README.md THIRD_PARTY.md LICENSE VERSION "$PKG/"
     cp -R docs "$PKG/docs"
+    cp -R lua "$PKG/lua"
+    chmod 755 "$PKG/lua"
+    chmod 644 "$PKG/lua/"*
     cp -R licenses "$PKG/licenses"
     "$GO" version > "$PKG/TOOLCHAIN"
     printf '%s\n' "$ARCH" > "$PKG/PLATFORM"

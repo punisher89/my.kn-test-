@@ -172,6 +172,11 @@ func CheckEngine(c Config) error {
 	if err := c.Validate(); err != nil {
 		return err
 	}
+	if c.Adaptive && !c.tuning {
+		if err := PrepareAdaptive(c); err != nil {
+			return err
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, filepath.Join(c.EngineDir, "nfqws2"), append([]string{"--dry-run"}, EngineArgs(c)...)...)

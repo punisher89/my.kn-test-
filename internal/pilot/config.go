@@ -32,6 +32,12 @@ type Profile struct {
 }
 
 type Config struct {
+	probeFailFast bool
+
+	Adaptive   bool   `json:"adaptive"`
+	RuntimeDir string `json:"runtime_dir"`
+	tuning     bool
+
 	Catalog         []Strategy `json:"catalog,omitempty"`
 	CatalogRevision uint64     `json:"catalog_revision,omitempty"`
 	AutoCatalog     bool       `json:"auto_catalog"`
@@ -55,7 +61,7 @@ type Config struct {
 
 func DefaultConfig() Config {
 	return Config{
-		Listen: "127.0.0.1:9080", EngineDir: "/opt/keenetic-pilot/engine", Queue: 220,
+		RuntimeDir: "/opt/keenetic-pilot-state", Listen: "127.0.0.1:9080", EngineDir: "/opt/keenetic-pilot/engine", Queue: 220,
 		AutoCatalog: true, PPE: true, QUIC: true, DiscordVoice: false, Auto: true,
 		IntervalMinutes: 15, TimeoutSeconds: 8, Attempts: 2,
 		Exclusions: []string{},
@@ -82,6 +88,9 @@ func (c Config) Validate() error {
 		return err
 	}
 
+	if !filepath.IsAbs(c.RuntimeDir) || filepath.Clean(c.RuntimeDir) == "/" || strings.ContainsAny(c.RuntimeDir, "\n\r\x00") {
+		return errors.New("некорректный runtime_dir")
+	}
 	if c.Queue < 1 || c.Queue > 65535 {
 		return errors.New("queue: требуется 1–65535")
 	}

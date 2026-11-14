@@ -54,6 +54,9 @@ func (p HTTPProber) Check(ctx context.Context, profile Profile, c Config, direct
 					r := p.probe(ctx, target, family, version, time.Duration(c.TimeoutSeconds)*time.Second, direct)
 					r.Attempt = attempt
 					results = append(results, r)
+					if c.probeFailFast && !r.OK {
+						return results
+					}
 				}
 			}
 		}

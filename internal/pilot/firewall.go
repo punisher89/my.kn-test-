@@ -47,17 +47,23 @@ func FirewallRules(c Config) []Rule {
 	for _, tool := range tools {
 		add := func(table, chain string, a ...string) { rules = append(rules, Rule{tool, table, chain, a}) }
 		ports := "80,443,2053,2083,2087,2096,8443"
+		window := "1:20"
+		ppeWindow := "30"
+		if c.Adaptive {
+			window = "0:20"
+			ppeWindow = "48"
+		}
 		// Keep the handshake visible on Keenetic MediaTek. The algorithm is
 		// described in z2k's z2k-ppe-deoffload.sh (see THIRD_PARTY.md).
 		if c.PPE {
 			for _, chain := range []string{"PREROUTING", "FORWARD"} {
-				add("mangle", chain, "-p", "tcp", "-m", "multiport", "--dports", ports, "-m", "connskip", "--connskip", "30", "-m", "comment", "--comment", "keenetic-pilot", "-j", "PPE")
+				add("mangle", chain, "-p", "tcp", "-m", "multiport", "--dports", ports, "-m", "connskip", "--connskip", ppeWindow, "-m", "comment", "--comment", "keenetic-pilot", "-j", "PPE")
 				if c.QUIC || c.DiscordVoice {
 					udp := "443"
 					if c.DiscordVoice {
 						udp += ",50000:50099"
 					}
-					add("mangle", chain, "-p", "udp", "-m", "multiport", "--dports", udp, "-m", "connskip", "--connskip", "30", "-m", "comment", "--comment", "keenetic-pilot", "-j", "PPE")
+					add("mangle", chain, "-p", "udp", "-m", "multiport", "--dports", udp, "-m", "connskip", "--connskip", ppeWindow, "-m", "comment", "--comment", "keenetic-pilot", "-j", "PPE")
 				}
 			}
 		}
@@ -73,7 +79,7 @@ func FirewallRules(c Config) []Rule {
 						pp += ",50000:50099"
 					}
 				}
-				add("mangle", dir.chain, dir.iface, c.WAN, "-p", proto, "-m", "multiport", dir.port, pp, "-m", "mark", "!", "--mark", "0x40000000/0x40000000", "-m", "connbytes", "--connbytes", "1:20", "--connbytes-dir", dir.ctdir, "--connbytes-mode", "packets", "-m", "comment", "--comment", "keenetic-pilot", "-j", "NFQUEUE", "--queue-num", strconv.Itoa(c.Queue), "--queue-bypass")
+				add("mangle", dir.chain, dir.iface, c.WAN, "-p", proto, "-m", "multiport", dir.port, pp, "-m", "mark", "!", "--mark", "0x40000000/0x40000000", "-m", "connbytes", "--connbytes", window, "--connbytes-dir", dir.ctdir, "--connbytes-mode", "packets", "-m", "comment", "--comment", "keenetic-pilot", "-j", "NFQUEUE", "--queue-num", strconv.Itoa(c.Queue), "--queue-bypass")
 			}
 		}
 		// Generated packets must not be interpreted by conntrack as originals.

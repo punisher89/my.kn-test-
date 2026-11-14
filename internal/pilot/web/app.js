@@ -16,6 +16,7 @@ const labels = {
   logs: "Журнал",
   settings: "Настройки",
   connect: "Первый запуск",
+  adaptive: "Автообход",
 };
 let state,
   page = "overview",
@@ -96,7 +97,7 @@ function overview() {
       ? `<div class="panel welcome"><div><h2>Готовы к первому запуску?</h2><p>Подключение уже определено. Проверьте его и включите обход.</p></div><a class="button-link primary" href="#connect">Настроить подключение ↗</a></div>`
       : "") +
     `<div class="status-card"><div class="status-main"><div class="status-orb">${state.running ? "↗" : "○"}</div><div><div class="eyebrow">СОСТОЯНИЕ ОБХОДА</div><h2>${state.running ? "Сеть под управлением" : "Обход остановлен"}</h2><p>${state.running ? "Обработка трафика на роутере · " + esc(c.wan) : "Запустите сервис, когда настройки готовы"}</p></div></div><button id="service-toggle" ${state.busy ? "disabled" : ""} class="${state.running ? "" : "primary"}">${state.running ? "Остановить" : "Запустить обход"} ${state.running ? "Ⅱ" : "↗"}</button></div>
-  <div class="stats-grid"><div class="stat"><div class="stat-top">Подключённые профили <span class="stat-symbol">◫</span></div><div class="stat-value">${c.profiles.length}<em>сервиса</em></div><small>${totalDomains} доменов и их поддомены</small></div><div class="stat"><div class="stat-top">Автоподбор <span class="stat-symbol">⌁</span></div><div class="stat-value">${c.auto ? "Включён" : "Выключен"}</div><small>${c.auto ? `Проверка каждые ${c.interval_minutes} мин` : "Ручное управление стратегиями"}</small></div><div class="stat"><div class="stat-top">Совместимость <span class="stat-symbol">▱</span></div><div class="stat-value">TLS 1.2<em>и TLS 1.3</em></div><small>Отдельные пробы для каждого протокола</small></div></div>
+  <div class="stats-grid"><div class="stat"><div class="stat-top">Подключённые профили <span class="stat-symbol">◫</span></div><div class="stat-value">${c.profiles.length}<em>сервиса</em></div><small>${totalDomains} доменов и их поддомены</small></div><div class="stat"><div class="stat-top">Автоподбор <span class="stat-symbol">⌁</span></div><div class="stat-value">${c.adaptive ? "По трафику" : c.auto ? "Плановый" : "Выключен"}</div><small>${c.adaptive ? "Отдельный подбор для проблемных сайтов" : c.auto ? `Проверка каждые ${c.interval_minutes} мин` : "Ручное управление стратегиями"}</small></div><div class="stat"><div class="stat-top">Совместимость <span class="stat-symbol">▱</span></div><div class="stat-value">TLS 1.2<em>и TLS 1.3</em></div><small>Отдельные пробы для каждого протокола</small></div></div>
   <div class="dashboard-columns"><div><div class="panel"><div class="panel-head"><h2>Ваши сервисы</h2><a href="#profiles">Все профили ↗</a></div>${c.profiles.map((p) => `<div class="service-row">${logo(p)}<div class="service-meta"><h3>${esc(p.name)}</h3><span>${esc(strategyName(p.strategy))} · ${p.domains.length} доменов</span></div>${badge(p.strategy === "none" ? "Без вмешательства" : "Профиль настроен", "neutral")}</div>`).join("")}</div><div class="panel"><div class="panel-head"><h2>Одна настройка — для всех устройств</h2>${badge("НА РОУТЕРЕ", "neutral")}</div><div class="compat-grid"><div class="compat-item"><div class="compat-icon">▯</div><strong>Телефон</strong><small>Android и iOS<br>Без отдельного клиента</small></div><div class="compat-item"><div class="compat-icon">▱</div><strong>Компьютер</strong><small>Windows, macOS, Linux<br>Обход в локальной сети</small></div><div class="compat-item"><div class="compat-icon">▣</div><strong>Телевизор</strong><small>webOS / Smart TV<br>Проверка TLS 1.2</small></div></div><div class="info-note">Проба TLS 1.2 проверяет протокол, но не заменяет испытание приложения YouTube на телевизоре. Видео и голос проверяются на устройствах отдельно.</div></div></div>
   <div><div class="panel"><div class="panel-head"><h2>Параметры сети</h2><span class="subtle">↗</span></div><div class="info-line"><span>Интерфейс WAN</span><span>${esc(c.wan || "Не задан")}</span></div><div class="info-line"><span>IPv4</span>${badge("Включён", "neutral")}</div><div class="info-line"><span>IPv6</span>${badge(c.ipv6 ? "Включён" : "Выключен", "neutral")}</div><div class="info-line"><span>QUIC / HTTP 3</span>${badge(c.quic ? "Обработка включена" : "Без обработки", "neutral")}</div><div class="info-line"><span>Исключения</span><span>${c.exclusions.length} доменов</span></div><div class="info-line"><span>Аппаратное ускорение</span><span>${c.ppe ? "PPE · окно handshake" : "Не управляется"}</span></div></div><div class="panel"><div class="panel-head"><h2>Последний подбор</h2><a href="#tune">Открыть ↗</a></div><p>${esc(jobSummary())}</p><div class="info-note">Стратегия сохраняется только после успешных повторных проверок. Если подходящего варианта нет — выполняется откат.</div></div></div></div>`
   );
@@ -141,7 +142,7 @@ function settings() {
       "Настройки",
       "Сетевые параметры и правила автоматического подбора.",
     ) +
-    `<form id="settings-form"><div class="settings-grid"><div class="panel"><div class="panel-head"><h2>Подключение</h2></div><div class="field"><label for="wan">WAN-интерфейс</label><input id="wan" value="${esc(c.wan)}" placeholder="Например: ppp0"><small>Имя активного интерфейса провайдера на роутере.</small></div>${toggle("ipv6", "Обрабатывать IPv6", "Включайте при наличии работающего IPv6 у провайдера.", c.ipv6)}${toggle("ppe", "Сохранять видимость handshake", "PPE: первые 30 пакетов без аппаратного ускорения.", c.ppe)}${toggle("quic", "Обрабатывать QUIC", "Статическая стратегия UDP/443. Подбор HTTPS её не проверяет.", c.quic)}${toggle("discord_voice", "Discord Voice · экспериментально", "Обработка UDP 50000–50099. Нужна проверка реального звонка.", c.discord_voice)}</div><div class="panel"><div class="panel-head"><h2>Автоматический подбор</h2></div>${toggle("auto_catalog", "Обновлять каталог стратегий", "Подписанный каталог Pilot: проверка раз в сутки. Новые варианты проверяются при подборе.", c.auto_catalog)}<div class="form-actions"><button type="button" id="catalog-update">Загрузить стратегии сейчас</button></div>${toggle("auto", "Следить за доступностью", "После двух неудачных циклов проверок начинается новый подбор.", c.auto)}<div class="field"></div><div class="two-fields"><div class="field"><label for="interval">Интервал, мин</label><input id="interval" type="number" min="5" max="1440" value="${c.interval_minutes}"></div><div class="field"><label for="timeout">Таймаут запроса, с</label><input id="timeout" type="number" min="2" max="20" value="${c.timeout_seconds}"></div></div><div class="field"><label for="attempts">Попыток на протокол и адрес</label><input id="attempts" type="number" min="1" max="3" value="${c.attempts}"></div><div class="field"><label for="exclusions">Исключения · по одному домену на строку</label><textarea id="exclusions" rows="6" placeholder="example.com">${esc(c.exclusions.join("\n"))}</textarea><small>Исключённые домены не обрабатываются движком.</small></div></div></div><div class="form-actions"><button type="submit" class="primary" ${state.busy ? "disabled" : ""}>Сохранить настройки ↗</button><small>Работающий сервис перезапустится. При ошибке настройки откатятся.</small></div></form>`
+    `<form id="settings-form"><div class="settings-grid"><div class="panel"><div class="panel-head"><h2>Подключение</h2></div><div class="field"><label for="wan">WAN-интерфейс</label><input id="wan" value="${esc(c.wan)}" placeholder="Например: ppp0"><small>Имя активного интерфейса провайдера на роутере.</small></div>${toggle("ipv6", "Обрабатывать IPv6", "Включайте при наличии работающего IPv6 у провайдера.", c.ipv6)}${toggle("ppe", "Сохранять видимость handshake", "Первые пакеты без аппаратного ускорения: окно 48 при автоподборе по трафику, иначе 30.", c.ppe)}${toggle("quic", "Обрабатывать QUIC", "Статическая стратегия UDP/443. Подбор HTTPS её не проверяет.", c.quic)}${toggle("discord_voice", "Discord Voice · экспериментально", "Обработка UDP 50000–50099. Нужна проверка реального звонка.", c.discord_voice)}</div><div class="panel"><div class="panel-head"><h2>Автоматический подбор</h2></div>${toggle("adaptive", "Автоподбор по трафику", "Обнаруживать повторные ошибки HTTPS и менять метод отдельно для каждого сайта. Сохранённый метод используется первым.", c.adaptive)}<div class="info-note">Новые наблюдения и выбранные методы — в разделе «Автообход». Сетевые ошибки не всегда означают блокировку.</div>${toggle("auto_catalog", "Обновлять каталог стратегий", "Подписанный каталог Pilot: проверка раз в сутки. Новые варианты проверяются при подборе.", c.auto_catalog)}<div class="form-actions"><button type="button" id="catalog-update">Загрузить стратегии сейчас</button></div>${toggle("auto", "Следить за доступностью", "После двух неудачных циклов проверок начинается новый подбор.", c.auto)}<div class="field"></div><div class="two-fields"><div class="field"><label for="interval">Интервал, мин</label><input id="interval" type="number" min="5" max="1440" value="${c.interval_minutes}"></div><div class="field"><label for="timeout">Таймаут запроса, с</label><input id="timeout" type="number" min="2" max="20" value="${c.timeout_seconds}"></div></div><div class="field"><label for="attempts">Попыток на протокол и адрес</label><input id="attempts" type="number" min="1" max="3" value="${c.attempts}"></div><div class="field"><label for="exclusions">Исключения · по одному домену на строку</label><textarea id="exclusions" rows="6" placeholder="example.com">${esc(c.exclusions.join("\n"))}</textarea><small>Исключённые домены не обрабатываются движком.</small></div></div></div><div class="form-actions"><button type="submit" class="primary" ${state.busy ? "disabled" : ""}>Сохранить настройки ↗</button><small>Работающий сервис перезапустится. При ошибке настройки откатятся.</small></div></form>`
   );
 }
 function lines(value) {
@@ -207,16 +208,23 @@ function renderPage() {
           ? tune()
           : page === "settings"
             ? settings()
-            : page === "connect"
-              ? connectPage()
-              : heading(
-                  "Журнал",
-                  "События контроллера и движка. Последние 200 строк.",
-                  '<button id="refresh-logs">Обновить ↻</button>',
+            : page === "adaptive"
+              ? heading(
+                  "Автообход",
+                  "Обнаружение проблемных HTTPS-сайтов и выбор метода по трафику.",
                 ) +
-                '<div class="panel"><pre id="log-view" class="log-view">Загрузка…</pre></div>';
+                '<div class="panel"><div class="panel-head"><h2>Наблюдения движка</h2><button id="adaptive-refresh">Обновить</button></div><div id="adaptive-results">Загрузка…</div></div>'
+              : page === "connect"
+                ? connectPage()
+                : heading(
+                    "Журнал",
+                    "События контроллера и движка. Последние 200 строк.",
+                    '<button id="refresh-logs">Обновить ↻</button>',
+                  ) +
+                  '<div class="panel"><pre id="log-view" class="log-view">Загрузка…</pre></div>';
   bindActions();
   if (page === "logs") loadLogs();
+  if (page === "adaptive") loadAdaptive();
   if (page === "connect" && !networkInfo)
     api("network")
       .then((info) => {
@@ -234,6 +242,7 @@ async function action(fn) {
   }
 }
 function bindActions() {
+  $("#adaptive-refresh")?.addEventListener("click", loadAdaptive);
   $("#catalog-update")?.addEventListener("click", () =>
     action(async () => {
       await api("catalog/update", "POST", {});
@@ -308,9 +317,15 @@ function bindActions() {
     action(async () => {
       const c = structuredClone(state.config);
       c.wan = $("#wan").value.trim();
-      ["ipv6", "ppe", "quic", "discord_voice", "auto", "auto_catalog"].forEach(
-        (key) => (c[key] = $(`#${key}`).checked),
-      );
+      [
+        "ipv6",
+        "ppe",
+        "quic",
+        "discord_voice",
+        "auto",
+        "auto_catalog",
+        "adaptive",
+      ].forEach((key) => (c[key] = $(`#${key}`).checked));
       c.interval_minutes = Number($("#interval").value);
       c.timeout_seconds = Number($("#timeout").value);
       c.attempts = Number($("#attempts").value);
@@ -319,6 +334,24 @@ function bindActions() {
       notify("Настройки сохранены");
     });
   });
+}
+async function loadAdaptive() {
+  try {
+    const data = await api("adaptive");
+    const target = $("#adaptive-results");
+    if (!target) return;
+    target.innerHTML =
+      (!data.enabled
+        ? '<div class="notice">Включите «Автоподбор по трафику» в настройках. Текущие ручные стратегии сохранятся.</div>'
+        : '<div class="info-note">Метод меняется после повторных ошибок для новых соединений. «Есть ответ» — наблюдение трафика; видео, голос и TLS 1.2 проверяются отдельно.</div>') +
+      (data.error ? `<p class="fail-text">${esc(data.error)}</p>` : "") +
+      (data.hosts.length
+        ? `<table class="probe-table"><thead><tr><th>Сайт</th><th>Метод</th><th>Состояние</th><th>Обновлено</th></tr></thead><tbody>${data.hosts.map((h) => `<tr><td>${esc(h.host)}<br><small>${h.group.includes("_tls12_") ? "TLS 1.2" : h.group.includes("_tls13_") ? "TLS 1.3" : "TLS не определён"} · ${h.group.endsWith("_ipv6") ? "IPv6" : "IPv4"}</small></td><td>${esc(strategyName(h.strategy))}</td><td>${badge(h.status === "connected" ? "Есть ответ" : "Пробуется", h.status === "connected" ? "" : "warn")}</td><td>${esc(new Date(h.updated * 1000).toLocaleString("ru-RU"))}</td></tr>`).join("")}</tbody></table>`
+        : '<div class="empty"><h3>Проблемные сайты пока не обнаружены</h3><p>После включения режима откройте нужный сайт. Первые попытки дают движку сведения для выбора метода.</p></div>') +
+      `<p>Новых доменов с признаками сбоев: ${data.discovered.length}</p>`;
+  } catch (e) {
+    notify(e.message, true);
+  }
 }
 async function loadLogs() {
   try {

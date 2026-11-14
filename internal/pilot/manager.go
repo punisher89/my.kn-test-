@@ -104,6 +104,8 @@ func (m *Manager) setError(err error) error {
 	return err
 }
 func (m *Manager) save(c Config) error {
+	c.tuning = false
+	c.probeFailFast = false
 	if err := WriteJSON(m.path, c); err != nil {
 		return err
 	}
@@ -122,8 +124,8 @@ func (m *Manager) Change(c Config) error {
 	}
 	defer m.op.Unlock()
 	old := m.Config()
-	if c.Listen != old.Listen || c.EngineDir != old.EngineDir || c.Queue != old.Queue {
-		return errors.New("listen, engine_dir и queue меняются в config.json с перезапуском службы")
+	if c.RuntimeDir != old.RuntimeDir || c.Listen != old.Listen || c.EngineDir != old.EngineDir || c.Queue != old.Queue {
+		return errors.New("listen, engine_dir, runtime_dir и queue меняются в config.json с перезапуском службы")
 	}
 	c.Catalog = old.Catalog
 	c.CatalogRevision = old.CatalogRevision
@@ -275,7 +277,9 @@ func (m *Manager) tune(ctx context.Context, old Config, idx int) {
 			m.finish("", errors.Join(errors.New(message), cause, ctx.Err(), err))
 		}
 	}()
-	baseline := m.prober.Check(ctx, p, old, true)
+	directConfig := cloneConfig(old)
+	directConfig.probeFailFast = true
+	baseline := m.prober.Check(ctx, p, directConfig, true)
 	directOK := allPassed(baseline, p, old)
 	m.record(Trial{Strategy: "direct", Passed: directOK, Results: baseline})
 	selected := ""
@@ -292,6 +296,8 @@ func (m *Manager) tune(ctx context.Context, old Config, idx int) {
 		m.stage(s.ID)
 		candidate := cloneConfig(old)
 		candidate.Profiles[idx].Strategy = s.ID
+		candidate.tuning = true
+		candidate.probeFailFast = true
 		if err := m.backend.Start(candidate); err != nil {
 			m.record(Trial{Strategy: s.ID, Error: err.Error(), Results: []ProbeResult{}})
 			continue
@@ -308,6 +314,8 @@ func (m *Manager) tune(ctx context.Context, old Config, idx int) {
 	}
 	candidate := cloneConfig(old)
 	candidate.Profiles[idx].Strategy = selected
+	candidate.tuning = true
+	candidate.probeFailFast = true
 	// Reapply and recheck after selection: the saved result must survive an
 	// engine restart, not merely a lucky request from the previous process.
 	m.stage("confirm")
@@ -328,6 +336,13 @@ func (m *Manager) tune(ctx context.Context, old Config, idx int) {
 	if err := m.save(candidate); err != nil {
 		cause = err
 		return
+	}
+	candidate.tuning = false
+	if candidate.Adaptive {
+		if err := m.backend.Start(candidate); err != nil {
+			cause = errors.Join(err, m.save(old))
+			return
+		}
 	}
 	committed = true
 	m.finish(selected, nil)

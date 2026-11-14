@@ -76,6 +76,10 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 cp -R "$BASE" "$STAGE/app"
 chmod 0755 "$STAGE/app"
+# Copy/extraction under umask 077 may remove traversal from new directories.
+# The packet engine reads our Lua after dropping its root privileges.
+chmod 0755 "$STAGE/app/lua"
+chmod 0644 "$STAGE/app/lua/"*
 sh "$STAGE/app/scripts/fetch-engine.sh" "$STAGE/app/engine" "$ARCH"
 "$STAGE/app/bin/pilot" --version
 if [ -f "$CONFIG_DIR/config.json" ]; then

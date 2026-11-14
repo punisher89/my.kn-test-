@@ -135,10 +135,11 @@ class Installation(unittest.TestCase):
 
     def test_engine_resources_readable_after_privilege_drop(self):
         app=self.prefix/'keenetic-pilot'
-        for directory in [app,app/'engine',app/'engine/lua']:
+        for directory in [app,app/'engine',app/'engine/lua',app/'lua']:
             self.assertTrue(directory.stat().st_mode & stat.S_IXOTH, f"missing traversal: {directory.name}")
         for lua in (app/'engine/lua').glob('*.gz'):
             self.assertTrue(lua.stat().st_mode & stat.S_IROTH, f"unreadable Lua: {lua.name}")
+        self.assertTrue((app/'lua/pilot-auto.lua').stat().st_mode & stat.S_IROTH)
         self.assertEqual(self.config.parent.stat().st_mode & 0o777,0o700)
         self.assertEqual(self.token_path.stat().st_mode & 0o777,0o600)
 
@@ -152,6 +153,22 @@ class Installation(unittest.TestCase):
             # --no-start performs the real root dry-run but never starts packet interception.
             result=subprocess.run(['sudo','-n','env','PILOT_ENGINE_ARCHIVE='+self.archive,'sh',str(self.package_dir/'scripts/install.sh'),'--prefix',str(prefix),'--wan','lo','--listen',f'127.0.0.1:{self.port}','--no-start'],capture_output=True,text=True,timeout=60)
             self.assertEqual(result.returncode,0,'root dry-run failed: '+result.stderr)
+            config=prefix/'etc/keenetic-pilot/config.json'
+            enable="import json,sys; p=sys.argv[1]; c=json.load(open(p)); c['adaptive']=True; open(p,'w').write(json.dumps(c))"
+            subprocess.run(['sudo','-n','python3','-c',enable,str(config)],check=True)
+            result=subprocess.run(['sudo','-n',str(prefix/'keenetic-pilot/bin/pilot'),'--config',str(config),'--check-engine'],capture_output=True,text=True,timeout=30)
+            self.assertEqual(result.returncode,0,'adaptive root dry-run failed: '+result.stderr)
+            runtime=prefix/'keenetic-pilot-state'
+            # Root can initialize raw sockets in CI; intercept=0 never opens NFQUEUE.
+            # This executes Lua after the real nfqws2 UID drop, unlike --dry-run.
+            engine=prefix/'keenetic-pilot/engine'
+            args=['sudo','-n',str(engine/'nfqws2'),'--intercept=0']
+            args += ['--lua-init=@'+str(engine/'lua'/name) for name in ['zapret-lib.lua.gz','zapret-antidpi.lua.gz','zapret-auto.lua.gz']]
+            args += ['--lua-init=pilot_runtime=[=['+str(runtime)+']=]', '--lua-init=@'+str(prefix/'keenetic-pilot/lua/pilot-auto.lua')]
+            args += ["--lua-init=local f=assert(io.open(pilot_runtime..'/state0.tsv','w'));f:write('test');f:close();assert(io.open(pilot_runtime..'/forbidden','w')==nil)"]
+            result=subprocess.run(args,capture_output=True,text=True,timeout=30)
+            self.assertEqual(result.returncode,0,'adaptive Lua UID isolation failed: '+result.stderr)
+
         finally:
             subprocess.run(['sudo','-n','rm','-rf','--',str(prefix)],check=True)
 

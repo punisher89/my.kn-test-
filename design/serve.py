@@ -38,6 +38,8 @@ class Handler(SimpleHTTPRequestHandler):
                 f"sessionStorage.setItem('pilot-token', '{DEMO_TOKEN}');".encode(),
                 "application/javascript",
             )
+        if self.path == "/api/adaptive":
+            return self.send({"enabled": False, "hosts": [], "discovered": []})
         if self.path == "/api/status":
             return self.send((HERE / "demo-state.json").read_bytes())
         if self.path == "/api/logs":

@@ -36,8 +36,8 @@ var actionPatterns = []*regexp.Regexp{
 }
 
 func validateCatalog(pool []Strategy) error {
-	if len(pool) > 24 {
-		return errors.New("каталог: не более 24 вариантов")
+	if len(pool) > 64 {
+		return errors.New("каталог: не более 64 вариантов")
 	}
 	ids := map[string]bool{}
 	for _, s := range pool {
