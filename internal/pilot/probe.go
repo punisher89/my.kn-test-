@@ -123,11 +123,11 @@ func (p HTTPProber) probe(parent context.Context, target Target, family string, 
 	}
 	defer transport.CloseIdleConnections()
 	result, err := performRequest(ctx, transport, target)
+	r.Status = result
 	if err != nil {
 		r.Error = err.Error()
 		return
 	}
-	r.Status = result
 	r.OK = true
 	return
 }
@@ -169,10 +169,27 @@ func allPassed(r []ProbeResult, p Profile, c Config) bool {
 	if len(r) != want {
 		return false
 	}
-	for _, v := range r {
-		if !v.OK {
-			return false
+	expected := map[string]bool{}
+	families := []string{"tcp4"}
+	if c.IPv6 {
+		families = append(families, "tcp6")
+	}
+	key := func(u, t, f string, a int) string { return fmt.Sprintf("%s\x00%s\x00%s\x00%d", u, t, f, a) }
+	for _, t := range p.Targets {
+		for _, family := range families {
+			for _, version := range []string{"1.2", "1.3"} {
+				for a := 1; a <= c.Attempts; a++ {
+					expected[key(t.URL, version, family, a)] = true
+				}
+			}
 		}
 	}
-	return true
+	for _, v := range r {
+		k := key(v.URL, v.TLS, v.Family, v.Attempt)
+		if !v.OK || !expected[k] {
+			return false
+		}
+		delete(expected, k)
+	}
+	return len(expected) == 0
 }

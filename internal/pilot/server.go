@@ -36,7 +36,7 @@ func Handler(m *Manager, token string) http.Handler {
 			}
 			value := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 			actual := sha256.Sum256([]byte(value))
-			if len(token) < 32 || subtle.ConstantTimeCompare(expected[:], actual[:]) != 1 {
+			if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") || len(token) < 32 || subtle.ConstantTimeCompare(expected[:], actual[:]) != 1 {
 				jsonReply(w, 401, map[string]string{"error": "требуется ключ доступа"})
 				return
 			}

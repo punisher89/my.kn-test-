@@ -1,0 +1,67 @@
+#!/bin/sh
+# Installed with a concrete prefix by Keenetic Pilot's own installer.
+set -eu
+PREFIX=${PILOT_PREFIX:-@PREFIX@}
+PATH="$PREFIX/bin:$PREFIX/sbin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH
+# Go's standard Linux trust paths do not include Entware's /opt paths.
+# Preserve explicitly configured trust, and never disable certificate checks.
+if [ -z "${SSL_CERT_FILE:-}" ]; then
+    for CERT in "$PREFIX/etc/ssl/certs/ca-certificates.crt" "$PREFIX/etc/ssl/cert.pem"; do
+        if [ -r "$CERT" ]; then SSL_CERT_FILE=$CERT; export SSL_CERT_FILE; break; fi
+    done
+fi
+if [ -z "${SSL_CERT_DIR:-}" ] && [ -d "$PREFIX/etc/ssl/certs" ]; then SSL_CERT_DIR=$PREFIX/etc/ssl/certs; export SSL_CERT_DIR; fi
+BIN=$PREFIX/keenetic-pilot/bin/pilot
+CONFIG=$PREFIX/etc/keenetic-pilot/config.json
+PIDFILE=$PREFIX/var/run/keenetic-pilot.pid
+LOGFILE=$PREFIX/var/log/keenetic-pilot.log
+
+running() {
+    [ -f "$PIDFILE" ] || return 1
+    PID=$(cat "$PIDFILE")
+    case "$PID" in ''|*[!0-9]*) return 1;; esac
+    [ "$(readlink "/proc/$PID/exe" 2>/dev/null || true)" = "$BIN" ] && kill -0 "$PID" 2>/dev/null
+}
+start() {
+    if running; then echo "Keenetic Pilot already running (PID $PID)"; return 0; fi
+    [ -x "$BIN" ] && [ -f "$CONFIG" ] || { echo "Installation or configuration missing" >&2; return 1; }
+    if "$BIN" --config "$CONFIG" --health >/dev/null 2>&1; then
+        echo "A controller started outside this init script is already active" >&2; return 1
+    fi
+    mkdir -p "$PREFIX/var/run" "$PREFIX/var/log"
+    # Only our transient repair lock is cleared; configuration/state is retained.
+    rm -f "$PREFIX/var/run/keenetic-pilot-repair.lock/pid"
+    rmdir "$PREFIX/var/run/keenetic-pilot-repair.lock" 2>/dev/null || true
+    if [ -f "$LOGFILE" ] && [ "$(wc -c < "$LOGFILE")" -gt 131072 ]; then mv -f "$LOGFILE" "$LOGFILE.1"; fi
+    umask 077
+    nohup "$BIN" --config "$CONFIG" --pidfile "$PIDFILE" --mode router >> "$LOGFILE" 2>&1 &
+    CHILD=$!
+    for ATTEMPT in 1 2 3 4 5 6 7 8 9 10; do
+        if ! kill -0 "$CHILD" 2>/dev/null; then echo "Controller exited; inspect $LOGFILE" >&2; return 1; fi
+        if running && [ "$PID" = "$CHILD" ] && "$BIN" --config "$CONFIG" --health >/dev/null 2>&1; then echo "Controller ready (PID $PID); bypass state is shown in the panel"; return 0; fi
+        sleep 1
+    done
+    echo "Controller readiness timed out; inspect $LOGFILE" >&2
+    return 1
+}
+stop() {
+    if ! running; then
+        if "$BIN" --config "$CONFIG" --health >/dev/null 2>&1; then echo "Controller active without matching PID file; stop that instance first" >&2; return 1; fi
+        rm -f "$PIDFILE"; return 0
+    fi
+    kill -TERM "$PID"
+    for ATTEMPT in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do
+        if ! running; then rm -f "$PIDFILE"; echo "Keenetic Pilot stopped"; return 0; fi
+        sleep 1
+    done
+    echo "Graceful stop timed out; installation unchanged, inspect $LOGFILE" >&2
+    return 1
+}
+case "${1:-}" in
+    start) start;;
+    stop|kill) stop;;
+    restart) stop; start;;
+    status) if running; then "$BIN" --config "$CONFIG" --health; else echo "Keenetic Pilot stopped"; exit 1; fi;;
+    *) echo "Usage: $0 start|stop|restart|status" >&2; exit 2;;
+esac

@@ -59,6 +59,13 @@ type Router struct {
 	journal string
 	log     *LogBuffer
 	liberal []byte
+	acct    []byte
+}
+
+type firewallJournal struct {
+	Rules   []Rule `json:"rules"`
+	Liberal []byte `json:"original_tcp_be_liberal,omitempty"`
+	Acct    []byte `json:"original_conntrack_acct,omitempty"`
 }
 
 func NewRouter(stateDir string, log *LogBuffer) *Router {
@@ -106,36 +113,38 @@ func (r *Router) Start(c Config) error {
 		return fmt.Errorf("WAN %s не найден: %w", c.WAN, err)
 	}
 	binary := filepath.Join(c.EngineDir, "nfqws2")
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
 	args := EngineArgs(c)
-	check := exec.CommandContext(ctx, binary, append([]string{"--dry-run"}, args...)...)
-	if out, err := check.CombinedOutput(); err != nil {
-		return fmt.Errorf("nfqws2 --dry-run: %w: %s", err, tail(out, 2000))
+	if err := CheckEngine(c); err != nil {
+		return err
 	}
 	if err := r.stop(); err != nil {
 		return err
 	}
-	// Reclaim only exact rules written by an earlier instance of this app.
-	if b, err := os.ReadFile(r.journal); err == nil {
-		var stale []Rule
-		if err = json.Unmarshal(b, &stale); err != nil {
-			return err
-		}
-		if err = RemoveRules(RunCommand, stale); err != nil {
-			return err
-		}
-	}
 	liberalPath := "/proc/sys/net/netfilter/nf_conntrack_tcp_be_liberal"
-	r.liberal, _ = os.ReadFile(liberalPath)
-	if err := os.WriteFile(liberalPath, []byte("1"), 0644); err != nil {
-		return fmt.Errorf("nf_conntrack_tcp_be_liberal: %w", err)
+	acctPath := "/proc/sys/net/netfilter/nf_conntrack_acct"
+	var err error
+	r.liberal, err = os.ReadFile(liberalPath)
+	if err != nil {
+		return err
+	}
+	r.acct, err = os.ReadFile(acctPath)
+	if err != nil {
+		r.liberal = nil
+		return err
 	}
 	r.rules = FirewallRules(c)
-	if err := WriteJSON(r.journal, r.rules); err != nil {
-		r.restoreSysctl()
+	// Journal original settings BEFORE mutating them, so a crash can be cleaned
+	// even when the next daemon starts with packet interception disabled.
+	if err := WriteJSON(r.journal, firewallJournal{Rules: r.rules, Liberal: r.liberal, Acct: r.acct}); err != nil {
 		r.rules = nil
+		r.liberal = nil
+		r.acct = nil
 		return err
+	}
+	for _, path := range []string{liberalPath, acctPath} {
+		if err := os.WriteFile(path, []byte("1"), 0644); err != nil {
+			return errors.Join(err, r.stop())
+		}
 	}
 	r.cmd = exec.Command(binary, args...)
 	r.cmd.Stdout = r.log
@@ -143,8 +152,7 @@ func (r *Router) Start(c Config) error {
 	r.cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}
 	if err := r.cmd.Start(); err != nil {
 		r.cmd = nil
-		r.restoreSysctl()
-		return err
+		return errors.Join(err, r.stop())
 	}
 	cmd := r.cmd
 	r.done = make(chan error, 1)
@@ -153,8 +161,7 @@ func (r *Router) Start(c Config) error {
 	select {
 	case err := <-r.done:
 		r.cmd = nil
-		r.restoreSysctl()
-		return fmt.Errorf("nfqws2 завершился при запуске: %v", err)
+		return errors.Join(fmt.Errorf("nfqws2 завершился при запуске: %v", err), r.stop())
 	case <-time.After(350 * time.Millisecond):
 	}
 	if err := EnsureRules(RunCommand, r.rules); err != nil {
@@ -165,22 +172,64 @@ func (r *Router) Start(c Config) error {
 	return nil
 }
 
+func CheckEngine(c Config) error {
+	if err := c.Validate(); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, filepath.Join(c.EngineDir, "nfqws2"), append([]string{"--dry-run"}, EngineArgs(c)...)...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("nfqws2 --dry-run: %w: %s", err, tail(out, 2000))
+	}
+	return nil
+}
+
 func tail(b []byte, n int) []byte {
 	if len(b) > n {
 		return b[len(b)-n:]
 	}
 	return b
 }
-func (r *Router) restoreSysctl() {
-	if len(r.liberal) > 0 {
-		if err := os.WriteFile("/proc/sys/net/netfilter/nf_conntrack_tcp_be_liberal", bytes.TrimSpace(r.liberal), 0644); err != nil {
-			r.log.Add("Не удалось восстановить sysctl: " + err.Error())
+func (r *Router) restoreSysctl() error {
+	var first error
+	for path, value := range map[string][]byte{"/proc/sys/net/netfilter/nf_conntrack_tcp_be_liberal": r.liberal, "/proc/sys/net/netfilter/nf_conntrack_acct": r.acct} {
+		if len(value) == 0 {
+			continue
 		}
-		r.liberal = nil
+		if err := os.WriteFile(path, bytes.TrimSpace(value), 0644); err != nil {
+			r.log.Add("Не удалось восстановить sysctl: " + err.Error())
+			first = errors.Join(first, err)
+		}
 	}
+	if first == nil {
+		r.liberal = nil
+		r.acct = nil
+	}
+	return first
 }
 func (r *Router) Stop() error { r.mu.Lock(); defer r.mu.Unlock(); return r.stop() }
 func (r *Router) stop() error {
+	if r.rules == nil {
+		b, err := os.ReadFile(r.journal)
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if err == nil {
+			var journal firewallJournal
+			if err = json.Unmarshal(b, &journal); err != nil {
+				return fmt.Errorf("повреждён журнал firewall: %w", err)
+			}
+			for _, rule := range journal.Rules {
+				if (rule.Tool != "iptables" && rule.Tool != "ip6tables") || !strings.Contains(strings.Join(rule.Args, " "), "--comment keenetic-pilot") {
+					return errors.New("неизвестное правило в журнале; очистка прервана")
+				}
+			}
+			r.rules = journal.Rules
+			r.liberal = journal.Liberal
+			r.acct = journal.Acct
+		}
+	}
 	err := RemoveRules(RunCommand, r.rules)
 	if r.cmd != nil {
 		_ = r.cmd.Process.Signal(syscall.SIGTERM)
@@ -192,7 +241,7 @@ func (r *Router) stop() error {
 		}
 		r.cmd = nil
 	}
-	r.restoreSysctl()
+	err = errors.Join(err, r.restoreSysctl())
 	if err == nil && r.rules != nil {
 		r.rules = nil
 		_ = os.Remove(r.journal)

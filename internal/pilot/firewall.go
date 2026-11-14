@@ -2,8 +2,10 @@ package pilot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
+	"slices"
 	"strconv"
 	"time"
 )
@@ -17,11 +19,17 @@ type Rule struct {
 
 type Runner func(string, ...string) error
 
+var ErrRuleAbsent = errors.New("firewall rule absent")
+
 func RunCommand(name string, args ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
 	if err != nil {
+		var exit *exec.ExitError
+		if slices.Contains(args, "-C") && errors.As(err, &exit) && exit.ExitCode() == 1 {
+			return ErrRuleAbsent
+		}
 		if len(out) > 1024 {
 			out = out[:1024]
 		}
@@ -87,8 +95,12 @@ func EnsureRules(run Runner, rules []Rule) error {
 	// execute before NFQUEUE on the same PREROUTING chain.
 	for i := len(rules) - 1; i >= 0; i-- {
 		r := rules[i]
-		if run(r.Tool, r.command("-C")...) == nil {
+		err := run(r.Tool, r.command("-C")...)
+		if err == nil {
 			continue
+		}
+		if !errors.Is(err, ErrRuleAbsent) {
+			return err
 		}
 		if err := run(r.Tool, r.command("-I")...); err != nil {
 			return err
@@ -102,7 +114,14 @@ func RemoveRules(run Runner, rules []Rule) error {
 	for i := len(rules) - 1; i >= 0; i-- {
 		r := rules[i]
 		for n := 0; n < 8; n++ {
-			if run(r.Tool, r.command("-C")...) != nil {
+			err := run(r.Tool, r.command("-C")...)
+			if errors.Is(err, ErrRuleAbsent) {
+				break
+			}
+			if err != nil {
+				if first == nil {
+					first = err
+				}
 				break
 			}
 			if err := run(r.Tool, r.command("-D")...); err != nil {

@@ -10,10 +10,12 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 )
 
-const Version = "0.1.0"
+// Overridden by the release build; development binaries identify themselves.
+var Version = "dev"
 
 type Target struct {
 	URL      string `json:"url"`
@@ -90,7 +92,8 @@ func (c Config) Validate() error {
 		return errors.New("панель разрешено привязывать только к конкретному LAN или loopback IP")
 	}
 	_, port, _ := net.SplitHostPort(c.Listen)
-	if port == "" || port == "0" {
+	portNumber, portErr := strconv.Atoi(port)
+	if portErr != nil || portNumber < 1 || portNumber > 65535 {
 		return errors.New("listen: нужен фиксированный порт")
 	}
 	if c.Attempts < 1 || c.Attempts > 3 || c.TimeoutSeconds < 2 || c.TimeoutSeconds > 20 || c.IntervalMinutes < 5 || c.IntervalMinutes > 1440 {
@@ -128,7 +131,12 @@ func (c Config) Validate() error {
 			}
 			domains = append(domains, d)
 		}
+		urls := map[string]bool{}
 		for _, t := range p.Targets {
+			if urls[t.URL] {
+				return errors.New("контрольные адреса профиля не должны повторяться")
+			}
+			urls[t.URL] = true
 			u, err := url.Parse(t.URL)
 			if err != nil || u.Scheme != "https" || u.User != nil || u.Fragment != "" || u.Port() != "" || !ValidDomain(u.Hostname()) || len(t.URL) > 2048 {
 				return errors.New("проверка: требуется публичный HTTPS URL без порта, пароля и фрагмента")

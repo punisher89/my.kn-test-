@@ -1,0 +1,23 @@
+name: Build and validate Keenetic Pilot
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Native tests, pinned engine, package lifecycle and cross compilation
+        run: sh scripts/check.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: keenetic-pilot-alpha-packages
+          path: dist/
+          if-no-files-found: error

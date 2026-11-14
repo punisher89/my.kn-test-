@@ -2,8 +2,10 @@ package pilot
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -51,7 +53,14 @@ type Manager struct {
 }
 
 func NewManager(c Config, path string, b Backend, p Prober, log *LogBuffer) *Manager {
-	return &Manager{c: c, path: path, backend: b, prober: p, log: log}
+	m := &Manager{c: c, path: path, backend: b, prober: p, log: log}
+	if data, err := os.ReadFile(filepath.Join(filepath.Dir(path), "last-tune.json")); err == nil {
+		var job Job
+		if json.Unmarshal(data, &job) == nil && job.Finished != nil {
+			m.job = &job
+		}
+	}
+	return m
 }
 
 func cloneConfig(c Config) Config {
@@ -163,6 +172,10 @@ func (m *Manager) Boot() {
 		if err := m.backend.Start(m.Config()); err != nil {
 			m.setError(err)
 		}
+	} else {
+		if err := m.backend.Stop(); err != nil {
+			m.setError(err)
+		}
 	}
 }
 
@@ -241,10 +254,15 @@ func (m *Manager) finish(selected string, err error) {
 func (m *Manager) tune(ctx context.Context, old Config, idx int) {
 	p := old.Profiles[idx]
 	committed := false
+	var cause error
 	defer func() {
 		if !committed {
 			err := m.backend.Start(old)
-			m.finish("", errors.Join(errors.New("рабочий вариант не выбран; восстановлена предыдущая конфигурация"), ctx.Err(), err))
+			message := "рабочий вариант не выбран; предыдущая конфигурация восстановлена"
+			if err != nil {
+				message = "рабочий вариант не выбран; восстановить предыдущую конфигурацию не удалось"
+			}
+			m.finish("", errors.Join(errors.New(message), cause, ctx.Err(), err))
 		}
 	}()
 	baseline := m.prober.Check(ctx, p, old, true)
@@ -284,7 +302,7 @@ func (m *Manager) tune(ctx context.Context, old Config, idx int) {
 	// engine restart, not merely a lucky request from the previous process.
 	m.stage("confirm")
 	if err := m.backend.Start(candidate); err != nil {
-		m.log.Add(err.Error())
+		cause = err
 		return
 	}
 	confirmation := m.prober.Check(ctx, p, candidate, false)
@@ -294,11 +312,11 @@ func (m *Manager) tune(ctx context.Context, old Config, idx int) {
 		return
 	}
 	if err := WriteJSON(m.path+".previous", old); err != nil {
-		m.log.Add(err.Error())
+		cause = err
 		return
 	}
 	if err := m.save(candidate); err != nil {
-		m.log.Add(err.Error())
+		cause = err
 		return
 	}
 	committed = true
