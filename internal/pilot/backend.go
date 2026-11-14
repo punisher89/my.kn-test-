@@ -1,7 +1,6 @@
 package pilot
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -120,17 +119,16 @@ func (r *Router) Start(c Config) error {
 	if err := r.stop(); err != nil {
 		return err
 	}
-	liberalPath := "/proc/sys/net/netfilter/nf_conntrack_tcp_be_liberal"
-	acctPath := "/proc/sys/net/netfilter/nf_conntrack_acct"
 	var err error
-	r.liberal, err = os.ReadFile(liberalPath)
+	r.liberal, r.acct, err = readConntrackSettings(conntrackSysctlDir)
 	if err != nil {
 		return err
 	}
-	r.acct, err = os.ReadFile(acctPath)
-	if err != nil {
-		r.liberal = nil
-		return err
+	if len(r.acct) == 0 {
+		r.log.Add("nf_conntrack_acct не предоставлен прошивкой: sysctl не меняется; ограничение connbytes сохраняется")
+	}
+	if len(r.liberal) == 0 {
+		r.log.Add("nf_conntrack_tcp_be_liberal не предоставлен прошивкой: sysctl не меняется")
 	}
 	r.rules = FirewallRules(c)
 	// Journal original settings BEFORE mutating them, so a crash can be cleaned
@@ -141,10 +139,8 @@ func (r *Router) Start(c Config) error {
 		r.acct = nil
 		return err
 	}
-	for _, path := range []string{liberalPath, acctPath} {
-		if err := os.WriteFile(path, []byte("1"), 0644); err != nil {
-			return errors.Join(err, r.stop())
-		}
+	if err := enableConntrackSettings(conntrackSysctlDir, r.liberal, r.acct); err != nil {
+		return errors.Join(err, r.stop())
 	}
 	r.cmd = exec.Command(binary, args...)
 	r.cmd.Stdout = r.log
@@ -197,7 +193,7 @@ func (r *Router) restoreSysctl() error {
 		if len(value) == 0 {
 			continue
 		}
-		if err := os.WriteFile(path, bytes.TrimSpace(value), 0644); err != nil {
+		if err := writeExistingSysctl(path, value); err != nil && !os.IsNotExist(err) {
 			r.log.Add("Не удалось восстановить sysctl: " + err.Error())
 			first = errors.Join(first, err)
 		}
