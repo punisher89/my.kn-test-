@@ -37,6 +37,17 @@ opkg update && opkg install curl ca-bundle && curl -fsSL https://raw.githubuserc
 настройки сохраняются. Панель прежней версии, доступная только на loopback,
 при простой установке переводится на определённый LAN-адрес.
 
+## Удалить одной командой
+
+В SSH Entware от root:
+
+```sh
+sh /opt/keenetic-pilot/scripts/uninstall.sh
+```
+
+Команда сама остановит службу и удалит приложение, автозапуск и хук Pilot.
+Пароль, настройки, отчёты и резервные копии сохранятся для повторной установки.
+
 ## Макет
 
 ![Обзор панели](design/screenshots/overview.png)
