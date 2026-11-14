@@ -2,6 +2,8 @@ package pilot
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -84,6 +86,43 @@ func TestFirewallOrderIdempotenceAndExactRemoval(t *testing.T) {
 		if slices.Contains(r.Args, "NFQUEUE") && !slices.Contains(r.Args, "--queue-bypass") {
 			t.Fatal("queue is not fail-open")
 		}
+	}
+}
+
+func TestLegacyIptablesWaitSyntaxThroughRealRunner(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "calls")
+	// This executable reproduces the old parser: -w is a flag, its next
+	// argument must be another option, not a numeric lock timeout.
+	script := "#!/bin/sh\n[ \"$1\" = -w ] || exit 2\nshift\ncase \"$1\" in [0-9]*) echo \"Bad argument timeout\" >&2; exit 2;; esac\nprintf '%s\\n' \"$*\" >> \"$PILOT_LEGACY_LOG\"\nfor a in \"$@\"; do [ \"$a\" != -C ] || exit 1; done\nexit 0\n"
+	for _, tool := range []string{"iptables", "ip6tables"} {
+		if err := os.WriteFile(filepath.Join(dir, tool), []byte(script), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("PILOT_LEGACY_LOG", log)
+	c := DefaultConfig()
+	c.WAN = "ppp0"
+	c.IPv6 = true
+	if err := EnsureRules(RunCommand, FirewallRules(c)); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveRules(RunCommand, FirewallRules(c)); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunCommand("iptables", "-w", "-t", "mangle", "-S"); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunCommand("iptables", "-w", "5", "-t", "mangle", "-S"); err == nil {
+		t.Fatal("legacy parser fixture does not reject numeric wait")
+	}
+	data, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "-I") || !strings.Contains(string(data), "-C") {
+		t.Fatal("rule operations did not execute")
 	}
 }
 

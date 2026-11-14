@@ -152,7 +152,7 @@ func Diagnose(c Config) []DoctorCheck {
 		tools = append(tools, "ip6tables")
 	}
 	for _, tool := range tools {
-		add(tool, RunCommand(tool, "-w", "5", "-t", "mangle", "-S"), "таблица mangle доступна")
+		add(tool, RunCommand(tool, "-w", "-t", "mangle", "-S"), "таблица mangle доступна")
 	}
 	return r
 }

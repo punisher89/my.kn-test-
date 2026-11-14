@@ -83,7 +83,9 @@ func FirewallRules(c Config) []Rule {
 }
 
 func (r Rule) command(op string) []string {
-	a := []string{"-w", "5", "-t", r.Table, op, r.Chain}
+	// Entware iptables 1.4.21 accepts -w but not a following timeout value.
+	// RunCommand bounds the whole process, including lock waiting, to 10s.
+	a := []string{"-w", "-t", r.Table, op, r.Chain}
 	if op == "-I" {
 		a = append(a, "1")
 	}
