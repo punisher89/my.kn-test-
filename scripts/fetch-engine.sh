@@ -28,6 +28,7 @@ fi
 printf '%s  %s\n' "$ENGINE_SHA256" "$ARCHIVE" | sha256sum -c -
 tar -xzf "$ARCHIVE" -C "$STAGE" "$ENGINE_ROOT/binaries/$ENGINE_ARCH/nfqws2" "$ENGINE_ROOT/lua"
 mkdir "$STAGE/result"
+chmod 0755 "$STAGE/result"
 cp "$STAGE/$ENGINE_ROOT/binaries/$ENGINE_ARCH/nfqws2" "$STAGE/result/nfqws2"
 cp -R "$STAGE/$ENGINE_ROOT/lua" "$STAGE/result/lua"
 chmod 755 "$STAGE/result/nfqws2" "$STAGE/result/lua"

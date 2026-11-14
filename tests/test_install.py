@@ -13,6 +13,8 @@ import json
 import http.cookiejar
 import urllib.request
 import urllib.error
+import shutil
+import stat
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -109,6 +111,28 @@ class Installation(unittest.TestCase):
         self.assertEqual(token_before, self.token_path.read_bytes())
         self.assertEqual(self.health()["mode"], "router")
         self.assertFalse(list(self.prefix.glob("keenetic-pilot.backup.*")))
+
+    def test_engine_resources_readable_after_privilege_drop(self):
+        app=self.prefix/'keenetic-pilot'
+        for directory in [app,app/'engine',app/'engine/lua']:
+            self.assertTrue(directory.stat().st_mode & stat.S_IXOTH, f"missing traversal: {directory.name}")
+        for lua in (app/'engine/lua').glob('*.gz'):
+            self.assertTrue(lua.stat().st_mode & stat.S_IROTH, f"unreadable Lua: {lua.name}")
+        self.assertEqual(self.config.parent.stat().st_mode & 0o777,0o700)
+        self.assertEqual(self.token_path.stat().st_mode & 0o777,0o600)
+
+    def test_root_installer_with_real_nfqws_privilege_drop(self):
+        if not shutil.which('sudo') or subprocess.run(['sudo','-n','true'],capture_output=True).returncode:
+            self.skipTest('passwordless sudo unavailable; actual root-to-unprivileged transition requires CI or router')
+        self.base.chmod(0o711)
+        prefix=self.base/'root-install'
+        prefix.mkdir(mode=0o755)
+        try:
+            # --no-start performs the real root dry-run but never starts packet interception.
+            result=subprocess.run(['sudo','-n','env','PILOT_ENGINE_ARCHIVE='+self.archive,'sh',str(self.package_dir/'scripts/install.sh'),'--prefix',str(prefix),'--wan','lo','--listen',f'127.0.0.1:{self.port}','--no-start'],capture_output=True,text=True,timeout=60)
+            self.assertEqual(result.returncode,0,'root dry-run failed: '+result.stderr)
+        finally:
+            subprocess.run(['sudo','-n','rm','-rf','--',str(prefix)],check=True)
 
     def test_modified_controller_package_is_rejected_before_update(self):
         (self.package_dir / "README.md").write_text("modified after packaging")

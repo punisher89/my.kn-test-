@@ -49,6 +49,9 @@ for OWNED in "$APP" "$INIT" "$HOOK"; do
 done
 mkdir -p "$PREFIX" "$PREFIX/etc/init.d" "$PREFIX/etc/ndm/netfilter.d" "$PREFIX/var/run" "$PREFIX/var/log"
 STAGE=$(mktemp -d "$PREFIX/.pilot-install.XXXXXX")
+# nfqws2 drops to an unprivileged UID before reading Lua. Allow traversal,
+# not directory listing. Configuration/key files retain their private modes.
+chmod 0711 "$STAGE"
 SWAPPED=0
 OLD_STOPPED=0
 HAD_APP=0
@@ -72,6 +75,7 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 cp -R "$BASE" "$STAGE/app"
+chmod 0755 "$STAGE/app"
 sh "$STAGE/app/scripts/fetch-engine.sh" "$STAGE/app/engine" "$ARCH"
 "$STAGE/app/bin/pilot" --version
 if [ -f "$CONFIG_DIR/config.json" ]; then
