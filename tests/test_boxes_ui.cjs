@@ -9,7 +9,7 @@ const read = (name) => fs.readFileSync(path.join(root, name));
 const demo = JSON.parse(read('design/demo-state.json'));
 const snapshot = JSON.parse(read('design/demo-adaptive.json'));
 const firstID = snapshot.boxes[0].id;
-let calls = 0, fail = false, holdResponse;
+let calls = 0, fail = false, diagnosticFail = false, holdResponse;
 (async () => {
   const browser = await chromium.launch({ headless: true, executablePath: process.env.PILOT_CHROMIUM });
   try {
@@ -22,6 +22,10 @@ let calls = 0, fail = false, holdResponse;
       const json = (body, status = 200) => route.fulfill({ status, json: body });
       if (url.pathname === '/auth/status') return json({ configured: true, authenticated: true });
       if (url.pathname === '/api/status') return json(demo);
+      if (url.pathname === '/api/diagnostics') {
+        if (diagnosticFail) return json({error:'Ошибка тестового экспорта'}, 503);
+        return json({schema_version:1, generated_at:new Date().toISOString(), service:{mode:'mockup'}, current:snapshot.boxes.flatMap(b=>b.hosts), notes:['Synthetic test report, no router connection']});
+      }
       if (url.pathname === '/api/adaptive') {
         calls++;
         if (holdResponse) await new Promise((resolve) => { holdResponse.resolve = resolve; });
@@ -42,6 +46,26 @@ let calls = 0, fail = false, holdResponse;
     assert.equal(await cards.count(), 0, 'Search and status must match the same host');
     await search.fill('googlevideo.com');
     assert.equal(await cards.count(), 1);
+    const downloaded = page.waitForEvent('download');
+    await page.locator('#adaptive-download').click();
+    const download = await downloaded;
+    assert.match(download.suggestedFilename(), /^keenetic-pilot-diagnostics-.*\.json$/);
+    const chunks = [];
+    for await (const chunk of await download.createReadStream()) chunks.push(chunk);
+    const report = JSON.parse(Buffer.concat(chunks).toString());
+    assert.equal(report.schema_version, 1);
+    assert.equal(report.current.length, snapshot.boxes.flatMap(b=>b.hosts).length, 'Export is independent of current filters');
+    assert.equal(await page.locator('#adaptive-download').isEnabled(), true);
+    diagnosticFail = true;
+    let downloads = 0;
+    const countDownload = () => downloads++;
+    page.on('download', countDownload);
+    await page.locator('#adaptive-download').click();
+    await page.waitForFunction(() => !document.querySelector('#adaptive-download').disabled);
+    assert.match(await page.locator('#toast').innerText(), /Не удалось скачать диагностику/);
+    assert.equal(downloads, 0, 'Failed requests must not produce a report');
+    page.off('download', countDownload);
+    diagnosticFail = false;
     await search.fill('');
     await filter.selectOption('all');
     const card = page.locator(`[data-box="${firstID}"]`);
@@ -126,6 +150,6 @@ let calls = 0, fail = false, holdResponse;
     await page.setViewportSize({ width: 390, height: 844 });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'Mobile view must fit the viewport');
     assert.deepEqual(errors, []);
-    console.log('PASS: search, effective filters, polling, drafts, focus, expanded sections, errors, navigation races, mobile layout');
+    console.log('PASS: search, effective filters, polling, drafts, focus, expanded sections, errors, navigation races, diagnostic downloads and failures, mobile layout');
   } finally { await browser.close(); }
 })().catch((error) => { console.error(error); process.exitCode = 1; });

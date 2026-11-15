@@ -2,6 +2,7 @@
 """Local, read-only UI mockup. No packet engine, router access or real probes."""
 
 import json
+from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -38,6 +39,17 @@ class Handler(SimpleHTTPRequestHandler):
                 f"sessionStorage.setItem('pilot-token', '{DEMO_TOKEN}');".encode(),
                 "application/javascript",
             )
+        if self.path == "/api/diagnostics":
+            adaptive = json.loads((HERE / "demo-adaptive.json").read_text())
+            state = json.loads((HERE / "demo-state.json").read_text())
+            return self.send({
+                "schema_version": 1, "sample": True,
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "version": state["version"], "service": {"mode": "mockup"},
+                "current": adaptive["hosts"], "history": adaptive["history"],
+                "discovered": adaptive["discovered"],
+                "notes": ["МАКЕТ: пример отчёта, без подключения к роутеру."],
+            })
         if self.path == "/api/adaptive":
             return self.send((HERE / "demo-adaptive.json").read_bytes())
         if self.path == "/api/status":

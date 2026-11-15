@@ -77,6 +77,11 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		jsonReply(w, 200, map[string]string{"status": "ok", "version": Version, "mode": m.backend.Kind()})
 	})
+	api("GET /api/diagnostics", func(w http.ResponseWriter, r *http.Request) {
+		report := m.Diagnostics()
+		w.Header().Set("Content-Disposition", `attachment; filename="keenetic-pilot-diagnostics-`+report.GeneratedAt.Format("20060102T150405Z")+`.json"`)
+		jsonReply(w, 200, report)
+	})
 	api("GET /api/status", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, m.Snapshot()) })
 	api("POST /api/catalog/update", func(w http.ResponseWriter, r *http.Request) {
 		if err := m.UpdateCatalog(r.Context()); err != nil {

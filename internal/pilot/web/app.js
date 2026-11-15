@@ -262,7 +262,7 @@ function renderPage() {
                     "Коробки обхода",
                     "Группы наблюдений, найденные методы и история их проверки.",
                   ) +
-                  `<div class="adaptive-heading"><details><summary>Как работают коробки</summary><p>Сходные признаки помогают выбирать кандидатов. Каждое новое соединение проверяется отдельно; группа не означает опознанное устройство провайдера.</p></details><button id="adaptive-refresh">Обновить</button></div>${adaptiveToolbar()}<div id="adaptive-results">Загрузка…</div>`
+                  `<div class="adaptive-heading"><details><summary>Как работают коробки</summary><p>Сходные признаки помогают выбирать кандидатов. Каждое новое соединение проверяется отдельно; группа не означает опознанное устройство провайдера.</p><p>«Скачать диагностику» сохраняет полный снимок методов и истории в JSON, независимо от фильтров. Файл содержит домены и имя WAN-интерфейса; пароли, токены, журналы и контрольные URL не включаются. На роутере ничего не меняется.</p></details><div class="adaptive-actions"><button id="adaptive-download" title="JSON с доменами и историей; без паролей и токенов">Скачать диагностику</button><button id="adaptive-refresh">Обновить</button></div></div>${adaptiveToolbar()}<div id="adaptive-results">Загрузка…</div>`
                 : page === "connect"
                   ? connectPage()
                   : heading(
@@ -292,6 +292,7 @@ async function action(fn) {
 }
 function bindActions() {
   $("#adaptive-refresh")?.addEventListener("click", loadAdaptive);
+  $("#adaptive-download")?.addEventListener("click", downloadDiagnostics);
   $("#adaptive-search")?.addEventListener("input", (event) => {
     adaptiveQuery = event.target.value;
     renderAdaptive();
@@ -604,6 +605,26 @@ function boxCard(b, enabled = true) {
     <details data-view-key="${esc(b.id)}/history"><summary>История · ${b.history.length}</summary>${observationTable([...b.history].reverse(), true)}</details>
     <small class="box-updated">Наблюдение: ${esc(new Date(b.updated * 1000).toLocaleString("ru-RU"))}</small>
   </article>`;
+}
+async function downloadDiagnostics(event) {
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    const report = await api("diagnostics");
+    const blob = new Blob([JSON.stringify(report, null, 2) + "\n"], { type: "application/json" });
+    const url = URL.createObjectURL(blob), link = document.createElement("a");
+    link.href = url;
+    link.download = "keenetic-pilot-diagnostics-" + new Date(report.generated_at).toISOString().replace(/[:.]/g, "-") + ".json";
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    notify("Диагностика подготовлена. Файл содержит домены и историю соединений.");
+  } catch (error) {
+    notify("Не удалось скачать диагностику: " + error.message, true);
+  } finally {
+    button.disabled = false;
+  }
 }
 let adaptiveData = null,
   adaptiveQuery = "",
