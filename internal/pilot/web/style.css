@@ -1280,3 +1280,30 @@ summary {
 @media (max-width: 600px) {
   .adaptive-toolbar { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Compact box overview; observations and controls remain available on demand. */
+.adaptive-heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.adaptive-heading details { color: var(--muted); max-width: 680px; margin: 0; padding: 0; border: 0; }
+.adaptive-heading summary { cursor: pointer; margin: 0; }
+.adaptive-heading button { flex-shrink: 0; }
+.adaptive-rules { padding: 14px 18px; margin-top: 0; }
+.adaptive-rules > summary { cursor: pointer; font-weight: 600; margin: 0; }
+.adaptive-note { color: var(--muted); font-size: 12px; margin: 12px 0; }
+.box-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 350px), 1fr)); gap: 12px; }
+.bypass-box { padding: 16px; }
+.bypass-box .panel-head { margin-bottom: 6px; align-items: center; }
+.bypass-box .panel-head h2 { font-size: 15px; margin: 0; }
+.box-context { color: var(--muted); font-size: 11px; line-height: 1.5; margin: 0 0 10px; overflow-wrap: anywhere; }
+.box-domains { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; min-width: 0; }
+.box-domains span { min-width: 0; max-width: 44%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--muted); }
+.box-domains small { white-space: nowrap; color: var(--muted); }
+.bypass-box .box-methods { gap: 6px; margin: 8px 0 12px; }
+.bypass-box .box-method { display: block; padding: 8px 10px; }
+.box-method-line { display: flex; align-items: start; justify-content: space-between; gap: 8px; }
+.box-method-line strong { min-width: 0; font-size: 12px; line-height: 1.5; }
+.box-method-line .badge { flex-shrink: 0; font-size: 10px; padding: 3px 6px; }
+.bypass-box .box-method > small { display: block; margin-top: 3px; font-size: 10px; color: var(--muted); overflow-wrap: anywhere; }
+.bypass-box details { padding: 9px 0; margin: 0; font-size: 12px; }
+.bypass-box summary { margin: 0; }
+.bypass-box details[open] > summary, .adaptive-rules[open] > summary { margin-bottom: 10px; }
+.box-updated { display: block; color: var(--muted); font-size: 10px; margin-top: 8px; }

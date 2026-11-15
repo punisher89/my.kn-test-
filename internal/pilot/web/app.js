@@ -262,7 +262,7 @@ function renderPage() {
                     "Коробки обхода",
                     "Группы наблюдений, найденные методы и история их проверки.",
                   ) +
-                  `<div class="panel"><div class="panel-head"><h2>Опыт вашей сети</h2><button id="adaptive-refresh">Обновить</button></div><p>Сходные признаки помогают выбирать кандидатов. Каждое новое соединение проверяется отдельно; группа не означает опознанное устройство провайдера.</p></div>${adaptiveToolbar()}<div id="adaptive-results">Загрузка…</div>`
+                  `<div class="adaptive-heading"><details><summary>Как работают коробки</summary><p>Сходные признаки помогают выбирать кандидатов. Каждое новое соединение проверяется отдельно; группа не означает опознанное устройство провайдера.</p></details><button id="adaptive-refresh">Обновить</button></div>${adaptiveToolbar()}<div id="adaptive-results">Загрузка…</div>`
                 : page === "connect"
                   ? connectPage()
                   : heading(
@@ -487,7 +487,7 @@ function controlData(host, scope) {
 }
 function domainControls(b, domains) {
   const scope = controlScope(b);
-  return `<details class="domain-management"><summary>Управление доменами</summary><p class="subtle">Закрепление: ${esc(scopeText(scope))}. Пауза охватывает домен и поддомены. Сброс удаляет опыт только выбранного имени во всех контекстах.</p>${domains
+  return `<details class="domain-management" data-view-key="${esc(b.id)}/controls"><summary>Управление доменами</summary><p class="subtle">Закрепление: ${esc(scopeText(scope))}. Пауза охватывает домен и поддомены. Сброс удаляет опыт только выбранного имени во всех контекстах.</p>${domains
     .map((host) => {
       const pin = matchingPin(host, scope),
         ownPause = (state.config.paused_domains || []).includes(host),
@@ -506,7 +506,7 @@ function domainControls(b, domains) {
 function manualRules() {
   const pins = state.config.domain_pins || [],
     paused = state.config.paused_domains || [];
-  return `<section class="panel"><div class="panel-head"><h2>Ручные правила</h2>${badge(pins.length + " закреплений · " + paused.length + " пауз", "neutral")}</div><p>Изменения правил и сброс обучения перезапускают работающий движок; возможен краткий перерыв. Закрепления действуют и при выключенном автоподборе по трафику.</p>${pins.map((p) => `<div class="manual-rule"><div><strong>${esc(p.host)}</strong><small>${esc(strategyName(p.strategy))} · ${esc(scopeText(p))}</small></div><button type="button" data-domain-action="unpin" ${controlData(p.host, p)}>Снять закрепление</button></div>`).join("")}${paused.map((host) => `<div class="manual-rule"><div><strong>${esc(host)}</strong><small>Пауза обработки по имени, включая поддомены</small></div><button type="button" data-domain-action="resume" data-host="${esc(host)}">Возобновить</button></div>`).join("")}${!pins.length && !paused.length ? '<p class="subtle">Выберите «Управление доменами» в карточке коробки, чтобы добавить правило.</p>' : ""}</section>`;
+  return `<details class="panel adaptive-rules" data-view-key="manual-rules"><summary>Ручные правила · ${pins.length} закреплений · ${paused.length} пауз</summary><p>Изменения правил и сброс обучения перезапускают работающий движок; возможен краткий перерыв. Закрепления действуют и при выключенном автоподборе по трафику.</p>${pins.map((p) => `<div class="manual-rule"><div><strong>${esc(p.host)}</strong><small>${esc(strategyName(p.strategy))} · ${esc(scopeText(p))}</small></div><button type="button" data-domain-action="unpin" ${controlData(p.host, p)}>Снять закрепление</button></div>`).join("")}${paused.map((host) => `<div class="manual-rule"><div><strong>${esc(host)}</strong><small>Пауза обработки по имени, включая поддомены</small></div><button type="button" data-domain-action="resume" data-host="${esc(host)}">Возобновить</button></div>`).join("")}${!pins.length && !paused.length ? '<p class="subtle">Выберите «Управление доменами» в карточке коробки, чтобы добавить правило.</p>' : ""}</details>`;
 }
 function bindDomainControls(root) {
   const submit = (button, data) =>
@@ -556,7 +556,7 @@ function bindDomainControls(root) {
     }),
   );
 }
-function currentBoxMethods(rows, enabled = true) {
+function currentBoxMethods(rows, enabled = true, compact = false) {
   if (!rows.length)
     return '<p class="subtle">В этой коробке осталась только история. Текущих наблюдений нет.</p>';
   const groups = new Map();
@@ -576,9 +576,10 @@ function currentBoxMethods(rows, enabled = true) {
     item.count++;
     groups.set(key, item);
   }
-  return [...groups.values()].map((m) =>
-    `<div class="box-method"><strong>${esc(m.method === "none" ? "Без вмешательства" : strategyName(m.method))}</strong><small>Доменов: ${m.count}${m.pinned ? " · закреплено вручную" : ""}</small>${badge(m.status, m.status === "Есть ответ" ? "" : "neutral")}${m.hold ? `<small>${esc(m.hold.label)}<br>Снятие ограничения: ${esc(new Date(m.earliest * 1000).toLocaleString("ru-RU"))}${m.latest !== m.earliest ? " — " + esc(new Date(m.latest * 1000).toLocaleString("ru-RU")) : ""}</small>` : ""}</div>`
-  ).join("");
+  const methods = [...groups.values()];
+  return methods.slice(0, compact ? 2 : methods.length).map((m) =>
+    `<div class="box-method"><div class="box-method-line"><strong>${esc(m.method === "none" ? "Без вмешательства" : strategyName(m.method))}</strong>${badge(m.status, m.status === "Есть ответ" ? "" : "neutral")}</div><small>Доменов: ${m.count}${m.pinned ? " · закреплено вручную" : ""}</small>${m.hold ? `<small>${esc(m.hold.label)}<br>Снятие ограничения: ${esc(new Date(m.earliest * 1000).toLocaleString("ru-RU"))}${m.latest !== m.earliest ? " — " + esc(new Date(m.latest * 1000).toLocaleString("ru-RU")) : ""}</small>` : ""}</div>`
+  ).join("") + (compact && methods.length > 2 ? `<small class="subtle">Остальные методы и состояния — в разделе «Домены и методы».</small>` : "");
 }
 function boxExperienceEmpty(b) {
   if (!b.hosts.length) return "Текущих наблюдений нет; прежние попытки доступны в истории.";
@@ -592,7 +593,17 @@ function boxCard(b, enabled = true) {
   const domains = [
     ...new Set([...b.hosts, ...b.history].map((r) => r.host)),
   ].sort();
-  return `<article class="panel bypass-box" data-box="${esc(b.id)}"><div class="panel-head"><h2>HTTPS · ${esc(tlsLabels[b.tls] || tlsLabels.unknown)}</h2>${badge(b.family === "ipv6" ? "IPv6" : b.family === "ipv4" ? "IPv4" : "IP не определён", "neutral")}</div><p class="box-symptom">${esc(symptomLabels[b.symptom] || symptomLabels.unknown)}</p><div class="info-line"><span>Подключение</span><span>${esc(b.network === "-" ? "Не записано" : b.network)} · ${b.port || "порт не записан"}</span></div><div class="info-line"><span>Домены</span><span>${domains.length}</span></div><h3>Текущие методы доменов</h3><div class="box-methods">${currentBoxMethods(b.hosts, enabled)}</div><h3>Опыт обхода</h3><div class="box-methods">${b.methods.length ? b.methods.map((m) => `<div class="box-method"><strong>${esc(m.name)}</strong><small>${esc(familyLabels[m.family] || familyLabels.other)} · ответ на ${m.hosts} доменах</small>${badge(m.reusable ? "Кандидат по опыту" : "Сохранённое наблюдение", m.reusable ? "" : "neutral")}</div>`).join("") : `<p class="subtle">${esc(boxExperienceEmpty(b))}</p>`}</div><details><summary>Домены и текущие методы</summary><p class="domain-list">${domains.map((d) => `<span>${esc(d)}</span>`).join("")}</p>${observationTable(b.hosts, false, enabled)}</details>${domainControls(b, domains)}<details><summary>История попыток · ${b.history.length}</summary>${observationTable([...b.history].reverse(), true)}</details><small class="subtle">Последнее наблюдение: ${esc(new Date(b.updated * 1000).toLocaleString("ru-RU"))}</small></article>`;
+  return `<article class="panel bypass-box" data-box="${esc(b.id)}">
+    <div class="panel-head"><h2>${esc(tlsLabels[b.tls] || tlsLabels.unknown)} · ${esc(b.family === "ipv6" ? "IPv6" : b.family === "ipv4" ? "IPv4" : "IP не определён")}</h2><span class="subtle">Домены: ${domains.length}</span></div>
+    <p class="box-context">${esc(symptomLabels[b.symptom] || symptomLabels.unknown)} · ${esc(b.network === "-" ? "WAN не записан" : b.network)}${b.port ? ":" + b.port : ""}</p>
+    <p class="box-domains">${domains.slice(0, 2).map((d) => `<span title="${esc(d)}">${esc(d)}</span>`).join("")}${domains.length > 2 ? `<small>ещё ${domains.length - 2}</small>` : ""}</p>
+    <div class="box-methods box-current" aria-label="Текущие методы доменов">${currentBoxMethods(b.hosts, enabled, true)}</div>
+    <details data-view-key="${esc(b.id)}/observations"><summary>Домены и методы · ${domains.length}</summary>${currentBoxMethods(b.hosts, enabled)}${observationTable(b.hosts, false, enabled)}</details>
+    <details data-view-key="${esc(b.id)}/experience"><summary>Опыт обхода · ${b.methods.length}</summary><div class="box-methods">${b.methods.length ? b.methods.map((m) => `<div class="box-method"><div class="box-method-line"><strong>${esc(m.name)}</strong>${badge(m.reusable ? "Кандидат по опыту" : "Сохранённое наблюдение", m.reusable ? "" : "neutral")}</div><small>${esc(familyLabels[m.family] || familyLabels.other)} · ответ на ${m.hosts} доменах</small></div>`).join("") : `<p class="subtle">${esc(boxExperienceEmpty(b))}</p>`}</div></details>
+    ${domainControls(b, domains)}
+    <details data-view-key="${esc(b.id)}/history"><summary>История · ${b.history.length}</summary>${observationTable([...b.history].reverse(), true)}</details>
+    <small class="box-updated">Наблюдение: ${esc(new Date(b.updated * 1000).toLocaleString("ru-RU"))}</small>
+  </article>`;
 }
 let adaptiveData = null,
   adaptiveQuery = "",
@@ -619,10 +630,8 @@ function adaptiveFormKey(form) {
   return JSON.stringify({ box: form.closest("[data-box]").dataset.box, ...form.dataset });
 }
 function saveAdaptiveView(target) {
-  target.querySelectorAll("[data-box]").forEach((card) => {
-    card.querySelectorAll("details").forEach((detail, index) => {
-      adaptiveDetails.set(`${card.dataset.box}/${index}`, detail.open);
-    });
+  target.querySelectorAll("details[data-view-key]").forEach((detail) => {
+    adaptiveDetails.set(detail.dataset.viewKey, detail.open);
   });
 }
 function renderAdaptive() {
@@ -640,7 +649,7 @@ function renderAdaptive() {
     manualRules() +
     (!data.enabled
       ? '<div class="notice">Включите «Автоподбор по трафику» в настройках. Текущие стратегии сохранятся.</div>'
-      : '<div class="info-note">«Есть ответ» — наблюдение передачи данных. Воспроизведение видео, голос и содержимое HTTPS этим статусом не подтверждаются. После снятия ограничения смена метода возможна при новых сбоях соединений; таймер сам подбор не запускает.</div>') +
+      : '<p class="adaptive-note">«Есть ответ» — передача данных, без подтверждения видео и голоса. Смена метода после паузы возможна при новых сбоях.</p>') +
     (data.error ? `<p class="fail-text">${esc(data.error)}</p>` : "") +
     `<div class="box-summary"><span>Показано коробок: <b>${visible.length} из ${boxes.length}</b></span><span>Обнаружено новых доменов: <b>${data.discovered.length}</b></span><span>Использование опыта: <b>${data.reuse ? "включено" : "выключено"}</b></span></div>` +
     (visible.length
@@ -648,12 +657,10 @@ function renderAdaptive() {
       : boxes.length
         ? '<div class="panel empty"><h3>Совпадений нет</h3><p>Измените домен или выберите другое состояние. Поиск и состояние должны совпасть у одного домена. Карточка показывает весь контекст коробки.</p></div>'
         : '<div class="panel empty"><h3>Коробки пока не сформированы</h3><p>Включите автоподбор по трафику и откройте нужный сайт. Наблюдения появятся после ошибок или ответов настроенных сервисов. Прежние сохранённые методы продолжают действовать.</p></div>');
-  target.querySelectorAll("[data-box]").forEach((card) => {
-    card.querySelectorAll("details").forEach((detail, index) => {
-      const key = `${card.dataset.box}/${index}`;
-      detail.open = adaptiveDetails.get(key) || false;
-      detail.addEventListener("toggle", () => adaptiveDetails.set(key, detail.open));
-    });
+  target.querySelectorAll("details[data-view-key]").forEach((detail) => {
+    const key = detail.dataset.viewKey;
+    detail.open = adaptiveDetails.get(key) || false;
+    detail.addEventListener("toggle", () => adaptiveDetails.set(key, detail.open));
   });
   target.querySelectorAll(".domain-control").forEach((form) => {
     const key = adaptiveFormKey(form), select = form.elements.strategy;
