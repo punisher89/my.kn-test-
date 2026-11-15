@@ -52,6 +52,9 @@ function notify(message, error = false) {
 }
 async function logout() {
   signedIn = false;
+  adaptiveData = null;
+  adaptiveDrafts.clear();
+  adaptiveDetails.clear();
   token = "";
   sessionStorage.removeItem("pilot-token");
   $("#shell").classList.add("hidden");
@@ -216,6 +219,8 @@ async function refresh(render = false) {
     $("#job-panel").innerHTML = jobPanel();
     $("#tune-start").disabled = !state.running || state.busy;
     $("#tune-cancel").disabled = !state.job || !!state.job.finished;
+  } else if (page === "adaptive") {
+    await loadAdaptive();
   }
 }
 function updateChrome() {
@@ -257,7 +262,7 @@ function renderPage() {
                     "Коробки обхода",
                     "Группы наблюдений, найденные методы и история их проверки.",
                   ) +
-                  '<div class="panel"><div class="panel-head"><h2>Опыт вашей сети</h2><button id="adaptive-refresh">Обновить</button></div><p>Сходные признаки помогают выбирать кандидатов. Каждое новое соединение проверяется отдельно; группа не означает опознанное устройство провайдера.</p></div><div id="adaptive-results" aria-live="polite">Загрузка…</div>'
+                  `<div class="panel"><div class="panel-head"><h2>Опыт вашей сети</h2><button id="adaptive-refresh">Обновить</button></div><p>Сходные признаки помогают выбирать кандидатов. Каждое новое соединение проверяется отдельно; группа не означает опознанное устройство провайдера.</p></div>${adaptiveToolbar()}<div id="adaptive-results">Загрузка…</div>`
                 : page === "connect"
                   ? connectPage()
                   : heading(
@@ -287,6 +292,14 @@ async function action(fn) {
 }
 function bindActions() {
   $("#adaptive-refresh")?.addEventListener("click", loadAdaptive);
+  $("#adaptive-search")?.addEventListener("input", (event) => {
+    adaptiveQuery = event.target.value;
+    renderAdaptive();
+  });
+  $("#adaptive-filter")?.addEventListener("change", (event) => {
+    adaptiveFilter = event.target.value;
+    renderAdaptive();
+  });
   $("#catalog-update")?.addEventListener("click", () =>
     action(async () => {
       await api("catalog/update", "POST", {});
@@ -424,9 +437,31 @@ function eventReason(r) {
   if (r.status === "connected") return "Наблюдалась передача данных";
   return symptomLabels[r.symptom] || symptomLabels.unknown;
 }
-function observationTable(rows, history = false) {
+function currentHold(r, enabled = true, now = Date.now() / 1000) {
+  if (!enabled || r.paused || r.pinned || !(r.hold_until > now)) return null;
+  if (r.hold_reason !== "limit" && r.hold_reason !== "cooldown") return null;
+  return {
+    reason: r.hold_reason,
+    label: r.hold_reason === "limit" ? "Лимит смен за 10 минут" : "Пауза между сменами",
+    until: r.hold_until,
+  };
+}
+function currentObservationStatus(r, enabled = true) {
+  if (r.paused) return "Приостановлен";
+  if (r.pinned && r.pinned !== r.strategy) return "Ожидает наблюдений";
+  if (currentHold(r, enabled)) return "Смена отложена";
+  return observedStatus(r.status);
+}
+function currentObservationReason(r, enabled = true) {
+  if (r.paused) return "Действует ручное исключение";
+  if (r.pinned && r.pinned !== r.strategy) return "Для закреплённого метода ещё нет наблюдений";
+  const hold = currentHold(r, enabled);
+  if (hold) return `${hold.label} · до ${new Date(hold.until * 1000).toLocaleString("ru-RU")}`;
+  return eventReason(r);
+}
+function observationTable(rows, history = false, enabled = true) {
   if (!rows.length) return '<p class="subtle">Наблюдений пока нет.</p>';
-  return `<table class="probe-table"><thead><tr><th>Сайт / метод</th><th>Результат</th><th>Причина / источник</th><th>Время</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${esc(r.host)}<br><small>${esc(strategyName(r.pinned || r.strategy))}</small></td><td>${badge(r.paused ? "Приостановлен" : r.pinned ? "Закреплён" : observedStatus(r.status), r.status === "failed" ? "fail" : r.status === "connected" ? "" : "warn")}${!history && r.hold_until > Date.now() / 1000 ? `<br><small>Пауза до ${esc(new Date(r.hold_until * 1000).toLocaleTimeString("ru-RU"))}</small>` : ""}</td><td>${esc(eventReason(r))}<br><small>${esc(originLabels[r.origin] || originLabels.restored)}</small></td><td>${esc(new Date(r.updated * 1000).toLocaleString("ru-RU"))}</td></tr>`).join("")}</tbody></table>`;
+  return `<table class="probe-table"><thead><tr><th>Сайт / метод</th><th>Результат</th><th>Причина / источник</th><th>Время</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${esc(r.host)}<br><small>${esc(strategyName(history ? r.strategy : r.pinned || r.strategy))}</small></td><td>${badge(history ? observedStatus(r.status) : currentObservationStatus(r, enabled), !history && (r.paused || currentHold(r, enabled) || (r.pinned && r.pinned !== r.strategy)) ? "warn" : r.status === "failed" ? "fail" : r.status === "connected" ? "" : "warn")}${!history && r.pinned ? '<br><small>Закреплён вручную</small>' : ""}</td><td>${esc(history ? eventReason(r) : currentObservationReason(r, enabled))}<br><small>${esc(originLabels[r.origin] || originLabels.restored)}</small></td><td>${esc(new Date(r.updated * 1000).toLocaleString("ru-RU"))}</td></tr>`).join("")}</tbody></table>`;
 }
 function controlScope(b) {
   return {
@@ -479,6 +514,9 @@ function bindDomainControls(root) {
       button.disabled = true;
       try {
         await api("adaptive/domain", "POST", data);
+        for (const key of adaptiveDrafts.keys()) {
+          if (JSON.parse(key).host === data.host) adaptiveDrafts.delete(key);
+        }
         notify(
           data.action === "reset"
             ? "Обучение домена сброшено; ручные правила сохранены"
@@ -518,31 +556,130 @@ function bindDomainControls(root) {
     }),
   );
 }
-function boxCard(b) {
+function currentBoxMethods(rows, enabled = true) {
+  if (!rows.length)
+    return '<p class="subtle">В этой коробке осталась только история. Текущих наблюдений нет.</p>';
+  const groups = new Map();
+  for (const r of rows) {
+    const method = r.pinned || r.strategy;
+    const status = currentObservationStatus(r, enabled);
+    const hold = currentHold(r, enabled);
+    const key = JSON.stringify([method, status, Boolean(r.pinned), hold?.reason]);
+    const item = groups.get(key) || {
+      method, status, pinned: Boolean(r.pinned), count: 0,
+      hold, earliest: hold?.until, latest: hold?.until,
+    };
+    if (hold) {
+      item.earliest = Math.min(item.earliest, hold.until);
+      item.latest = Math.max(item.latest, hold.until);
+    }
+    item.count++;
+    groups.set(key, item);
+  }
+  return [...groups.values()].map((m) =>
+    `<div class="box-method"><strong>${esc(m.method === "none" ? "Без вмешательства" : strategyName(m.method))}</strong><small>Доменов: ${m.count}${m.pinned ? " · закреплено вручную" : ""}</small>${badge(m.status, m.status === "Есть ответ" ? "" : "neutral")}${m.hold ? `<small>${esc(m.hold.label)}<br>Снятие ограничения: ${esc(new Date(m.earliest * 1000).toLocaleString("ru-RU"))}${m.latest !== m.earliest ? " — " + esc(new Date(m.latest * 1000).toLocaleString("ru-RU")) : ""}</small>` : ""}</div>`
+  ).join("");
+}
+function boxExperienceEmpty(b) {
+  if (!b.hosts.length) return "Текущих наблюдений нет; прежние попытки доступны в истории.";
+  const active = b.hosts.filter((r) => !r.paused);
+  if (!active.length) return "Обработка доменов приостановлена ручными правилами.";
+  if (active.every((r) => (r.pinned || r.strategy) === "none" && r.status === "connected"))
+    return "Наблюдался ответ без вмешательства. Такой метод не пополняет опыт обхода.";
+  return "Методов обхода с наблюдаемым ответом пока нет. Текущие методы показаны выше; для проверки нужны новые подключения к сайту.";
+}
+function boxCard(b, enabled = true) {
   const domains = [
     ...new Set([...b.hosts, ...b.history].map((r) => r.host)),
   ].sort();
-  return `<article class="panel bypass-box" data-box="${esc(b.id)}"><div class="panel-head"><h2>HTTPS · ${esc(tlsLabels[b.tls] || tlsLabels.unknown)}</h2>${badge(b.family === "ipv6" ? "IPv6" : b.family === "ipv4" ? "IPv4" : "IP не определён", "neutral")}</div><p class="box-symptom">${esc(symptomLabels[b.symptom] || symptomLabels.unknown)}</p><div class="info-line"><span>Подключение</span><span>${esc(b.network === "-" ? "Не записано" : b.network)} · ${b.port || "порт не записан"}</span></div><div class="info-line"><span>Домены</span><span>${domains.length}</span></div><div class="box-methods">${b.methods.length ? b.methods.map((m) => `<div class="box-method"><strong>${esc(m.name)}</strong><small>${esc(familyLabels[m.family] || familyLabels.other)} · ответ на ${m.hosts} доменах</small>${badge(m.reusable ? "Кандидат по опыту" : "Сохранённое наблюдение", m.reusable ? "" : "neutral")}</div>`).join("") : '<p class="subtle">Метод с наблюдаемым ответом пока не найден.</p>'}</div><details><summary>Домены и текущие методы</summary><p class="domain-list">${domains.map((d) => `<span>${esc(d)}</span>`).join("")}</p>${observationTable(b.hosts)}</details>${domainControls(b, domains)}<details><summary>История попыток · ${b.history.length}</summary>${observationTable([...b.history].reverse(), true)}</details><small class="subtle">Последнее наблюдение: ${esc(new Date(b.updated * 1000).toLocaleString("ru-RU"))}</small></article>`;
+  return `<article class="panel bypass-box" data-box="${esc(b.id)}"><div class="panel-head"><h2>HTTPS · ${esc(tlsLabels[b.tls] || tlsLabels.unknown)}</h2>${badge(b.family === "ipv6" ? "IPv6" : b.family === "ipv4" ? "IPv4" : "IP не определён", "neutral")}</div><p class="box-symptom">${esc(symptomLabels[b.symptom] || symptomLabels.unknown)}</p><div class="info-line"><span>Подключение</span><span>${esc(b.network === "-" ? "Не записано" : b.network)} · ${b.port || "порт не записан"}</span></div><div class="info-line"><span>Домены</span><span>${domains.length}</span></div><h3>Текущие методы доменов</h3><div class="box-methods">${currentBoxMethods(b.hosts, enabled)}</div><h3>Опыт обхода</h3><div class="box-methods">${b.methods.length ? b.methods.map((m) => `<div class="box-method"><strong>${esc(m.name)}</strong><small>${esc(familyLabels[m.family] || familyLabels.other)} · ответ на ${m.hosts} доменах</small>${badge(m.reusable ? "Кандидат по опыту" : "Сохранённое наблюдение", m.reusable ? "" : "neutral")}</div>`).join("") : `<p class="subtle">${esc(boxExperienceEmpty(b))}</p>`}</div><details><summary>Домены и текущие методы</summary><p class="domain-list">${domains.map((d) => `<span>${esc(d)}</span>`).join("")}</p>${observationTable(b.hosts, false, enabled)}</details>${domainControls(b, domains)}<details><summary>История попыток · ${b.history.length}</summary>${observationTable([...b.history].reverse(), true)}</details><small class="subtle">Последнее наблюдение: ${esc(new Date(b.updated * 1000).toLocaleString("ru-RU"))}</small></article>`;
+}
+let adaptiveData = null,
+  adaptiveQuery = "",
+  adaptiveFilter = "all",
+  adaptiveLoading = false;
+const adaptiveDetails = new Map(), adaptiveDrafts = new Map();
+function adaptiveToolbar() {
+  const filters = { all: "Все состояния", probing: "Пробуется", held: "Смена отложена", connected: "Есть ответ", pinned: "Закреплён", paused: "Приостановлен" };
+  return `<div class="panel adaptive-toolbar"><label>Поиск по домену<input type="search" id="adaptive-search" placeholder="Например: youtube.com" value="${esc(adaptiveQuery)}"></label><label>Состояние домена<select id="adaptive-filter">${Object.entries(filters).map(([id, name]) => `<option value="${id}" ${id === adaptiveFilter ? "selected" : ""}>${name}</option>`).join("")}</select></label><p id="adaptive-update" class="subtle" role="status">Обновление каждые 4 секунды, пока страница открыта.</p></div>`;
+}
+function boxMatches(b, query, filter, enabled) {
+  const matchesDomain = (r) => r.host.toLowerCase().includes(query.trim().toLowerCase());
+  if (filter === "all") return [...b.hosts, ...b.history].some(matchesDomain);
+  return b.hosts.some((r) => {
+    if (!matchesDomain(r)) return false;
+    if (filter === "pinned") return Boolean(r.pinned);
+    if (filter === "paused") return r.paused;
+    if (filter === "held") return Boolean(currentHold(r, enabled));
+    if (filter === "connected") return currentObservationStatus(r, enabled) === "Есть ответ";
+    return filter === "probing" && !r.paused && !currentHold(r, enabled) && currentObservationStatus(r, enabled) !== "Есть ответ";
+  });
+}
+function adaptiveFormKey(form) {
+  return JSON.stringify({ box: form.closest("[data-box]").dataset.box, ...form.dataset });
+}
+function saveAdaptiveView(target) {
+  target.querySelectorAll("[data-box]").forEach((card) => {
+    card.querySelectorAll("details").forEach((detail, index) => {
+      adaptiveDetails.set(`${card.dataset.box}/${index}`, detail.open);
+    });
+  });
+}
+function renderAdaptive() {
+  const target = $("#adaptive-results");
+  if (!target || !adaptiveData) return;
+  // Keep native selects and buttons in place while the user interacts with them.
+  if (target.querySelector(".domain-control:focus-within")) {
+    $("#adaptive-update").textContent = "Новые данные будут показаны после выхода из управления доменом.";
+    return;
+  }
+  saveAdaptiveView(target);
+  const data = adaptiveData, boxes = data.boxes || [];
+  const visible = boxes.filter((b) => boxMatches(b, adaptiveQuery, adaptiveFilter, data.enabled));
+  target.innerHTML =
+    manualRules() +
+    (!data.enabled
+      ? '<div class="notice">Включите «Автоподбор по трафику» в настройках. Текущие стратегии сохранятся.</div>'
+      : '<div class="info-note">«Есть ответ» — наблюдение передачи данных. Воспроизведение видео, голос и содержимое HTTPS этим статусом не подтверждаются. После снятия ограничения смена метода возможна при новых сбоях соединений; таймер сам подбор не запускает.</div>') +
+    (data.error ? `<p class="fail-text">${esc(data.error)}</p>` : "") +
+    `<div class="box-summary"><span>Показано коробок: <b>${visible.length} из ${boxes.length}</b></span><span>Обнаружено новых доменов: <b>${data.discovered.length}</b></span><span>Использование опыта: <b>${data.reuse ? "включено" : "выключено"}</b></span></div>` +
+    (visible.length
+      ? `<div class="box-grid">${visible.map((b) => boxCard(b, data.enabled)).join("")}</div>`
+      : boxes.length
+        ? '<div class="panel empty"><h3>Совпадений нет</h3><p>Измените домен или выберите другое состояние. Поиск и состояние должны совпасть у одного домена. Карточка показывает весь контекст коробки.</p></div>'
+        : '<div class="panel empty"><h3>Коробки пока не сформированы</h3><p>Включите автоподбор по трафику и откройте нужный сайт. Наблюдения появятся после ошибок или ответов настроенных сервисов. Прежние сохранённые методы продолжают действовать.</p></div>');
+  target.querySelectorAll("[data-box]").forEach((card) => {
+    card.querySelectorAll("details").forEach((detail, index) => {
+      const key = `${card.dataset.box}/${index}`;
+      detail.open = adaptiveDetails.get(key) || false;
+      detail.addEventListener("toggle", () => adaptiveDetails.set(key, detail.open));
+    });
+  });
+  target.querySelectorAll(".domain-control").forEach((form) => {
+    const key = adaptiveFormKey(form), select = form.elements.strategy;
+    const draft = adaptiveDrafts.get(key);
+    if (draft && [...select.options].some((option) => option.value === draft)) select.value = draft;
+    select.addEventListener("change", () => adaptiveDrafts.set(key, select.value));
+    form.addEventListener("focusout", () => setTimeout(renderAdaptive, 0));
+  });
+  bindDomainControls(target);
+  $("#adaptive-update").textContent = "Обновлено: " + new Date(data.receivedAt).toLocaleTimeString("ru-RU") + ". Автообновление каждые 4 секунды.";
 }
 async function loadAdaptive() {
+  const target = $("#adaptive-results");
+  if (!target || adaptiveLoading) return;
+  adaptiveLoading = true;
   try {
     const data = await api("adaptive");
-    const target = $("#adaptive-results");
-    if (!target) return;
-    const boxes = data.boxes || [];
-    target.innerHTML =
-      manualRules() +
-      (!data.enabled
-        ? '<div class="notice">Включите «Автоподбор по трафику» в настройках. Текущие стратегии сохранятся.</div>'
-        : '<div class="info-note">«Есть ответ» — наблюдение передачи данных. Воспроизведение видео, голос и содержимое HTTPS этим статусом не подтверждаются.</div>') +
-      (data.error ? `<p class="fail-text">${esc(data.error)}</p>` : "") +
-      `<div class="box-summary"><span>Коробок: <b>${boxes.length}</b></span><span>Обнаружено новых доменов: <b>${data.discovered.length}</b></span><span>Использование опыта: <b>${data.reuse ? "включено" : "выключено"}</b></span></div>` +
-      (boxes.length
-        ? `<div class="box-grid">${boxes.map(boxCard).join("")}</div>`
-        : '<div class="panel empty"><h3>Коробки пока не сформированы</h3><p>Включите автоподбор по трафику и откройте нужный сайт. Наблюдения появятся после ошибок или ответов настроенных сервисов. Прежние сохранённые методы продолжают действовать.</p></div>');
-    bindDomainControls(target);
+    // A response from a previous page must not overwrite a newly opened view.
+    if (target !== $("#adaptive-results") || !signedIn) return;
+    adaptiveData = { ...data, receivedAt: Date.now() };
+    renderAdaptive();
   } catch (e) {
-    notify(e.message, true);
+    if (target === $("#adaptive-results"))
+      $("#adaptive-update").textContent = "Не удалось обновить наблюдения: " + e.message + ". Показаны последние полученные данные.";
+  } finally {
+    adaptiveLoading = false;
   }
 }
 async function loadLogs() {
