@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Overridden by the release build; development binaries identify themselves.
@@ -24,11 +25,17 @@ type Target struct {
 }
 
 type Profile struct {
-	ID       string   `json:"id"`
-	Name     string   `json:"name"`
-	Domains  []string `json:"domains"`
-	Strategy string   `json:"strategy"`
-	Targets  []Target `json:"targets"`
+	DomainSource     string    `json:"domain_source,omitempty"`
+	AutoDomains      bool      `json:"auto_domains"`
+	DomainSHA256     string    `json:"domain_sha256,omitempty"`
+	SourceExclusions []string  `json:"source_exclusions,omitempty"`
+	DomainsUpdated   time.Time `json:"domains_updated,omitempty"`
+	DomainRevision   uint64    `json:"domain_revision,omitempty"`
+	ID               string    `json:"id"`
+	Name             string    `json:"name"`
+	Domains          []string  `json:"domains"`
+	Strategy         string    `json:"strategy"`
+	Targets          []Target  `json:"targets"`
 }
 
 type Config struct {
@@ -135,6 +142,32 @@ func (c Config) Validate() error {
 	ids := map[string]bool{}
 	domains := []string{}
 	for _, p := range c.Profiles {
+		if p.DomainSource != "" {
+			if strings.HasPrefix(p.DomainSource, "pilot:") {
+				if !idRE.MatchString(strings.TrimPrefix(p.DomainSource, "pilot:")) {
+					return errors.New("неверный источник каталога")
+				}
+			} else if e := sourceURL(p.DomainSource); e != nil {
+				return e
+			}
+		}
+		if p.AutoDomains && p.DomainSource == "" {
+			return errors.New("для автообновления доменов нужен источник")
+		}
+		if p.DomainSHA256 != "" {
+			if ok, _ := regexp.MatchString(`^[a-f0-9]{64}$`, p.DomainSHA256); !ok {
+				return errors.New("SHA-256 списка должен содержать 64 символа hex")
+			}
+		}
+		if len(p.SourceExclusions) > 300 {
+			return errors.New("слишком много исключений источника")
+		}
+		for _, d := range p.SourceExclusions {
+			if !ValidDomain(d) {
+				return errors.New("неверное исключение источника")
+			}
+		}
+
 		if !idRE.MatchString(p.ID) || ids[p.ID] || len(p.Name) > 80 {
 			return errors.New("ID профилей должны быть уникальны; имя до 80 символов")
 		}

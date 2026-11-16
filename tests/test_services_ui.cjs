@@ -41,7 +41,7 @@ let additions=0,tunes=0,failNext=false;
   const youtube=page.locator('[data-profile-card="youtube"]');
   await youtube.locator('summary').first().click();
   await page.locator('#strategy-youtube').selectOption('none');
-  await youtube.locator('details > summary').click();
+  await youtube.locator('details > summary').first().click();
   const original=demo.config.profiles[0].strategy;
   await page.locator('#domains-youtube').fill(demo.config.profiles[0].domains.join('\n')+'\nextra.example.com');
   await page.locator('#service-catalog > summary').click();
@@ -93,6 +93,6 @@ let additions=0,tunes=0,failNext=false;
   await page.evaluate(()=>{location.hash='tune';});await page.locator('#tune-profile').waitFor();
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Tuner fits mobile width');
   assert.deepEqual(errors,[]);
-  console.log('PASS: eight presets, add/remove, error recovery, preserved drafts, compact profiles, tuner selection, explicit tuning, busy recovery, mobile layout');
+  console.log('PASS: service presets, add/remove, error recovery, preserved drafts, compact profiles, tuner selection, explicit tuning, busy recovery, mobile layout');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

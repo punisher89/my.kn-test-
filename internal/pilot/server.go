@@ -82,6 +82,28 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 		w.Header().Set("Content-Disposition", `attachment; filename="keenetic-pilot-diagnostics-`+report.GeneratedAt.Format("20060102T150405Z")+`.json"`)
 		jsonReply(w, 200, report)
 	})
+	api("GET /api/updates", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, m.Updates()) })
+	api("POST /api/updates/check", func(w http.ResponseWriter, r *http.Request) {
+		if e := m.CheckUpdate(r.Context()); e != nil {
+			replyError(w, e)
+			return
+		}
+		jsonReply(w, 200, m.Updates())
+	})
+	api("POST /api/updates/install", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			Version string `json:"version"`
+		}
+		if !read(w, r, &input) {
+			return
+		}
+		if e := m.StartUpdate(input.Version); e != nil {
+			replyError(w, e)
+			return
+		}
+		jsonReply(w, 202, m.Updates())
+	})
+	api("GET /api/device", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, m.Device()) })
 	api("GET /api/status", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, m.Snapshot()) })
 	api("POST /api/catalog/update", func(w http.ResponseWriter, r *http.Request) {
 		if err := m.UpdateCatalog(r.Context()); err != nil {
@@ -104,6 +126,24 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 	})
 	api("GET /api/adaptive", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, ReadAdaptive(m.Config())) })
 	api("GET /api/network", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, DetectNetwork()) })
+	api("POST /api/services/custom", func(w http.ResponseWriter, r *http.Request) {
+		var p Profile
+		if !read(w, r, &p) {
+			return
+		}
+		if e := m.AddCustomService(p); e != nil {
+			replyError(w, e)
+			return
+		}
+		jsonReply(w, 200, m.Snapshot())
+	})
+	api("POST /api/services/{id}/domains", func(w http.ResponseWriter, r *http.Request) {
+		if e := m.UpdateServiceDomains(r.Context(), r.PathValue("id")); e != nil {
+			replyError(w, e)
+			return
+		}
+		jsonReply(w, 200, m.Snapshot())
+	})
 	api("POST /api/services", func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			ID string `json:"id"`

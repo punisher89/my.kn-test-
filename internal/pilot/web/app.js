@@ -15,6 +15,8 @@ const labels = {
   tune: "Подбор стратегий",
   logs: "Журнал",
   settings: "Настройки",
+  device: "Роутер",
+  updates: "Обновления",
   connect: "Первый запуск",
   adaptive: "Коробки обхода",
   strategies: "Каталог методов",
@@ -102,20 +104,15 @@ function strategyOptions(selected) {
     )
     .join("");
 }
-function strategyCatalog() {
-  return (
-    heading(
-      "Каталог методов",
-      "Варианты сгруппированы по способу обработки. Наличие метода не гарантирует доступ у вашего провайдера.",
-    ) +
-    `<div class="box-grid">${methodGroups()
-      .map(
-        (g) =>
-          `<section class="panel method-family" data-family="${esc(g.id)}"><div class="panel-head"><h2>${esc(g.name)}</h2>${badge(g.methods.length + " вариантов", "neutral")}</div>${g.methods.map((m) => `<details class="method-item"><summary>${esc(m.name)}</summary><p>${esc(m.description)}</p>${m.actions?.length ? `<pre>${esc(m.actions.join("\n"))}</pre>` : "<p>Обычное соединение без изменения пакетов.</p>"}</details>`).join("")}</section>`,
-      )
-      .join("")}</div>`
-  );
+let methodQuery="", methodFamily="all";
+const methodOpen=new Map(),trialOpen=new Map();
+function methodResults(){
+ const query=methodQuery.trim().toLowerCase();
+ return methodGroups().filter(g=>methodFamily==="all"||methodFamily===g.id).map(g=>({...g,methods:g.methods.filter(m=>[m.id,m.name,m.description,g.name].join(" ").toLowerCase().includes(query))})).filter(g=>g.methods.length).map(g=>`<details class="panel method-family" data-method-view="family/${esc(g.id)}" ${methodOpen.get("family/"+g.id)||query?"open":""}><summary>${esc(g.name)} · ${g.methods.length}</summary>${g.methods.map(m=>`<details class="method-item" data-method-view="method/${esc(m.id)}" ${methodOpen.get("method/"+m.id)?"open":""}><summary>${esc(m.name)}</summary><p>${esc(m.description)}</p>${m.actions?.length?`<pre>${esc(m.actions.join("\n"))}</pre>`:'<p>Обычное соединение без изменения пакетов.</p>'}</details>`).join("")}</details>`).join("")||'<p class="subtle">Методы не найдены.</p>';
 }
+function strategyCatalog(){return heading("Каталог методов","Семейства и параметры раскрываются по нажатию. Наличие метода не гарантирует доступ.")+`<div class="panel method-toolbar"><label>Поиск<input id="method-search" type="search" value="${esc(methodQuery)}" placeholder="Название или семейство"></label><label>Семейство<select id="method-family"><option value="all">Все семейства</option>${methodGroups().map(g=>`<option value="${esc(g.id)}" ${methodFamily===g.id?"selected":""}>${esc(g.name)}</option>`).join("")}</select></label></div><div class="method-list" id="method-results">${methodResults()}</div>`;}
+function bindMethodViews(){document.querySelectorAll("[data-method-view]").forEach(el=>el.addEventListener("toggle",()=>methodOpen.set(el.dataset.methodView,el.open)));}
+function bindTrials(){document.querySelectorAll("[data-trial]").forEach(el=>el.addEventListener("toggle",()=>trialOpen.set(el.dataset.trial,el.open)));}
 function badge(text, kind = "") {
   return `<span class="badge ${kind}">${esc(text)}</span>`;
 }
@@ -165,6 +162,9 @@ function updateServiceButtons() {
     const preset = (state.service_presets || []).find((p) => p.profile.id === button.dataset.addService);
     button.disabled = !preset || servicePresetState(preset.profile).blocked;
   });
+  document.querySelectorAll("[data-domain-sync]").forEach(b=>{b.disabled=state.busy||serviceMutationPending;});
+  const customButton=$("#custom-service-form button[type=submit]");if(customButton)customButton.disabled=state.busy||serviceMutationPending||state.config.profiles.length>=12;
+  document.querySelectorAll("[data-profile-card]").forEach(card=>{const p=state.config.profiles.find(p=>p.id===card.dataset.profileCard);if(!p)return;const summary=card.querySelector(".profile-summary small");if(summary)summary.textContent=strategyName(p.strategy)+" · доменов: "+p.domains.length;if(!profileDrafts.has(p.id)){const box=$(`#domains-${p.id}`);if(box)box.value=p.domains.join("\n");const select=$(`#strategy-${p.id}`);if(select)select.value=p.strategy;}});
   document.querySelectorAll("[data-save-profile]").forEach((b) => { b.disabled = state.busy || serviceMutationPending; });
   document.querySelectorAll("[data-remove-service]").forEach((b) => { b.disabled = state.busy || serviceMutationPending || state.config.profiles.length <= 1; });
 }
@@ -187,10 +187,16 @@ function serviceCatalog() {
 }
 function profileCard(p) {
   const edit = profileDrafts.get(p.id) || p;
-  return `<details class="panel service-profile" data-profile-card="${esc(p.id)}" ${profileOpen.get(p.id) ? "open" : ""}><summary><span class="profile-summary">${logo(p)}<span><strong>${esc(p.name)}</strong><small>${esc(strategyName(p.strategy))} · доменов: ${p.domains.length}</small></span></span></summary><div class="profile-editor"><p class="subtle">${esc(presetNote(p.id))}</p><label for="strategy-${esc(p.id)}">Текущая стратегия</label><select id="strategy-${esc(p.id)}">${strategyOptions(edit.strategy)}</select><details><summary>Домены и проверки</summary><label for="domains-${esc(p.id)}">Один домен на строку, поддомены включаются автоматически</label><textarea rows="4" id="domains-${esc(p.id)}">${esc(edit.domains.join("\n"))}</textarea><div class="field"></div><label>Контрольные запросы</label>${edit.targets.map((t, i) => `<div class="target-editor" data-profile="${esc(p.id)}" data-target="${i}"><label>Адрес HTTPS</label><input type="url" data-field="url" value="${esc(t.url)}"><div class="target-small"><div><label>HTTP</label><input type="number" min="200" max="399" data-field="status" value="${t.status}"></div><div><label>Фрагмент ответа</label><input data-field="contains" value="${esc(t.contains || "")}" placeholder="Необязательно"></div></div></div>`).join("")}<small>Каждый адрес проверяется с TLS 1.2 и TLS 1.3. HTTP 403/451 и ошибки сертификата не считаются успешным обходом. Контрольные адреса можно изменить под нужный сценарий.</small></details><div class="profile-buttons"><button data-save-profile="${esc(p.id)}" ${state.busy ? "disabled" : ""}>Сохранить</button><button data-tune-profile="${esc(p.id)}" class="primary" ${!state.running || state.busy ? "disabled" : ""}>Подобрать ↗</button><button data-remove-service="${esc(p.id)}" ${state.busy || state.config.profiles.length <= 1 ? "disabled" : ""}>Удалить профиль</button></div></div></details>`;
+  return `<details class="panel service-profile" data-profile-card="${esc(p.id)}" ${profileOpen.get(p.id) ? "open" : ""}><summary><span class="profile-summary">${logo(p)}<span><strong>${esc(p.name)}</strong><small>${esc(strategyName(p.strategy))} · доменов: ${p.domains.length}</small></span></span></summary><div class="profile-editor"><p class="subtle">${esc(presetNote(p.id))}</p><label for="strategy-${esc(p.id)}">Текущая стратегия</label><select id="strategy-${esc(p.id)}">${strategyOptions(edit.strategy)}</select><details><summary>Домены и проверки</summary><label for="domains-${esc(p.id)}">Один домен на строку, поддомены включаются автоматически</label><textarea rows="4" id="domains-${esc(p.id)}">${esc(edit.domains.join("\n"))}</textarea><div class="field"></div><label>Контрольные запросы</label>${edit.targets.map((t, i) => `<div class="target-editor" data-profile="${esc(p.id)}" data-target="${i}"><label>Адрес HTTPS</label><input type="url" data-field="url" value="${esc(t.url)}"><div class="target-small"><div><label>HTTP</label><input type="number" min="200" max="399" data-field="status" value="${t.status}"></div><div><label>Фрагмент ответа</label><input data-field="contains" value="${esc(t.contains || "")}" placeholder="Необязательно"></div></div></div>`).join("")}<small>Каждый адрес проверяется с TLS 1.2 и TLS 1.3. HTTP 403/451 и ошибки сертификата не считаются успешным обходом. Контрольные адреса можно изменить под нужный сценарий.</small></details>${domainSourceEditor(edit)}<div class="profile-buttons"><button data-save-profile="${esc(p.id)}" ${state.busy ? "disabled" : ""}>Сохранить</button><button data-tune-profile="${esc(p.id)}" class="primary" ${!state.running || state.busy ? "disabled" : ""}>Подобрать ↗</button><button data-remove-service="${esc(p.id)}" ${state.busy || state.config.profiles.length <= 1 ? "disabled" : ""}>Удалить профиль</button></div></div></details>`;
 }
+function domainSourceEditor(p){
+ const preset=(state.service_presets||[]).some(s=>s.profile.id===p.id),fromPilot=p.domain_source?.startsWith("pilot:");
+ const source=p.domain_source||"",mode=source.startsWith("pilot:")?"pilot":source?"url":"";
+ return `<details class="domain-source-editor"><summary>Домены из интернета</summary><label>Источник<select id="source-mode-${esc(p.id)}"><option value="">Вручную</option>${preset||fromPilot?`<option value="pilot" ${mode==="pilot"?"selected":""}>Подписанный каталог Pilot</option>`:""}<option value="url" ${mode==="url"?"selected":""}>HTTPS-ссылка на список</option></select></label><label>Ссылка<input id="source-url-${esc(p.id)}" type="url" value="${esc(mode==="url"?source:"")}" placeholder="https://example.com/domains.txt"></label><label class="check-label"><input type="checkbox" id="source-auto-${esc(p.id)}" ${p.auto_domains?"checked":""}>Обновлять раз в сутки</label><details><summary>Контрольная сумма и исключения</summary><label>SHA-256 файла, необязательно<input id="source-sha-${esc(p.id)}" value="${esc(p.domain_sha256||"")}" maxlength="64"></label><label>Не добавлять из источника<textarea id="source-exclusions-${esc(p.id)}" rows="3">${esc((p.source_exclusions||[]).join("\n"))}</textarea></label></details><p class="subtle">Загружаются новые домены; охват ваших доменов сохраняется. Вложенные домены объединяются с родительским. Для удаления домена вручную добавьте его в исключения источника или отключите автообновление. Применение новых доменов кратко перезапустит работающий движок.</p><small>Последнее обновление: ${Date.parse(p.domains_updated)>0?esc(new Date(p.domains_updated).toLocaleString("ru-RU")):"ещё не выполнялось"}</small><button data-domain-sync="${esc(p.id)}">Сохранить и загрузить домены</button></details>`;
+}
+function customServiceForm(){return `<details class="panel custom-service"><summary>Добавить свой сервис</summary><form id="custom-service-form"><div class="two-fields"><label>Название<input name="name" maxlength="80" required></label><label>Контрольный HTTPS-адрес<input name="url" type="url" required placeholder="https://example.com/"></label></div><label>Домены, по одному на строку<textarea name="domains" rows="3" placeholder="example.com"></textarea></label><label>Ожидаемый фрагмент ответа<input name="contains" required maxlength="512" placeholder="Текст, подтверждающий нужный ответ"></label><details><summary>Домены из интернета</summary><label>HTTPS-ссылка на список<input name="source" type="url" placeholder="https://example.com/domains.txt"></label><label class="check-label"><input type="checkbox" name="auto" checked>Обновлять раз в сутки, если задан источник</label></details><p class="subtle">Нужен список доменов, по одному на строку. Если домены не введены, начальный домен берётся из контрольного адреса. Новый профиль начинает без вмешательства.</p><button class="primary" type="submit">Добавить сервис</button></form></details>`;}
 function profiles() {
-  return heading("Сервисы и домены", "Выберите сервис из каталога. Раскройте профиль для стратегии, доменов и проверок.") + serviceCatalog() + `<div class="service-profile-list">${state.config.profiles.map(profileCard).join("")}</div>`;
+  return heading("Сервисы и домены", "Выберите сервис из каталога. Раскройте профиль для стратегии, доменов и проверок.") + serviceCatalog() + customServiceForm() + `<div class="service-profile-list">${state.config.profiles.map(profileCard).join("")}</div>`;
 }
 function readProfileDraft(id) {
   const p = structuredClone(state.config.profiles.find((p) => p.id === id));
@@ -202,6 +208,8 @@ function readProfileDraft(id) {
     t.status = Number(editor.querySelector("[data-field=status]").value);
     t.contains = editor.querySelector("[data-field=contains]").value;
   });
+  const mode=$(`#source-mode-${id}`)?.value;
+  if(mode!==undefined){p.domain_source=mode==="pilot"?(p.domain_source?.startsWith("pilot:")?p.domain_source:"pilot:"+id):mode==="url"?$(`#source-url-${id}`).value.trim():"";p.auto_domains=Boolean(p.domain_source&&$(`#source-auto-${id}`).checked);p.domain_sha256=$(`#source-sha-${id}`).value.trim().toLowerCase();p.source_exclusions=lines($(`#source-exclusions-${id}`).value);}
   return p;
 }
 function bindPresetActions(root) {
@@ -229,17 +237,14 @@ function tune() {
     serviceCatalog() + `<div class="tune-intro"><div class="step-card"><b>01 / ИСХОДНОЕ СОСТОЯНИЕ</b><strong>Проверка без обхода</strong><p>Прямые соединения помогают понять, требуется ли вмешательство.</p></div><div class="step-card"><b>02 / ПОИСК</b><strong>TLS 1.2 + TLS 1.3</strong><p>Применяем варианты и повторяем контрольные запросы.</p></div><div class="step-card"><b>03 / ПОДТВЕРЖДЕНИЕ</b><strong>Сохранение или откат</strong><p>Перезапускаем движок и снова проверяем выбранный вариант.</p></div></div><div class="panel"><div class="tune-control"><div class="field"><label for="tune-profile">Сервис</label><select id="tune-profile">${state.config.profiles.map((p) => `<option value="${esc(p.id)}" ${p.id === selectedTuneProfile ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select></div><button id="tune-start" class="primary" ${!state.running || state.busy ? "disabled" : ""}>Начать подбор ↗</button><button id="tune-cancel" ${!state.job || state.job.finished ? "disabled" : ""}>Отменить</button></div><div class="info-note">Во время подбора движок несколько раз перезапускается. Возможны краткие перебои у активных соединений. QUIC, голос Discord и фактическое воспроизведение видео требуют отдельных испытаний.</div><p id="tune-profile-note" class="subtle">${esc(presetNote(state.config.profiles.find((p) => p.id === selectedTuneProfile)?.id || state.config.profiles[0].id))}</p></div><div id="job-panel">${jobPanel()}</div>`
   );
 }
-function jobPanel() {
-  const j = state.job;
-  if (!j)
-    return `<div class="panel empty"><div class="empty-icon">⌁</div><h3>Найдём рабочий маршрут</h3><p>Запустите обход и выберите сервис для проверки.<br>Здесь появятся реальные результаты каждого запроса.</p></div>`;
-  const stages = {
-    baseline: "Проверяем соединение без обхода",
-    confirm: "Подтверждаем результат после перезапуска",
-    done: "Подбор завершён",
-    failed: "Подбор остановлен с откатом",
-  };
-  return `<div class="panel"><div class="panel-head"><h2>Результаты · ${esc(j.profile)}</h2>${badge(j.finished ? (j.selected ? "Сохранено" : "Откат") : "В процессе", j.finished && !j.selected ? "warn" : "")}</div><div class="job-progress">${j.finished ? "" : '<span class="pulse"></span>'}${esc(stages[j.stage] || `Проверяем: ${strategyName(j.stage)}`)}</div>${j.error ? `<div class="notice danger">${esc(j.error)}</div>` : ""}${j.trials.map((t) => `<div class="trial"><div class="trial-top"><strong>${esc(t.strategy === "direct" ? "Без обхода" : t.strategy.startsWith("confirm:") ? "Повторная проверка: " + strategyName(t.strategy.slice(8)) : strategyName(t.strategy))}</strong>${badge(t.passed ? "Все пробы успешны" : "Проверка не пройдена", t.passed ? "" : "fail")}</div>${t.error ? `<p class="fail-text">${esc(t.error)}</p>` : ""}${t.results.length ? `<table class="probe-table"><thead><tr><th>Адрес</th><th>Протокол</th><th>Время</th><th>Результат</th></tr></thead><tbody>${t.results.map((r) => `<tr><td>${esc(new URL(r.url).hostname)}<br><small>Попытка ${r.attempt}</small></td><td>TLS ${esc(r.tls)}<br><small>${r.family === "tcp6" ? "IPv6" : "IPv4"}</small></td><td>${r.duration_ms} мс</td><td class="${r.ok ? "ok-text" : "fail-text"}">${r.ok ? "✓ HTTP " + r.status : esc(r.error)}</td></tr>`).join("")}</tbody></table>` : ""}</div>`).join("")}</div>`;
+function jobPanel(){
+ const j=state.job;if(!j)return '<div class="panel empty"><h3>Результатов пока нет</h3><p>Выберите сервис и начните подбор.</p></div>';
+ const stages={direct:"Проверка без обхода",starting:"Подготовка",confirm:"Повторная проверка",done:"Завершено"};
+ return `<div class="panel"><div class="panel-head"><h2>Результаты · ${esc(j.profile)}</h2>${badge(j.finished?(j.selected?"Сохранено":"Откат"):"В процессе",j.finished&&!j.selected?"warn":"neutral")}</div><p class="job-progress">${esc(stages[j.stage]||strategyName(j.stage))}</p>${j.error?`<div class="notice danger">${esc(j.error)}</div>`:""}<div class="trial-list">${j.trials.map((t,i)=>{
+ const key=j.started+"/"+i,passed=t.results.filter(r=>r.ok).length;
+ const name=t.strategy==="direct"?"Без обхода":t.strategy.startsWith("confirm:")?"Подтверждение: "+strategyName(t.strategy.slice(8)):strategyName(t.strategy);
+ return `<details class="trial-compact" data-trial="${esc(key)}" ${trialOpen.get(key)?"open":""}><summary><strong>${esc(name)}</strong><span>${passed}/${t.results.length} проб</span>${badge(t.passed?"Успешно":"Не пройдена",t.passed?"":"fail")}</summary>${t.error?`<p class="fail-text">${esc(t.error)}</p>`:""}${t.results.length?`<div class="table-scroll"><table class="probe-table"><thead><tr><th>Адрес</th><th>TLS / IP</th><th>Время</th><th>Результат</th></tr></thead><tbody>${t.results.map(r=>`<tr><td>${esc(r.url)}<br><small>Попытка ${r.attempt}</small></td><td>${esc(r.tls)} · ${r.family==="tcp6"?"IPv6":"IPv4"}</td><td>${r.duration_ms} мс</td><td>${r.ok?"HTTP "+r.status:esc(r.error)}</td></tr>`).join("")}</tbody></table></div>`:""}</details>`;
+ }).join("")}</div></div>`;
 }
 function toggle(id, title, text, checked) {
   return `<div class="toggle-row"><div><label for="${id}">${esc(title)}</label><p>${esc(text)}</p></div><input type="checkbox" id="${id}" ${checked ? "checked" : ""}></div>`;
@@ -282,8 +287,11 @@ async function refresh(render = false) {
     bindActions();
   } else if (page === "tune") {
     $("#job-panel").innerHTML = jobPanel();
+    bindTrials();
     $("#tune-start").disabled = !state.running || state.busy;
     $("#tune-cancel").disabled = !state.job || !!state.job.finished;
+  } else if (page === "device") { await loadDevice();
+  } else if (page === "updates") { await loadUpdates();
   } else if (page === "adaptive") {
     await loadAdaptive();
   }
@@ -320,6 +328,8 @@ function renderPage() {
           ? tune()
           : page === "settings"
             ? settings()
+            : page === "device" ? devicePage()
+            : page === "updates" ? updatesPage()
             : page === "strategies"
               ? strategyCatalog()
               : page === "adaptive"
@@ -337,6 +347,8 @@ function renderPage() {
                     ) +
                     '<div class="panel"><pre id="log-view" class="log-view">Загрузка…</pre></div>';
   bindActions();
+  if(page==="device")loadDevice();
+  if(page==="updates")loadUpdates();
   if (page === "logs") loadLogs();
   if (page === "adaptive") loadAdaptive();
   if (page === "connect" && !networkInfo)
@@ -356,6 +368,25 @@ async function action(fn) {
   }
 }
 function bindActions() {
+  bindMethodViews();bindTrials();
+  $("#method-search")?.addEventListener("input",e=>{methodQuery=e.target.value;$("#method-results").innerHTML=methodResults();bindMethodViews();});
+  $("#method-family")?.addEventListener("change",e=>{methodFamily=e.target.value;$("#method-results").innerHTML=methodResults();bindMethodViews();});
+  $("#update-check")?.addEventListener("click",async e=>{const button=e.currentTarget;button.disabled=true;try{await api("updates/check","POST",{});await loadUpdates(true);}catch(error){notify(error.message,true);button.disabled=false;}});
+  $("#update-install")?.addEventListener("click",async e=>{const button=e.currentTarget;button.disabled=true;try{await api("updates/install","POST",{version:updatesData.latest});await loadUpdates(true);}catch(error){notify(error.message,true);button.disabled=false;}});
+  $("#custom-service-form")?.addEventListener("submit",event=>{event.preventDefault();serviceAction(async()=>{
+    const f=event.target,bytes=new Uint32Array(2);crypto.getRandomValues(bytes);const id="custom-"+[...bytes].map(v=>v.toString(16).padStart(8,"0")).join("");
+    const url=f.elements.url.value.trim(),source=f.elements.source.value.trim(),domains=lines(f.elements.domains.value);
+    if(!domains.length)domains.push(new URL(url).hostname.toLowerCase());
+    const p={id,name:f.elements.name.value.trim(),strategy:"none",domains,targets:[{url,status:200,contains:f.elements.contains.value}],domain_source:source,auto_domains:Boolean(source&&f.elements.auto.checked)};
+    await api("services/custom","POST",p);
+    let message="Сервис добавлен";if(source){try{await api("services/"+id+"/domains","POST",{});}catch(e){message+="; домены пока не загружены: "+e.message;}}
+    notify(message);f.reset();
+  });});
+  document.querySelectorAll("[data-domain-sync]").forEach(button=>button.addEventListener("click",()=>serviceAction(async()=>{
+    const id=button.dataset.domainSync,c=structuredClone(state.config),draft=readProfileDraft(id);if(!draft.domain_source)throw new Error("Выберите источник доменов");c.profiles[c.profiles.findIndex(p=>p.id===id)]=draft;
+    await api("config","PUT",c);profileDrafts.delete(id);await api("services/"+id+"/domains","POST",{});notify("Домены загружены и проверены");
+  })));
+
   $("#adaptive-refresh")?.addEventListener("click", loadAdaptive);
   $("#adaptive-download")?.addEventListener("click", downloadDiagnostics);
   $("#adaptive-search")?.addEventListener("input", (event) => {
@@ -843,6 +874,12 @@ async function loadAdaptive() {
     adaptiveLoading = false;
   }
 }
+let deviceData=null,deviceLoading=false,updatesData=null,updatesLoading=false,updatesSerial=0;
+const prettyBytes=n=>n==null?"недоступно":n>=1048576?(n/1048576).toFixed(1)+" МиБ":n>=1024?(n/1024).toFixed(1)+" КиБ":Math.round(n)+" Б";
+function devicePage(){return heading("Роутер","Данные устройства, на котором запущен Pilot. Недоступные датчики не заменяются примерными значениями.")+`<div id="device-data">Загрузка…</div>`;}
+async function loadDevice(){const target=$("#device-data");if(!target||deviceLoading)return;deviceLoading=true;try{const d=await api("device");if(target!==$("#device-data"))return;deviceData=d;target.innerHTML=`<div class="stats-grid"><div class="panel"><h3>Процессор</h3><strong>${d.cpu_percent==null?(d.cpu_sample_available?"ожидается второй замер":"недоступно"):d.cpu_percent.toFixed(1)+" %"}</strong><p>Ядер: ${d.cpu_cores}</p><small>Load 1/5/15 мин: ${d.load.length?d.load.map(v=>v.toFixed(2)).join(" / "):"недоступно"}</small></div><div class="panel"><h3>Память</h3><strong>${d.memory_available==null?"недоступно":prettyBytes(d.memory_total-d.memory_available)+" занято"}</strong><p>Всего: ${prettyBytes(d.memory_total||null)}</p><small>Доступно: ${prettyBytes(d.memory_available)}</small></div><div class="panel"><h3>Температура</h3>${d.temperatures.length?d.temperatures.map(t=>`<p><strong>${t.celsius.toFixed(1)} °C</strong> · ${esc(t.name)}</p>`).join(""):'<p>Недоступно: прошивка не предоставляет датчик Pilot.</p>'}</div></div><div class="panel"><h3>${esc(d.model||"Модель не предоставлена прошивкой")}</h3><p>${esc(d.platform)} · ядро ${esc(d.kernel||"неизвестно")}</p><p>Время работы: ${d.uptime_seconds==null?"недоступно":Math.floor(d.uptime_seconds/86400)+" д "+Math.floor(d.uptime_seconds%86400/3600)+" ч "+Math.floor(d.uptime_seconds%3600/60)+" мин"}</p><p>WAN ${esc(d.wan||"не задан")}: получено ${prettyBytes(d.rx_bytes)}, передано ${prettyBytes(d.tx_bytes)}</p><p>Сейчас: ↓ ${prettyBytes(d.rx_bytes_per_second)}/с · ↑ ${prettyBytes(d.tx_bytes_per_second)}/с</p></div>`;}catch(e){if(target===$("#device-data"))target.textContent="Не удалось получить данные: "+e.message;}finally{deviceLoading=false;}}
+function updatesPage(){return heading("Обновления","Обновление Pilot, панели и закреплённого nfqws2 с сохранением настроек.")+`<div class="panel"><div id="update-info">Загрузка…</div><div class="form-actions"><button id="update-check">Проверить версию</button><button id="update-install" class="primary" disabled>Установить обновление</button></div><p class="subtle">Выпуск проверяется по подписи и SHA-256. Перед остановкой службы проверяются пакет и конфигурация; установщик сохраняет прежнюю версию для отката при ошибке. Будет краткий перерыв. После перезапуска войдите с прежним паролем.</p></div><div class="panel"><h3>Каталог методов</h3><p>Подписанные стратегии можно загрузить отдельно от приложения.</p><button id="catalog-update">Загрузить стратегии сейчас</button></div>`;}
+async function loadUpdates(force=false){const target=$("#update-info");if(!target||(updatesLoading&&!force))return;updatesLoading=true;const serial=++updatesSerial;try{const d=await api("updates");if(target!==$("#update-info")||serial!==updatesSerial)return;updatesData=d;const stages={idle:"Готово к проверке",downloading:"Загрузка и проверка пакета",installing:"Установка и перезапуск службы",completed:"Обновление завершено",failed:"Обновление не завершено. Подробности — в локальном update.log; проверьте состояние службы.",interrupted:"Процесс обновления прерван; проверьте состояние службы перед повтором."};target.innerHTML=`<h3>Pilot ${esc(d.current)}</h3><p>nfqws2: ${esc(d.engine||"версия не получена")}</p><p>${esc(stages[d.stage]||d.stage)}</p><p>${d.latest?"Последний проверенный выпуск: "+esc(d.latest)+(d.latest_engine?" · nfqws2 "+esc(d.latest_engine):""):"Проверка новых выпусков ещё не выполнялась"}</p>${!d.supported?'<p class="subtle">Установка из панели доступна для управляемой установки на роутере.</p>':""}`;$("#update-install").disabled=!d.supported||!d.available||d.running||state.busy;$("#update-install").textContent=d.available?"Установить "+d.latest:"Установить обновление";$("#update-check").disabled=d.running||state.busy;}catch(e){if(target===$("#update-info"))target.textContent="Связь с панелью временно недоступна: "+e.message;}finally{if(serial===updatesSerial)updatesLoading=false;}}
 async function loadLogs() {
   try {
     const logs = await api("logs");

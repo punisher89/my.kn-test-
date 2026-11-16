@@ -1347,3 +1347,26 @@ summary {
   .preset-row { gap: 8px; }
   .preset-row button { font-size: 11px; padding: 8px; }
 }
+
+.method-toolbar { display:grid; grid-template-columns:2fr 1fr; gap:16px; }
+.method-list { display:grid; gap:10px; }
+.method-family { margin:0; padding:14px 18px; }
+.method-family > summary { margin:0; font-weight:600; }
+.method-item { margin-top:8px; padding:8px 0; }
+.method-item > summary { margin:0; }
+.trial-compact { margin:0; padding:10px 0; }
+.trial-compact > summary { display:flex; align-items:center; gap:12px; margin:0; }
+.trial-compact > summary strong { flex:1; min-width:0; overflow-wrap:anywhere; }
+.trial-compact[open] > summary { margin-bottom:10px; }
+.table-scroll { overflow-x:auto; }
+.custom-service { margin:0 0 16px; }
+.custom-service > summary { margin:0; font-weight:600; }
+.custom-service form { display:grid; gap:12px; margin-top:16px; }
+.custom-service label, .domain-source-editor label { display:grid; gap:6px; }
+.custom-service .check-label, .domain-source-editor .check-label { display:flex; }
+.domain-source-editor input:not([type=checkbox]), .domain-source-editor select, .domain-source-editor textarea { margin-bottom:10px; }
+@media(max-width:600px){
+ .method-toolbar { grid-template-columns:1fr; }
+ .trial-compact > summary { flex-wrap:wrap; gap:6px; }
+ .trial-compact > summary strong { flex-basis:100%; }
+}

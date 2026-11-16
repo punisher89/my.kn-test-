@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -40,17 +41,23 @@ type Snapshot struct {
 	Strategies     []Strategy      `json:"strategies"`
 }
 type Manager struct {
-	mu        sync.Mutex
-	op        sync.Mutex
-	c         Config
-	path      string
-	backend   Backend
-	prober    Prober
-	log       *LogBuffer
-	job       *Job
-	lastError string
-	cancel    context.CancelFunc
-	closed    bool
+	domainCacheError error
+	updating         atomic.Bool
+	release          *releaseDocument
+	domainCache      *domainRegistry
+	domainCacheAt    time.Time
+	device           deviceReader
+	mu               sync.Mutex
+	op               sync.Mutex
+	c                Config
+	path             string
+	backend          Backend
+	prober           Prober
+	log              *LogBuffer
+	job              *Job
+	lastError        string
+	cancel           context.CancelFunc
+	closed           bool
 }
 
 func NewManager(c Config, path string, b Backend, p Prober, log *LogBuffer) *Manager {
@@ -76,6 +83,7 @@ func cloneConfig(c Config) Config {
 	c.Profiles = append([]Profile{}, c.Profiles...)
 	for i := range c.Profiles {
 		c.Profiles[i].Domains = append([]string{}, c.Profiles[i].Domains...)
+		c.Profiles[i].SourceExclusions = append([]string{}, c.Profiles[i].SourceExclusions...)
 		c.Profiles[i].Targets = append([]Target{}, c.Profiles[i].Targets...)
 	}
 	return c
@@ -131,6 +139,14 @@ func (m *Manager) Change(c Config) error {
 
 func (m *Manager) changeLocked(c Config) error {
 	old := m.Config()
+	for i := range c.Profiles {
+		for _, p := range old.Profiles {
+			if p.ID == c.Profiles[i].ID && p.DomainSource != c.Profiles[i].DomainSource {
+				c.Profiles[i].DomainRevision = 0
+				c.Profiles[i].DomainsUpdated = time.Time{}
+			}
+		}
+	}
 	if c.RuntimeDir != old.RuntimeDir || c.Listen != old.Listen || c.EngineDir != old.EngineDir || c.Queue != old.Queue {
 		return errors.New("listen, engine_dir, runtime_dir и queue меняются в config.json с перезапуском службы")
 	}
@@ -381,6 +397,7 @@ func (m *Manager) Watch(ctx context.Context) {
 	next := time.Now()
 	failures := map[string]int{}
 	nextCatalog := time.Now()
+	nextDomains := map[string]time.Time{}
 	for {
 		select {
 		case <-ctx.Done():
@@ -397,6 +414,15 @@ func (m *Manager) Watch(ctx context.Context) {
 				}
 				c = m.Config()
 			}
+			for _, p := range c.Profiles {
+				if p.AutoDomains && p.DomainSource != "" && time.Now().After(nextDomains[p.ID]) {
+					nextDomains[p.ID] = time.Now().Add(24 * time.Hour)
+					if err := m.updateServiceDomains(ctx, p.ID); err != nil {
+						m.log.Add("Домены " + p.ID + ": " + err.Error())
+					}
+				}
+			}
+			c = m.Config()
 			if !c.Enabled {
 				m.op.Unlock()
 				continue
@@ -451,6 +477,9 @@ func (m *Manager) Close() error {
 		m.cancel()
 	}
 	m.mu.Unlock()
+	if m.updating.Load() {
+		return m.backend.Stop()
+	}
 	m.op.Lock()
 	defer m.op.Unlock()
 	return m.backend.Stop()

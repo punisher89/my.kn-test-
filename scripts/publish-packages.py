@@ -6,6 +6,8 @@ Actions artifact downloads. Existing published versions are never overwritten.
 """
 import argparse
 import hashlib
+import json
+from datetime import datetime, timezone
 import os
 from pathlib import Path
 import re
@@ -63,6 +65,24 @@ def publish(version, files):
         for name, data in files.items():
             blob = git("hash-object", "-w", "--stdin", data=data)
             git("update-index", "--add", "--cacheinfo", f"100644,{blob},v{version}/{name}", env=env)
+        # Publish a signed latest pointer in the same fast-forward as the archives.
+        key = ROOT / "local" / "updates-signing.pem"
+        if not key.exists():
+            raise RuntimeError("Restore local/updates-signing.pem before publishing an update")
+        dep = (ROOT / "dependencies/nfqws2.env").read_text()
+        latest = {
+            "kind": "pilot-release", "version": version,
+            "manifest_sha256": hashlib.sha256(files["SHA256SUMS"]).hexdigest(),
+            "published_at": datetime.now(timezone.utc).isoformat(),
+            "engine_version": re.search(r"(?m)^ENGINE_VERSION=(.*)$", dep)[1],
+            "engine_sha256": re.search(r"(?m)^ENGINE_SHA256=(.*)$", dep)[1],
+        }
+        doc = ROOT / ".cache" / "latest.json"
+        doc.write_text(json.dumps(latest, separators=(",", ":")) + "\n")
+        subprocess.run(["python3", str(ROOT / "scripts/sign-updates.py"), str(doc)], check=True)
+        for name, data in {"latest.json": doc.read_bytes(), "latest.json.sig": Path(str(doc)+".sig").read_bytes()}.items():
+            blob = git("hash-object", "-w", "--stdin", data=data)
+            git("update-index", "--add", "--cacheinfo", f"100644,{blob},{name}", env=env)
         tree = git("write-tree", env=env)
         args = ["commit-tree", tree]
         if parent:

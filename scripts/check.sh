@@ -26,7 +26,9 @@ if command -v node >/dev/null 2>&1; then node --check internal/pilot/web/app.js;
 if [ "${PILOT_TEST_BROWSER:-0}" = "1" ]; then
     node tests/test_boxes_ui.cjs
     node tests/test_services_ui.cjs
+    node tests/test_menu_ui.cjs
 fi
 GO=$GO sh scripts/build.sh
+PILOT_TEST_PACKAGE="$BASE/dist/keenetic-pilot-$(cat VERSION)-linux-amd64.tar.gz" "$GO" test ./internal/pilot -run TestNativeUpdatePackagePreflight -count=1
 python3 scripts/publish-packages.py
 python3 tests/test_install.py

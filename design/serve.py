@@ -39,6 +39,11 @@ class Handler(SimpleHTTPRequestHandler):
                 f"sessionStorage.setItem('pilot-token', '{DEMO_TOKEN}');".encode(),
                 "application/javascript",
             )
+        if self.path == "/api/device":
+            return self.send({"model":"МАКЕТ: KN-1811", "platform":"linux/arm64", "kernel":"пример", "cpu_cores":4, "cpu_sample_available":True, "cpu_percent":12.5, "load":[0.2,0.1,0.1], "memory_total":268435456, "memory_available":134217728, "uptime_seconds":90000, "temperatures":[{"name":"пример CPU", "celsius":52}], "wan":"ppp0", "rx_bytes":1048576, "tx_bytes":524288, "rx_bytes_per_second":65536, "tx_bytes_per_second":16384})
+        if self.path == "/api/updates":
+            state = json.loads((HERE / "demo-state.json").read_text())
+            return self.send({"supported":False,"current":state["version"],"engine":"v1.0.7-z2k-r0","available":False,"running":False,"stage":"idle"})
         if self.path == "/api/diagnostics":
             adaptive = json.loads((HERE / "demo-adaptive.json").read_text())
             state = json.loads((HERE / "demo-state.json").read_text())

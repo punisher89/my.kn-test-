@@ -23,7 +23,9 @@
           "url": "https://i.ytimg.com/vi/jNQXAC9IVRw/default.jpg",
           "status": 200
         }
-      ]
+      ],
+      "domain_source": "pilot:youtube",
+      "auto_domains": true
     },
     "category": "Видео",
     "note": "Проверки HTTPS не подтверждают воспроизведение видео.",
@@ -51,7 +53,9 @@
           "status": 200,
           "contains": "wss://gateway.discord.gg"
         }
-      ]
+      ],
+      "domain_source": "pilot:discord",
+      "auto_domains": true
     },
     "category": "Общение",
     "note": "Проверки HTTPS не подтверждают Discord Voice.",
@@ -74,7 +78,9 @@
           "status": 200,
           "contains": "User-agent"
         }
-      ]
+      ],
+      "domain_source": "pilot:instagram",
+      "auto_domains": true
     },
     "category": "Соцсети",
     "note": "Контрольный robots.txt проверяет HTTPS; вход, лента и видео требуют отдельной проверки.",
@@ -98,7 +104,9 @@
           "status": 200,
           "contains": "User-agent"
         }
-      ]
+      ],
+      "domain_source": "pilot:facebook",
+      "auto_domains": true
     },
     "category": "Соцсети",
     "note": "Контрольный robots.txt проверяет HTTPS; вход и содержимое ленты требуют отдельной проверки.",
@@ -123,7 +131,9 @@
           "status": 200,
           "contains": "User-agent"
         }
-      ]
+      ],
+      "domain_source": "pilot:twitter",
+      "auto_domains": true
     },
     "category": "Соцсети",
     "note": "Контрольный robots.txt проверяет HTTPS; лента, вход и медиа проверяются отдельно.",
@@ -149,7 +159,9 @@
           "status": 200,
           "contains": "User-agent"
         }
-      ]
+      ],
+      "domain_source": "pilot:chatgpt",
+      "auto_domains": true
     },
     "category": "AI",
     "note": "Проверка HTTPS не подтверждает вход и чат. Ограничения региона или аккаунта не устраняются подбором DPI-метода.",
@@ -175,7 +187,9 @@
           "status": 200,
           "contains": "User-agent"
         }
-      ]
+      ],
+      "domain_source": "pilot:whatsapp",
+      "auto_domains": true
     },
     "category": "Общение",
     "note": "Проверка HTTPS не подтверждает вход, доставку сообщений и звонки WhatsApp.",
@@ -201,12 +215,43 @@
           "status": 200,
           "contains": "Signal"
         }
-      ]
+      ],
+      "domain_source": "pilot:signal",
+      "auto_domains": true
     },
     "category": "Общение",
     "note": "Проверка сайта не подтверждает регистрацию, сообщения и звонки приложения Signal.",
     "aliases": [
       "сигнал"
+    ]
+  },
+  {
+    "profile": {
+      "id": "telegram-web",
+      "name": "Telegram Web",
+      "strategy": "none",
+      "domains": [
+        "telegram.org",
+        "t.me",
+        "telegram.me",
+        "telegra.ph",
+        "telesco.pe"
+      ],
+      "targets": [
+        {
+          "url": "https://telegram.org/",
+          "status": 200,
+          "contains": "Telegram"
+        }
+      ],
+      "domain_source": "pilot:telegram-web",
+      "auto_domains": true
+    },
+    "category": "Общение",
+    "note": "Только Telegram Web и HTTPS-ссылки. MTProto и звонки приложения отдельно не обрабатываются.",
+    "aliases": [
+      "телеграм",
+      "телеграм веб"
     ]
   }
 ]
