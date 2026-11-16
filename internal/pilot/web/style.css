@@ -1320,3 +1320,30 @@ summary {
 .saved-boxes[open] > summary { margin-bottom: 12px; }
 .saved-boxes > .box-grid { margin-top: 12px; }
 .box-method-line .badge { max-width: 54%; white-space: normal; overflow-wrap: anywhere; }
+
+.service-catalog { margin: 0 0 16px; }
+.service-catalog > summary { font-weight: 600; margin: 0; }
+.service-catalog[open] > summary { margin-bottom: 12px; }
+.service-catalog > small { display: block; color: var(--muted); margin: 8px 0; }
+.preset-row { display: flex; align-items: start; justify-content: space-between; gap: 14px; padding: 12px 0; border-top: 1px solid var(--border); }
+.preset-row > div { min-width: 0; }
+.preset-row small { display: block; color: var(--muted); overflow-wrap: anywhere; }
+.preset-row details { margin-top: 6px; padding-top: 0; border: 0; }
+.preset-row summary { margin: 0; }
+.preset-row button { flex-shrink: 0; padding: 8px 12px; }
+.service-profile-list { display: grid; gap: 10px; }
+.service-profile { margin: 0; padding: 14px 18px; min-width: 0; }
+.service-profile > summary { margin: 0; }
+.profile-summary { display: inline-flex; align-items: center; gap: 12px; vertical-align: middle; max-width: 92%; }
+.profile-summary > span { min-width: 0; }
+.profile-summary strong, .profile-summary small { display: block; overflow-wrap: anywhere; }
+.profile-summary small { color: var(--muted); margin-top: 3px; font-size: 11px; }
+.profile-summary .service-logo { width: 32px; height: 32px; flex-shrink: 0; }
+.profile-editor { padding-top: 12px; }
+.profile-editor .profile-buttons { flex-wrap: wrap; }
+.profile-editor .profile-buttons button { flex: 1 1 auto; }
+@media (max-width: 600px) {
+  .service-profile { padding: 12px; }
+  .preset-row { gap: 8px; }
+  .preset-row button { font-size: 11px; padding: 8px; }
+}

@@ -1,0 +1,212 @@
+[
+  {
+    "profile": {
+      "id": "youtube",
+      "name": "YouTube",
+      "domains": [
+        "youtube.com",
+        "youtu.be",
+        "googlevideo.com",
+        "ytimg.com",
+        "ggpht.com",
+        "youtubei.googleapis.com",
+        "youtube-nocookie.com"
+      ],
+      "strategy": "none",
+      "targets": [
+        {
+          "url": "https://www.youtube.com/",
+          "status": 200,
+          "contains": "ytInitialData"
+        },
+        {
+          "url": "https://i.ytimg.com/vi/jNQXAC9IVRw/default.jpg",
+          "status": 200
+        }
+      ]
+    },
+    "category": "Видео",
+    "note": "Проверки HTTPS не подтверждают воспроизведение видео.",
+    "aliases": [
+      "ютуб"
+    ]
+  },
+  {
+    "profile": {
+      "id": "discord",
+      "name": "Discord",
+      "domains": [
+        "discord.com",
+        "discord.gg",
+        "discord.media",
+        "discordapp.com",
+        "discordapp.net",
+        "discordcdn.com",
+        "discord.dev"
+      ],
+      "strategy": "none",
+      "targets": [
+        {
+          "url": "https://discord.com/api/v10/gateway",
+          "status": 200,
+          "contains": "wss://gateway.discord.gg"
+        }
+      ]
+    },
+    "category": "Общение",
+    "note": "Проверки HTTPS не подтверждают Discord Voice.",
+    "aliases": [
+      "дискорд"
+    ]
+  },
+  {
+    "profile": {
+      "id": "instagram",
+      "name": "Instagram",
+      "strategy": "none",
+      "domains": [
+        "instagram.com",
+        "cdninstagram.com"
+      ],
+      "targets": [
+        {
+          "url": "https://www.instagram.com/robots.txt",
+          "status": 200,
+          "contains": "User-agent"
+        }
+      ]
+    },
+    "category": "Соцсети",
+    "note": "Контрольный robots.txt проверяет HTTPS; вход, лента и видео требуют отдельной проверки.",
+    "aliases": [
+      "инстаграм"
+    ]
+  },
+  {
+    "profile": {
+      "id": "facebook",
+      "name": "Facebook",
+      "strategy": "none",
+      "domains": [
+        "facebook.com",
+        "fbcdn.net",
+        "fb.com"
+      ],
+      "targets": [
+        {
+          "url": "https://www.facebook.com/robots.txt",
+          "status": 200,
+          "contains": "User-agent"
+        }
+      ]
+    },
+    "category": "Соцсети",
+    "note": "Контрольный robots.txt проверяет HTTPS; вход и содержимое ленты требуют отдельной проверки.",
+    "aliases": [
+      "фейсбук"
+    ]
+  },
+  {
+    "profile": {
+      "id": "twitter",
+      "name": "X / Twitter",
+      "strategy": "none",
+      "domains": [
+        "x.com",
+        "twitter.com",
+        "twimg.com",
+        "t.co"
+      ],
+      "targets": [
+        {
+          "url": "https://x.com/robots.txt",
+          "status": 200,
+          "contains": "User-agent"
+        }
+      ]
+    },
+    "category": "Соцсети",
+    "note": "Контрольный robots.txt проверяет HTTPS; лента, вход и медиа проверяются отдельно.",
+    "aliases": [
+      "икс",
+      "твиттер"
+    ]
+  },
+  {
+    "profile": {
+      "id": "chatgpt",
+      "name": "ChatGPT",
+      "strategy": "none",
+      "domains": [
+        "chatgpt.com",
+        "openai.com",
+        "oaistatic.com",
+        "oaiusercontent.com"
+      ],
+      "targets": [
+        {
+          "url": "https://chatgpt.com/robots.txt",
+          "status": 200,
+          "contains": "User-agent"
+        }
+      ]
+    },
+    "category": "AI",
+    "note": "Проверка HTTPS не подтверждает вход и чат. Ограничения региона или аккаунта не устраняются подбором DPI-метода.",
+    "aliases": [
+      "чатгпт",
+      "чат гпт",
+      "ии"
+    ]
+  },
+  {
+    "profile": {
+      "id": "whatsapp",
+      "name": "WhatsApp Web",
+      "strategy": "none",
+      "domains": [
+        "whatsapp.com",
+        "whatsapp.net",
+        "wa.me"
+      ],
+      "targets": [
+        {
+          "url": "https://www.whatsapp.com/robots.txt",
+          "status": 200,
+          "contains": "User-agent"
+        }
+      ]
+    },
+    "category": "Общение",
+    "note": "Проверка HTTPS не подтверждает вход, доставку сообщений и звонки WhatsApp.",
+    "aliases": [
+      "ватсап",
+      "вотсап"
+    ]
+  },
+  {
+    "profile": {
+      "id": "signal",
+      "name": "Signal",
+      "strategy": "none",
+      "domains": [
+        "signal.org",
+        "signal.art",
+        "signal.group",
+        "signal.link"
+      ],
+      "targets": [
+        {
+          "url": "https://signal.org/",
+          "status": 200,
+          "contains": "Signal"
+        }
+      ]
+    },
+    "category": "Общение",
+    "note": "Проверка сайта не подтверждает регистрацию, сообщения и звонки приложения Signal.",
+    "aliases": [
+      "сигнал"
+    ]
+  }
+]

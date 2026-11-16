@@ -55,6 +55,9 @@ async function logout() {
   adaptiveData = null;
   adaptiveDrafts.clear();
   adaptiveDetails.clear();
+  profileDrafts.clear();
+  profileOpen.clear();
+  serviceCatalogQuery = ""; serviceCatalogOpen = false; selectedTuneProfile = "";
   token = "";
   sessionStorage.removeItem("pilot-token");
   $("#shell").classList.add("hidden");
@@ -147,14 +150,75 @@ function overview() {
   <div><div class="panel"><div class="panel-head"><h2>Параметры сети</h2><span class="subtle">↗</span></div><div class="info-line"><span>Интерфейс WAN</span><span>${esc(c.wan || "Не задан")}</span></div><div class="info-line"><span>IPv4</span>${badge("Включён", "neutral")}</div><div class="info-line"><span>IPv6</span>${badge(c.ipv6 ? "Включён" : "Выключен", "neutral")}</div><div class="info-line"><span>QUIC / HTTP 3</span>${badge(c.quic ? "Обработка включена" : "Без обработки", "neutral")}</div><div class="info-line"><span>Исключения</span><span>${c.exclusions.length} доменов</span></div><div class="info-line"><span>Аппаратное ускорение</span><span>${c.ppe ? "PPE · окно handshake" : "Не управляется"}</span></div></div><div class="panel"><div class="panel-head"><h2>Последний подбор</h2><a href="#tune">Открыть ↗</a></div><p>${esc(jobSummary())}</p><div class="info-note">Стратегия сохраняется только после успешных повторных проверок. Если подходящего варианта нет — выполняется откат.</div></div></div></div>`
   );
 }
+const profileDrafts = new Map(), profileOpen = new Map();
+let serviceCatalogOpen = false, serviceCatalogQuery = "", selectedTuneProfile = "", serviceMutationPending = false;
+function presetNote(id) {
+  return (state.service_presets || []).find((s) => s.profile.id === id)?.note || "HTTPS-пробы не подтверждают работу приложения, видео и голоса.";
+}
+function servicePresetState(p) {
+  const existing = state.config.profiles.some((v) => v.id === p.id);
+  const conflict = state.config.profiles.some((v) => v.domains.some((d) => p.domains.some((other) => d === other || d.endsWith("." + other) || other.endsWith("." + d))));
+  return { existing, conflict, blocked: existing || conflict || state.config.profiles.length >= 12 || state.busy || serviceMutationPending };
+}
+function updateServiceButtons() {
+  document.querySelectorAll("[data-add-service]").forEach((button) => {
+    const preset = (state.service_presets || []).find((p) => p.profile.id === button.dataset.addService);
+    button.disabled = !preset || servicePresetState(preset.profile).blocked;
+  });
+  document.querySelectorAll("[data-save-profile]").forEach((b) => { b.disabled = state.busy || serviceMutationPending; });
+  document.querySelectorAll("[data-remove-service]").forEach((b) => { b.disabled = state.busy || serviceMutationPending || state.config.profiles.length <= 1; });
+}
+async function serviceAction(fn) {
+  if (serviceMutationPending) return;
+  serviceMutationPending = true;
+  updateServiceButtons();
+  try { await action(fn); } finally { serviceMutationPending = false; updateServiceButtons(); }
+}
+function presetRows() {
+  const query = serviceCatalogQuery.trim().toLowerCase();
+  const presets = (state.service_presets || []).filter((s) => [s.profile.name, s.profile.id, s.category, ...(s.aliases || []), ...s.profile.domains].join(" ").toLowerCase().includes(query));
+  return presets.map((s) => {
+    const p = s.profile, { existing, conflict, blocked } = servicePresetState(s.profile);
+    return `<div class="preset-row" data-service="${esc(p.id)}"><div><strong>${esc(p.name)}</strong><small>${esc(s.category)} · доменов: ${p.domains.length}</small><details><summary>Домены и границы проверки</summary><p class="subtle">${esc(s.note)}</p><p class="domain-list">${p.domains.map((d) => `<span>${esc(d)}</span>`).join("")}</p>${p.targets.map((t) => `<small>${esc(t.url)} · HTTP ${t.status} · ${esc(t.contains || "")}</small>`).join("")}</details></div>${existing && page === "tune" ? `<button data-preset-select="${esc(p.id)}">Выбрать</button>` : `<button data-add-service="${esc(p.id)}" ${blocked ? "disabled" : ""}>${existing ? "Добавлен" : conflict ? "Домены заняты" : "Добавить"}</button>`}</div>`;
+  }).join("") || '<p class="subtle">Сервис не найден.</p>';
+}
+function serviceCatalog() {
+  return `<details class="panel service-catalog" id="service-catalog" ${serviceCatalogOpen ? "open" : ""}><summary>Популярные сервисы · каталог: ${(state.service_presets || []).length}</summary><p class="subtle">Добавьте нужные профили. Добавление перезапускает работающий движок; новый профиль начинает без вмешательства. Доступность зависит от сети, региона и аккаунта. Для подбора используется HTTPS-проверка, а не проверка всего приложения.</p><label>Найти сервис<input type="search" id="service-search" value="${esc(serviceCatalogQuery)}" placeholder="Название сервиса или домен"></label><small>Подключено профилей: ${state.config.profiles.length} из 12</small><div id="service-preset-list">${presetRows()}</div></details>`;
+}
+function profileCard(p) {
+  const edit = profileDrafts.get(p.id) || p;
+  return `<details class="panel service-profile" data-profile-card="${esc(p.id)}" ${profileOpen.get(p.id) ? "open" : ""}><summary><span class="profile-summary">${logo(p)}<span><strong>${esc(p.name)}</strong><small>${esc(strategyName(p.strategy))} · доменов: ${p.domains.length}</small></span></span></summary><div class="profile-editor"><p class="subtle">${esc(presetNote(p.id))}</p><label for="strategy-${esc(p.id)}">Текущая стратегия</label><select id="strategy-${esc(p.id)}">${strategyOptions(edit.strategy)}</select><details><summary>Домены и проверки</summary><label for="domains-${esc(p.id)}">Один домен на строку, поддомены включаются автоматически</label><textarea rows="4" id="domains-${esc(p.id)}">${esc(edit.domains.join("\n"))}</textarea><div class="field"></div><label>Контрольные запросы</label>${edit.targets.map((t, i) => `<div class="target-editor" data-profile="${esc(p.id)}" data-target="${i}"><label>Адрес HTTPS</label><input type="url" data-field="url" value="${esc(t.url)}"><div class="target-small"><div><label>HTTP</label><input type="number" min="200" max="399" data-field="status" value="${t.status}"></div><div><label>Фрагмент ответа</label><input data-field="contains" value="${esc(t.contains || "")}" placeholder="Необязательно"></div></div></div>`).join("")}<small>Каждый адрес проверяется с TLS 1.2 и TLS 1.3. HTTP 403/451 и ошибки сертификата не считаются успешным обходом. Контрольные адреса можно изменить под нужный сценарий.</small></details><div class="profile-buttons"><button data-save-profile="${esc(p.id)}" ${state.busy ? "disabled" : ""}>Сохранить</button><button data-tune-profile="${esc(p.id)}" class="primary" ${!state.running || state.busy ? "disabled" : ""}>Подобрать ↗</button><button data-remove-service="${esc(p.id)}" ${state.busy || state.config.profiles.length <= 1 ? "disabled" : ""}>Удалить профиль</button></div></div></details>`;
+}
 function profiles() {
-  return (
-    heading(
-      "Сервисы и домены",
-      "У каждого сервиса — своя стратегия, список доменов и контрольные запросы.",
-    ) +
-    `<div class="profile-grid">${state.config.profiles.map((p) => `<article class="panel"><div class="profile-title">${logo(p)}<div><h2>${esc(p.name)}</h2><small>${p.domains.length} доменов · ${p.targets.length} контрольных адреса</small></div></div><label for="strategy-${esc(p.id)}">Текущая стратегия</label><select id="strategy-${esc(p.id)}">${strategyOptions(p.strategy)}</select><p class="profile-description">${esc(state.strategies.find((s) => s.id === p.strategy)?.description)}</p><details><summary>Домены и проверки</summary><label for="domains-${esc(p.id)}">Один домен на строку, поддомены включаются автоматически</label><textarea rows="7" id="domains-${esc(p.id)}">${esc(p.domains.join("\n"))}</textarea><div class="field"></div><label>Контрольные запросы</label>${p.targets.map((t, i) => `<div class="target-editor" data-profile="${esc(p.id)}" data-target="${i}"><label>Адрес HTTPS</label><input type="url" data-field="url" value="${esc(t.url)}"><div class="target-small"><div><label>HTTP</label><input type="number" min="200" max="399" data-field="status" value="${t.status}"></div><div><label>Фрагмент ответа</label><input data-field="contains" value="${esc(t.contains || "")}" placeholder="Необязательно"></div></div></div>`).join("")}<small>Каждый адрес проверяется с TLS 1.2 и TLS 1.3. URL проверки должен входить в домены этого профиля.</small></details><div class="profile-buttons"><button data-save-profile="${esc(p.id)}" ${state.busy ? "disabled" : ""}>Сохранить</button><button data-tune-profile="${esc(p.id)}" class="primary" ${!state.running || state.busy ? "disabled" : ""}>Подобрать ↗</button></div></article>`).join("")}</div><div class="info-note">Списки задают область обработки. Остальные сайты продолжают работать обычным способом. Discord Voice — отдельная экспериментальная настройка UDP; успешная HTTPS-проверка не означает, что голос работает.</div>`
-  );
+  return heading("Сервисы и домены", "Выберите сервис из каталога. Раскройте профиль для стратегии, доменов и проверок.") + serviceCatalog() + `<div class="service-profile-list">${state.config.profiles.map(profileCard).join("")}</div>`;
+}
+function readProfileDraft(id) {
+  const p = structuredClone(state.config.profiles.find((p) => p.id === id));
+  p.strategy = $(`#strategy-${id}`).value;
+  p.domains = lines($(`#domains-${id}`).value);
+  document.querySelectorAll(`[data-profile="${id}"]`).forEach((editor) => {
+    const t = p.targets[Number(editor.dataset.target)];
+    t.url = editor.querySelector("[data-field=url]").value.trim();
+    t.status = Number(editor.querySelector("[data-field=status]").value);
+    t.contains = editor.querySelector("[data-field=contains]").value;
+  });
+  return p;
+}
+function bindPresetActions(root) {
+  root.querySelectorAll("[data-add-service]").forEach((button) => button.addEventListener("click", async () => {
+    button.disabled = true;
+    try { await serviceAction(async () => {
+      await api("services", "POST", { id: button.dataset.addService });
+      if (page === "tune") selectedTuneProfile = button.dataset.addService;
+      notify("Профиль добавлен. Можно запустить подбор или наблюдать новый трафик.");
+    }); } finally { button.disabled = false; }
+  }));
+  root.querySelectorAll("[data-preset-select]").forEach((button) => button.addEventListener("click", () => {
+    selectedTuneProfile = button.dataset.presetSelect;
+    $("#tune-profile").value = selectedTuneProfile;
+    $("#tune-profile-note").textContent = presetNote(selectedTuneProfile);
+    $("#tune-profile").focus();
+  }));
 }
 function tune() {
   return (
@@ -162,7 +226,7 @@ function tune() {
       "Подбор стратегий",
       "Проверяем соединения, а не угадываем по названию провайдера.",
     ) +
-    `<div class="tune-intro"><div class="step-card"><b>01 / ИСХОДНОЕ СОСТОЯНИЕ</b><strong>Проверка без обхода</strong><p>Прямые соединения помогают понять, требуется ли вмешательство.</p></div><div class="step-card"><b>02 / ПОИСК</b><strong>TLS 1.2 + TLS 1.3</strong><p>Применяем варианты и повторяем контрольные запросы.</p></div><div class="step-card"><b>03 / ПОДТВЕРЖДЕНИЕ</b><strong>Сохранение или откат</strong><p>Перезапускаем движок и снова проверяем выбранный вариант.</p></div></div><div class="panel"><div class="tune-control"><div class="field"><label for="tune-profile">Сервис</label><select id="tune-profile">${state.config.profiles.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")}</select></div><button id="tune-start" class="primary" ${!state.running || state.busy ? "disabled" : ""}>Начать подбор ↗</button><button id="tune-cancel" ${!state.job || state.job.finished ? "disabled" : ""}>Отменить</button></div><div class="info-note">Во время подбора движок несколько раз перезапускается. Возможны краткие перебои у активных соединений. QUIC, голос Discord и фактическое воспроизведение видео требуют отдельных испытаний.</div></div><div id="job-panel">${jobPanel()}</div>`
+    serviceCatalog() + `<div class="tune-intro"><div class="step-card"><b>01 / ИСХОДНОЕ СОСТОЯНИЕ</b><strong>Проверка без обхода</strong><p>Прямые соединения помогают понять, требуется ли вмешательство.</p></div><div class="step-card"><b>02 / ПОИСК</b><strong>TLS 1.2 + TLS 1.3</strong><p>Применяем варианты и повторяем контрольные запросы.</p></div><div class="step-card"><b>03 / ПОДТВЕРЖДЕНИЕ</b><strong>Сохранение или откат</strong><p>Перезапускаем движок и снова проверяем выбранный вариант.</p></div></div><div class="panel"><div class="tune-control"><div class="field"><label for="tune-profile">Сервис</label><select id="tune-profile">${state.config.profiles.map((p) => `<option value="${esc(p.id)}" ${p.id === selectedTuneProfile ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select></div><button id="tune-start" class="primary" ${!state.running || state.busy ? "disabled" : ""}>Начать подбор ↗</button><button id="tune-cancel" ${!state.job || state.job.finished ? "disabled" : ""}>Отменить</button></div><div class="info-note">Во время подбора движок несколько раз перезапускается. Возможны краткие перебои у активных соединений. QUIC, голос Discord и фактическое воспроизведение видео требуют отдельных испытаний.</div><p id="tune-profile-note" class="subtle">${esc(presetNote(state.config.profiles.find((p) => p.id === selectedTuneProfile)?.id || state.config.profiles[0].id))}</p></div><div id="job-panel">${jobPanel()}</div>`
   );
 }
 function jobPanel() {
@@ -211,6 +275,7 @@ function connectPage() {
 async function refresh(render = false) {
   state = await api("status");
   updateChrome();
+  updateServiceButtons();
   if (render) renderPage();
   else if (page === "overview") {
     $("#content").innerHTML = overview();
@@ -349,29 +414,39 @@ function bindActions() {
       }),
     ),
   );
-  document.querySelectorAll("[data-save-profile]").forEach((button) =>
-    button.addEventListener("click", () =>
-      action(async () => {
-        const id = button.dataset.saveProfile,
-          c = structuredClone(state.config),
-          p = c.profiles.find((p) => p.id === id);
-        p.strategy = $(`#strategy-${id}`).value;
-        p.domains = lines($(`#domains-${id}`).value);
-        document
-          .querySelectorAll(`[data-profile="${id}"]`)
-          .forEach((editor) => {
-            const t = p.targets[Number(editor.dataset.target)];
-            t.url = editor.querySelector("[data-field=url]").value.trim();
-            t.status = Number(
-              editor.querySelector("[data-field=status]").value,
-            );
-            t.contains = editor.querySelector("[data-field=contains]").value;
-          });
-        await api("config", "PUT", c);
-        notify("Профиль сохранён");
-      }),
-    ),
-  );
+  document.querySelectorAll("[data-save-profile]").forEach((button) => button.addEventListener("click", () => serviceAction(async () => {
+    const id = button.dataset.saveProfile, c = structuredClone(state.config);
+    const submitted = readProfileDraft(id);
+    c.profiles[c.profiles.findIndex((p) => p.id === id)] = submitted;
+    await api("config", "PUT", c);
+    if (JSON.stringify(profileDrafts.get(id) || submitted) === JSON.stringify(submitted)) profileDrafts.delete(id);
+    notify("Профиль сохранён");
+  })));
+  document.querySelectorAll("[data-remove-service]").forEach((button) => button.addEventListener("click", () => serviceAction(async () => {
+    const id = button.dataset.removeService;
+    await api("services/" + encodeURIComponent(id), "DELETE");
+    profileDrafts.delete(id); profileOpen.delete(id);
+    if (selectedTuneProfile === id) selectedTuneProfile = "";
+    notify("Профиль удалён; ручные правила и обучение сохранены");
+  })));
+  document.querySelectorAll("[data-profile-card]").forEach((card) => {
+    const id = card.dataset.profileCard;
+    card.addEventListener("toggle", () => profileOpen.set(id, card.open));
+    card.addEventListener("input", () => profileDrafts.set(id, readProfileDraft(id)));
+    card.addEventListener("change", () => profileDrafts.set(id, readProfileDraft(id)));
+  });
+  $("#service-catalog")?.addEventListener("toggle", (event) => { serviceCatalogOpen = event.currentTarget.open; });
+  $("#service-search")?.addEventListener("input", (event) => {
+    serviceCatalogQuery = event.target.value;
+    $("#service-preset-list").innerHTML = presetRows();
+    bindPresetActions($("#service-preset-list"));
+  });
+  $("#tune-profile")?.addEventListener("change", (event) => {
+    selectedTuneProfile = event.target.value;
+    $("#tune-profile-note").textContent = presetNote(selectedTuneProfile);
+  });
+  bindPresetActions(document);
+  updateServiceButtons();
   $("#settings-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
     action(async () => {
@@ -471,10 +546,10 @@ function groupedHistory(rows) {
       r.status === "held" ? r.hold_until : null]);
     let group = lastByContext.get(context);
     if (group?.signature === signature) {
-      group.row = { ...r, event_count: group.row.event_count + 1, first_updated: group.row.first_updated };
+      group.row = { ...r, event_count: group.row.event_count + (r.event_count || 1), first_updated: group.row.first_updated };
       group.index = index;
     } else {
-      group = { signature, index, row: { ...r, event_count: 1, first_updated: r.updated } };
+      group = { signature, index, row: { ...r, event_count: r.event_count || 1, first_updated: r.first_updated ?? r.updated } };
       groups.push(group);
       lastByContext.set(context, group);
     }
@@ -643,6 +718,7 @@ function boxCard(b, enabled = true) {
     ...new Set([...b.hosts, ...b.history].map((r) => r.host)),
   ].sort();
   const history = groupedHistory(b.history);
+  const eventTotal = b.history.reduce((sum, r) => sum + (r.event_count || 1), 0);
   return `<article class="panel bypass-box" data-box="${esc(b.id)}">
     <div class="panel-head"><h2>${esc(tlsLabels[b.tls] || tlsLabels.unknown)} · ${esc(b.family === "ipv6" ? "IPv6" : b.family === "ipv4" ? "IPv4" : "IP не определён")}</h2><span class="subtle">Домены: ${domains.length}</span></div>
     <p class="box-context">${esc(symptomLabels[b.symptom] || symptomLabels.unknown)} · ${esc(b.network === "-" ? "WAN не записан" : b.network)}${b.port ? ":" + b.port : ""}</p>
@@ -651,7 +727,7 @@ function boxCard(b, enabled = true) {
     <details data-view-key="${esc(b.id)}/observations"><summary>Домены и методы · ${domains.length}</summary>${currentBoxMethods(b.hosts, enabled)}${observationTable(b.hosts, false, enabled)}</details>
     <details data-view-key="${esc(b.id)}/experience"><summary>Опыт обхода · ${b.methods.length}</summary><div class="box-methods">${b.methods.length ? b.methods.map((m) => `<div class="box-method"><div class="box-method-line"><strong>${esc(m.name)}</strong>${badge(m.reusable ? "Кандидат по опыту" : "Сохранённое наблюдение", m.reusable ? "" : "neutral")}</div><small>${esc(familyLabels[m.family] || familyLabels.other)} · ответ на ${m.hosts} доменах</small></div>`).join("") : `<p class="subtle">${esc(boxExperienceEmpty(b))}</p>`}</div></details>
     ${domainControls(b, domains)}
-    <details data-view-key="${esc(b.id)}/history"><summary>История · ${history.length} строк из ${b.history.length} событий</summary>${observationTable(history, true)}</details>
+    <details data-view-key="${esc(b.id)}/history"><summary>История · ${history.length} строк · событий: ${eventTotal}</summary>${observationTable(history, true)}</details>
     <small class="box-updated">Наблюдение: ${esc(new Date(b.updated * 1000).toLocaleString("ru-RU"))}</small>
   </article>`;
 }

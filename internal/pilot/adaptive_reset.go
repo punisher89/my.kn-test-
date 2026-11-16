@@ -13,13 +13,22 @@ import (
 
 func adaptiveFrame(generation uint64, hosts, events []AdaptiveHost) []byte {
 	var b bytes.Buffer
-	fmt.Fprintf(&b, "PILOT3\t%d\n", generation)
+	fmt.Fprintf(&b, "PILOT4\t%d\n", generation)
 	row := func(kind string, r AdaptiveHost) {
 		hold := r.HoldReason
 		if hold == "" {
 			hold = "none"
 		}
-		fmt.Fprintf(&b, "%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\t%d\t%s\t%d\t%d\t%d\t%d\t%s\n", kind, r.Group, r.Host, r.Strategy, r.Status, r.Updated, r.Symptom, r.Network, r.Port, r.Origin, r.LastSwitch, r.WindowStart, r.Switches, r.HoldUntil, hold)
+		count, first := r.EventCount, r.FirstUpdated
+		if count < 1 {
+			count = 1
+			first = r.Updated
+		}
+		if kind == "R" {
+			count = 1
+			first = r.Updated
+		}
+		fmt.Fprintf(&b, "%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\t%d\t%s\t%d\t%d\t%d\t%d\t%s\t%d\t%d\n", kind, r.Group, r.Host, r.Strategy, r.Status, r.Updated, r.Symptom, r.Network, r.Port, r.Origin, r.LastSwitch, r.WindowStart, r.Switches, r.HoldUntil, hold, count, first)
 	}
 	for _, r := range hosts {
 		row("R", r)

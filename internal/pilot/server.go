@@ -104,6 +104,26 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 	})
 	api("GET /api/adaptive", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, ReadAdaptive(m.Config())) })
 	api("GET /api/network", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, DetectNetwork()) })
+	api("POST /api/services", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			ID string `json:"id"`
+		}
+		if !read(w, r, &input) {
+			return
+		}
+		if err := m.AddService(input.ID); err != nil {
+			replyError(w, err)
+			return
+		}
+		jsonReply(w, 200, m.Snapshot())
+	})
+	api("DELETE /api/services/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if err := m.RemoveService(r.PathValue("id")); err != nil {
+			replyError(w, err)
+			return
+		}
+		jsonReply(w, 200, m.Snapshot())
+	})
 	api("PUT /api/config", func(w http.ResponseWriter, r *http.Request) {
 		var c Config
 		if !read(w, r, &c) {

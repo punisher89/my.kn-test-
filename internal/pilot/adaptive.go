@@ -71,22 +71,24 @@ func PrepareAdaptive(c Config) error {
 }
 
 type AdaptiveHost struct {
-	Group       string `json:"group"`
-	Host        string `json:"host"`
-	Strategy    string `json:"strategy"`
-	Status      string `json:"status"`
-	Updated     int64  `json:"updated"`
-	Symptom     string `json:"symptom"`
-	Network     string `json:"network"`
-	Port        int    `json:"port"`
-	Origin      string `json:"origin"`
-	LastSwitch  int64  `json:"last_switch"`
-	WindowStart int64  `json:"window_start"`
-	Switches    int    `json:"switches"`
-	HoldUntil   int64  `json:"hold_until"`
-	HoldReason  string `json:"hold_reason"`
-	Pinned      string `json:"pinned,omitempty"`
-	Paused      bool   `json:"paused"`
+	EventCount   int64  `json:"event_count"`
+	FirstUpdated int64  `json:"first_updated"`
+	Group        string `json:"group"`
+	Host         string `json:"host"`
+	Strategy     string `json:"strategy"`
+	Status       string `json:"status"`
+	Updated      int64  `json:"updated"`
+	Symptom      string `json:"symptom"`
+	Network      string `json:"network"`
+	Port         int    `json:"port"`
+	Origin       string `json:"origin"`
+	LastSwitch   int64  `json:"last_switch"`
+	WindowStart  int64  `json:"window_start"`
+	Switches     int    `json:"switches"`
+	HoldUntil    int64  `json:"hold_until"`
+	HoldReason   string `json:"hold_reason"`
+	Pinned       string `json:"pinned,omitempty"`
+	Paused       bool   `json:"paused"`
 }
 type AdaptiveSnapshot struct {
 	Enabled    bool           `json:"enabled"`
@@ -119,7 +121,7 @@ func readAdaptiveSlot(path string) (uint64, []AdaptiveHost, []AdaptiveHost, erro
 		return 0, nil, nil, io.ErrUnexpectedEOF
 	}
 	header := strings.Split(scanner.Text(), "\t")
-	if len(header) != 2 || (header[0] != "PILOT1" && header[0] != "PILOT2" && header[0] != "PILOT3") {
+	if len(header) != 2 || (header[0] != "PILOT1" && header[0] != "PILOT2" && header[0] != "PILOT3" && header[0] != "PILOT4") {
 		return 0, nil, nil, errors.New("неполный заголовок adaptive")
 	}
 	generation, err := strconv.ParseUint(header[1], 10, 53)
@@ -139,8 +141,8 @@ func readAdaptiveSlot(path string) (uint64, []AdaptiveHost, []AdaptiveHost, erro
 		}
 		fields := strings.Split(line, "\t")
 		kind := "R"
-		if header[0] == "PILOT2" || header[0] == "PILOT3" {
-			if header[0] == "PILOT2" && len(fields) != 10 || header[0] == "PILOT3" && len(fields) != 15 {
+		if header[0] == "PILOT2" || header[0] == "PILOT3" || header[0] == "PILOT4" {
+			if header[0] == "PILOT2" && len(fields) != 10 || header[0] == "PILOT3" && len(fields) != 15 || header[0] == "PILOT4" && len(fields) != 17 {
 				return 0, nil, nil, errors.New("неполная запись adaptive")
 			}
 			kind = fields[0]
@@ -149,7 +151,7 @@ func readAdaptiveSlot(path string) (uint64, []AdaptiveHost, []AdaptiveHost, erro
 			return 0, nil, nil, errors.New("неполная запись adaptive")
 		}
 		stamp, err := strconv.ParseInt(fields[4], 10, 64)
-		r := AdaptiveHost{Group: fields[0], Host: fields[1], Strategy: fields[2], Status: fields[3], Updated: stamp, Symptom: "unknown", Network: "-", Origin: "restored", HoldReason: "none"}
+		r := AdaptiveHost{EventCount: 1, FirstUpdated: stamp, Group: fields[0], Host: fields[1], Strategy: fields[2], Status: fields[3], Updated: stamp, Symptom: "unknown", Network: "-", Origin: "restored", HoldReason: "none"}
 		validStatus := (kind == "R" && (r.Status == "probing" || r.Status == "connected")) || (kind == "E" && (r.Status == "failed" || r.Status == "selected" || r.Status == "connected" || r.Status == "held"))
 		if err != nil || stamp < 0 || !groupRE.MatchString(r.Group) || !ValidDomain(r.Host) || !idRE.MatchString(r.Strategy) || !validStatus {
 			return 0, nil, nil, errors.New("некорректная запись adaptive")
@@ -161,7 +163,7 @@ func readAdaptiveSlot(path string) (uint64, []AdaptiveHost, []AdaptiveHost, erro
 				return 0, nil, nil, errors.New("некорректный контекст adaptive")
 			}
 		}
-		if len(fields) == 14 {
+		if len(fields) >= 14 {
 			nums := []int64{}
 			for _, v := range fields[9:13] {
 				n, e := strconv.ParseInt(v, 10, 53)
@@ -174,6 +176,14 @@ func readAdaptiveSlot(path string) (uint64, []AdaptiveHost, []AdaptiveHost, erro
 				return 0, nil, nil, errors.New("некорректная пауза смены")
 			}
 			r.LastSwitch, r.WindowStart, r.Switches, r.HoldUntil, r.HoldReason = nums[0], nums[1], int(nums[2]), nums[3], fields[13]
+		}
+		if header[0] == "PILOT4" {
+			count, e1 := strconv.ParseInt(fields[14], 10, 64)
+			first, e2 := strconv.ParseInt(fields[15], 10, 64)
+			if e1 != nil || e2 != nil || count < 1 || count > 1000000000 || first < 0 || first > stamp || (kind == "R" && (count != 1 || first != stamp)) || (r.Status != "failed" && count != 1) {
+				return 0, nil, nil, errors.New("некорректный счётчик событий adaptive")
+			}
+			r.EventCount, r.FirstUpdated = count, first
 		}
 		if kind == "E" {
 			if len(events) >= 128 {

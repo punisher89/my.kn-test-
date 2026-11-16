@@ -53,7 +53,9 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path == "/api/adaptive":
             return self.send((HERE / "demo-adaptive.json").read_bytes())
         if self.path == "/api/status":
-            return self.send((HERE / "demo-state.json").read_bytes())
+            state = json.loads((HERE / "demo-state.json").read_text())
+            state["service_presets"] = json.loads((HERE.parent / "internal/pilot/service-presets.json").read_text())
+            return self.send(state)
         if self.path == "/api/logs":
             return self.send([
                 "МАКЕТ: это примеры событий, не результаты работы роутера.",

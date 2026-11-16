@@ -77,6 +77,8 @@ type DiagnosticSlot struct {
 	Events     int    `json:"events"`
 }
 type DiagnosticObservation struct {
+	EventCount    int64  `json:"event_count"`
+	FirstUpdated  int64  `json:"first_updated"`
 	Group         string `json:"group"`
 	Box           string `json:"box"`
 	Host          string `json:"host"`
@@ -104,7 +106,7 @@ func diagnosticObservation(r AdaptiveHost, s Snapshot, now int64, history bool) 
 	b := boxContext(r)
 	_, known := strategyFor(s.Config, r.Strategy)
 	d := DiagnosticObservation{
-		Group: r.Group, Box: b.ID, Host: r.Host, TLS: b.TLS, Family: b.Family, Network: r.Network, Port: r.Port,
+		EventCount: r.EventCount, FirstUpdated: r.FirstUpdated, Group: r.Group, Box: b.ID, Host: r.Host, TLS: b.TLS, Family: b.Family, Network: r.Network, Port: r.Port,
 		Strategy: r.Strategy, StrategyKnown: known, Status: r.Status, Reason: r.Status,
 		Symptom: r.Symptom, Origin: r.Origin, Updated: r.Updated,
 		LastSwitch: r.LastSwitch, WindowStart: r.WindowStart, Switches: r.Switches,

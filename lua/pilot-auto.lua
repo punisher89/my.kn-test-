@@ -46,33 +46,56 @@ local function tls_variant(s)
     if p~=last+1 then return nil end
     return s:byte(10)==3 and s:byte(11)==3 and 'tls12' or 'legacy'
 end
+-- Keep distinct transitions, aggregate only repeated failures in the same
+-- context. Moving a group to the tail orders history by its latest event.
+local function append_event(events,row)
+    if row.status=='failed' then
+        for i=#events,1,-1 do
+            local old=events[i]
+            if old.group==row.group and old.host==row.host and old.network==row.network and old.port==row.port then
+                if old.status=='failed' and old.id==row.id and old.reason==row.reason and old.origin==row.origin and old.hold==row.hold and old.hold_reason==row.hold_reason and row.stamp>=old.stamp then
+                    row.count=math.min(1000000000,(old.count or 1)+(row.count or 1))
+                    row.first=old.first or old.stamp
+                    table.remove(events,i)
+                end
+                break
+            end
+        end
+    end
+    events[#events+1]=row
+    if #events>history_limit then table.remove(events,1) end
+end
 local function read_slot(path)
     local f=io.open(path,'r'); if not f then return nil end
     local header=f:read('*l'); local version,n
-    if header then version,n=header:match('^PILOT([123])\t(%d+)$');n=tonumber(n) end
-    local records,events={},{};local count=0;local complete=false
+    if header then version,n=header:match('^PILOT([1234])\t(%d+)$');n=tonumber(n) end
+    local records,events={},{};local count,event_count=0,0;local complete=false
     if n then
         for line in f:lines() do
             if line=='END\t'..n then complete=true;break end
             local fields={};for v in (line..'\t'):gmatch('(.-)\t') do fields[#fields+1]=v end
             local kind,group,host,id,status,stamp,reason,net,port,origin
             local switched,window,switches,hold,hold_reason=0,0,0,0,'none'
+            local repeats,first=1,nil
             if version=='1' and #fields==5 then
                 kind='R';group,host,id,status,stamp=unpack_fields(fields)
                 reason,net,port,origin='unknown','-',0,'restored'
-            elseif (version=='2' and #fields==10) or (version=='3' and #fields==15) then
+            elseif (version=='2' and #fields==10) or (version=='3' and #fields==15) or (version=='4' and #fields==17) then
                 kind,group,host,id,status,stamp,reason,net,port,origin=unpack_fields(fields);port=tonumber(port)
-                if version=='3' then switched,window,switches,hold,hold_reason=unpack_fields(fields,11,15);switched=tonumber(switched);window=tonumber(window);switches=tonumber(switches);hold=tonumber(hold) end
+                if version=='3' or version=='4' then switched,window,switches,hold,hold_reason=unpack_fields(fields,11,15);switched=tonumber(switched);window=tonumber(window);switches=tonumber(switches);hold=tonumber(hold) end
             end
             stamp=tonumber(stamp)
+            first=stamp
+            if version=='4' then repeats=tonumber(fields[16]);first=tonumber(fields[17]) end
             local valid_status=(kind=='R' and (status=='probing' or status=='connected')) or (kind=='E' and (status=='failed' or status=='selected' or status=='connected' or status=='held'))
-            if not (valid_id(group) and valid_host(host) and valid_id(id) and valid_status and stamp and stamp>=0 and reasons[reason] and valid_network(net) and port and port>=0 and port<=65535 and port%1==0 and origins[origin] and switched and switched>=0 and window and window>=0 and switches and switches>=0 and switches%1==0 and hold and hold>=0 and (hold_reason=='none' or hold_reason=='cooldown' or hold_reason=='limit')) then break end
-            local row={group=group,host=host,id=id,status=status,stamp=stamp,reason=reason,network=net,port=port,origin=origin,switched=switched,window=window,switches=switches,hold=hold,hold_reason=hold_reason}
+            if not (valid_id(group) and valid_host(host) and valid_id(id) and valid_status and stamp and stamp>=0 and reasons[reason] and valid_network(net) and port and port>=0 and port<=65535 and port%1==0 and origins[origin] and switched and switched>=0 and window and window>=0 and switches and switches>=0 and switches%1==0 and hold and hold>=0 and (hold_reason=='none' or hold_reason=='cooldown' or hold_reason=='limit') and repeats and repeats>=1 and repeats<=1000000000 and repeats%1==0 and first and first>=0 and first<=stamp and first%1==0 and (kind~='R' or (repeats==1 and first==stamp)) and (status=='failed' or repeats==1)) then break end
+            local row={count=repeats,first=first,group=group,host=host,id=id,status=status,stamp=stamp,reason=reason,network=net,port=port,origin=origin,switched=switched,window=window,switches=switches,hold=hold,hold_reason=hold_reason}
             if kind=='R' then
                 count=count+1;if count>maximum then break end
                 records[group..'\t'..host]=row
             else
-                events[#events+1]=row;if #events>history_limit then break end
+                event_count=event_count+1;if event_count>history_limit then break end
+                append_event(events,row)
             end
         end
     end
@@ -91,9 +114,9 @@ local function flush()
     local now=os.time();if not dirty or now-last_write<2 or not pilot_runtime then return end
     local n=generation+1;local f=io.open(pilot_runtime..'/state'..(n%2)..'.tsv','w')
     if not f then return end
-    f:write('PILOT3\t',n,'\n')
+    f:write('PILOT4\t',n,'\n')
     local function row(kind,r)
-        f:write(kind,'\t',r.group,'\t',r.host,'\t',r.id,'\t',r.status,'\t',r.stamp,'\t',r.reason,'\t',r.network,'\t',r.port,'\t',r.origin,'\t',r.switched or 0,'\t',r.window or 0,'\t',r.switches or 0,'\t',r.hold or 0,'\t',r.hold_reason or 'none','\n')
+        f:write(kind,'\t',r.group,'\t',r.host,'\t',r.id,'\t',r.status,'\t',r.stamp,'\t',r.reason,'\t',r.network,'\t',r.port,'\t',r.origin,'\t',r.switched or 0,'\t',r.window or 0,'\t',r.switches or 0,'\t',r.hold or 0,'\t',r.hold_reason or 'none','\t',kind=='E' and (r.count or 1) or 1,'\t',kind=='E' and (r.first or r.stamp) or r.stamp,'\n')
     end
     for _,r in pairs(cache) do row('R',r) end
     for _,r in ipairs(history) do row('E',r) end
@@ -117,8 +140,8 @@ local function remember(group,host,id,status,newsite,h)
 end
 local function event(group,host,id,status,h,origin)
     if not id then return end
-    history[#history+1]={group=group,host=host,id=id,status=status,stamp=os.time(),reason=h.pilot_reason or 'unknown',network=network(),port=h.pilot_port or 0,origin=origin or h.pilot_origin or 'initial',switched=h.pilot_switched or 0,window=h.pilot_window or 0,switches=h.pilot_switches or 0,hold=h.pilot_hold or 0,hold_reason=h.pilot_hold_reason or 'none'}
-    if #history>history_limit then table.remove(history,1) end
+    local now=os.time()
+    append_event(history,{count=1,first=now,group=group,host=host,id=id,status=status,stamp=now,reason=h.pilot_reason or 'unknown',network=network(),port=h.pilot_port or 0,origin=origin or h.pilot_origin or 'initial',switched=h.pilot_switched or 0,window=h.pilot_window or 0,switches=h.pilot_switches or 0,hold=h.pilot_hold or 0,hold_reason=h.pilot_hold_reason or 'none'})
     dirty=true
 end
 local function excluded(host)

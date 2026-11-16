@@ -29,14 +29,15 @@ type Job struct {
 	Trials   []Trial    `json:"trials"`
 }
 type Snapshot struct {
-	Version    string     `json:"version"`
-	Mode       string     `json:"mode"`
-	Running    bool       `json:"running"`
-	Busy       bool       `json:"busy"`
-	Config     Config     `json:"config"`
-	Job        *Job       `json:"job"`
-	Error      string     `json:"error,omitempty"`
-	Strategies []Strategy `json:"strategies"`
+	ServicePresets []ServicePreset `json:"service_presets"`
+	Version        string          `json:"version"`
+	Mode           string          `json:"mode"`
+	Running        bool            `json:"running"`
+	Busy           bool            `json:"busy"`
+	Config         Config          `json:"config"`
+	Job            *Job            `json:"job"`
+	Error          string          `json:"error,omitempty"`
+	Strategies     []Strategy      `json:"strategies"`
 }
 type Manager struct {
 	mu        sync.Mutex
@@ -93,7 +94,7 @@ func (m *Manager) Snapshot() Snapshot {
 		j.Trials = append([]Trial{}, m.job.Trials...)
 		job = &j
 	}
-	return Snapshot{Version: Version, Mode: m.backend.Kind(), Running: m.backend.Running(), Busy: busy, Config: cloneConfig(m.c), Job: job, Error: m.lastError, Strategies: StrategiesFor(m.c)}
+	return Snapshot{ServicePresets: ServicePresets(), Version: Version, Mode: m.backend.Kind(), Running: m.backend.Running(), Busy: busy, Config: cloneConfig(m.c), Job: job, Error: m.lastError, Strategies: StrategiesFor(m.c)}
 }
 func (m *Manager) setError(err error) error {
 	m.mu.Lock()

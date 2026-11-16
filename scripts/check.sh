@@ -23,7 +23,10 @@ PILOT_TEST_ENGINE=$NATIVE/engine "$GO" test -race ./...
 "$GO" vet ./...
 for FILE in install.sh scripts/*.sh packaging/*; do sh -n "$FILE"; done
 if command -v node >/dev/null 2>&1; then node --check internal/pilot/web/app.js; fi
-if [ "${PILOT_TEST_BROWSER:-0}" = "1" ]; then node tests/test_boxes_ui.cjs; fi
+if [ "${PILOT_TEST_BROWSER:-0}" = "1" ]; then
+    node tests/test_boxes_ui.cjs
+    node tests/test_services_ui.cjs
+fi
 GO=$GO sh scripts/build.sh
 python3 scripts/publish-packages.py
 python3 tests/test_install.py
