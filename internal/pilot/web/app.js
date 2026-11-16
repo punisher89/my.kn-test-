@@ -59,6 +59,7 @@ async function logout() {
   adaptiveDetails.clear();
   profileDrafts.clear();
   profileOpen.clear();
+  checkOpen.clear();cpuSamples.length=0;deviceData=null;
   serviceCatalogQuery = ""; serviceCatalogOpen = false; selectedTuneProfile = "";
   token = "";
   sessionStorage.removeItem("pilot-token");
@@ -131,22 +132,20 @@ function jobSummary() {
     : "Рабочий вариант не выбран";
 }
 function overview() {
-  const c = state.config;
-  const totalDomains = c.profiles.reduce((sum, p) => sum + p.domains.length, 0);
-  return (
-    heading(
-      "Обзор сети",
-      "Обход блокировок и доступность сервисов в одном месте.",
-    ) +
-    (!c.enabled && !state.job
-      ? `<div class="panel welcome"><div><h2>Готовы к первому запуску?</h2><p>Подключение уже определено. Проверьте его и включите обход.</p></div><a class="button-link primary" href="#connect">Настроить подключение ↗</a></div>`
-      : "") +
-    `<div class="status-card"><div class="status-main"><div class="status-orb">${state.running ? "↗" : "○"}</div><div><div class="eyebrow">СОСТОЯНИЕ ОБХОДА</div><h2>${state.running ? "Сеть под управлением" : "Обход остановлен"}</h2><p>${state.running ? "Обработка трафика на роутере · " + esc(c.wan) : "Запустите сервис, когда настройки готовы"}</p></div></div><button id="service-toggle" ${state.busy ? "disabled" : ""} class="${state.running ? "" : "primary"}">${state.running ? "Остановить" : "Запустить обход"} ${state.running ? "Ⅱ" : "↗"}</button></div>
-  <div class="stats-grid"><div class="stat"><div class="stat-top">Подключённые профили <span class="stat-symbol">◫</span></div><div class="stat-value">${c.profiles.length}<em>сервиса</em></div><small>${totalDomains} доменов и их поддомены</small></div><div class="stat"><div class="stat-top">Автоподбор <span class="stat-symbol">⌁</span></div><div class="stat-value">${c.adaptive ? "По трафику" : c.auto ? "Плановый" : "Выключен"}</div><small>${c.adaptive ? "Отдельный подбор для проблемных сайтов" : c.auto ? `Проверка каждые ${c.interval_minutes} мин` : "Ручное управление стратегиями"}</small></div><div class="stat"><div class="stat-top">Совместимость <span class="stat-symbol">▱</span></div><div class="stat-value">TLS 1.2<em>и TLS 1.3</em></div><small>Отдельные пробы для каждого протокола</small></div></div>
-  <div class="dashboard-columns"><div><div class="panel"><div class="panel-head"><h2>Ваши сервисы</h2><a href="#profiles">Все профили ↗</a></div>${c.profiles.map((p) => `<div class="service-row">${logo(p)}<div class="service-meta"><h3>${esc(p.name)}</h3><span>${esc(strategyName(p.strategy))} · ${p.domains.length} доменов</span></div>${badge(p.strategy === "none" ? "Без вмешательства" : "Профиль настроен", "neutral")}</div>`).join("")}</div><div class="panel"><div class="panel-head"><h2>Одна настройка — для всех устройств</h2>${badge("НА РОУТЕРЕ", "neutral")}</div><div class="compat-grid"><div class="compat-item"><div class="compat-icon">▯</div><strong>Телефон</strong><small>Android и iOS<br>Без отдельного клиента</small></div><div class="compat-item"><div class="compat-icon">▱</div><strong>Компьютер</strong><small>Windows, macOS, Linux<br>Обход в локальной сети</small></div><div class="compat-item"><div class="compat-icon">▣</div><strong>Телевизор</strong><small>webOS / Smart TV<br>Проверка TLS 1.2</small></div></div><div class="info-note">Проба TLS 1.2 проверяет протокол, но не заменяет испытание приложения YouTube на телевизоре. Видео и голос проверяются на устройствах отдельно.</div></div></div>
-  <div><div class="panel"><div class="panel-head"><h2>Параметры сети</h2><span class="subtle">↗</span></div><div class="info-line"><span>Интерфейс WAN</span><span>${esc(c.wan || "Не задан")}</span></div><div class="info-line"><span>IPv4</span>${badge("Включён", "neutral")}</div><div class="info-line"><span>IPv6</span>${badge(c.ipv6 ? "Включён" : "Выключен", "neutral")}</div><div class="info-line"><span>QUIC / HTTP 3</span>${badge(c.quic ? "Обработка включена" : "Без обработки", "neutral")}</div><div class="info-line"><span>Исключения</span><span>${c.exclusions.length} доменов</span></div><div class="info-line"><span>Аппаратное ускорение</span><span>${c.ppe ? "PPE · окно handshake" : "Не управляется"}</span></div></div><div class="panel"><div class="panel-head"><h2>Последний подбор</h2><a href="#tune">Открыть ↗</a></div><p>${esc(jobSummary())}</p><div class="info-note">Стратегия сохраняется только после успешных повторных проверок. Если подходящего варианта нет — выполняется откат.</div></div></div></div>`
-  );
+  const c=state.config;
+  return heading("Состояние сети", "Обход и доступность сервисов под контролем.")+
+    `<div class="status-card"><div class="status-main"><span class="dot"></span><strong>${state.running?"ОБХОД ВКЛЮЧЁН":"ОБХОД ОСТАНОВЛЕН"}</strong><small>WAN · ${esc(c.wan||"не задан")}</small></div><button id="service-toggle" ${state.busy?"disabled":""}>${state.running?"Остановить":"Запустить обход"}</button></div>
+    ${!c.enabled&&!state.job?'<div class="panel welcome"><h2>Первый запуск</h2><a class="button-link primary" href="#connect">Настроить подключение</a></div>':""}
+    <div id="network-telemetry" class="network-telemetry" aria-live="off">${deviceData?telemetryMarkup(deviceData):"Загрузка показателей роутера…"}</div>
+    <div class="dashboard-columns"><section class="panel"><div class="panel-head"><h2>Сервисы</h2><a href="#profiles">Управление →</a></div><div class="service-check-list">${c.profiles.map(p=>`<div class="service-row">${logo(p)}<div class="service-meta"><h3>${esc(p.name)}</h3><span>${esc(strategyName(p.strategy))} · ${p.domains.length} доменов</span></div><div class="service-check-status" data-check-status="${esc(p.id)}">${checkStatus(p)}</div><button data-check-profile="${esc(p.id)}">Проверить</button></div><div data-check-report="${esc(p.id)}">${checkReport(p)}</div>`).join("")}</div><p class="info-note">Проверяются контрольные HTTPS-адреса сервиса. Ответ не подтверждает видео, звонки и работу всех доменов.</p></section><aside>${loadControlPanel()}<p class="subtle"><a href="#tune">Последний подбор: ${esc(jobSummary())} →</a></p></aside></div>
+    <section class="panel"><div class="panel-head"><h2>Коробки обхода</h2><a href="#adaptive">Открыть →</a></div><div id="overview-boxes">Загрузка наблюдений…</div></section>`;
 }
+function loadControlPanel(){const c=state.config;return `<section class="panel load-control"><div class="panel-head"><h2>Контроль нагрузки</h2><a href="#settings">Настроить →</a></div><div id="cpu-chart">${cpuChart()}</div><div class="info-line"><span>Пауза между сменами</span><strong>${c.adaptive_cooldown_seconds} с</strong></div><div class="info-line"><span>Лимит на домен и контекст</span><strong>${c.adaptive_max_switches} / 10 мин</strong></div><div class="info-line"><span>Общий лимит движка</span><strong>${c.adaptive_global_max_switches??30} / 10 мин</strong></div><div class="info-line"><span>Защита фоновых проверок</span>${badge(c.probe_load_guard!==false?"Включена":"Выключена",c.probe_load_guard!==false?"":"warn")}</div><p>${state.background_hold?"Фоновые проверки отложены: "+esc(state.background_hold)+". Повторная оценка через 30 с.":"Проверки идут последовательно. Работающий обход продолжается при паузе фоновых задач."}</p><small>CPU и память общие для роутера. Коробки не являются отдельными процессами.</small></section>`;}
+const checkPending=new Set(),checkOpen=new Map();
+function checkStatus(p){const r=state.checks?.[p.id];if(checkPending.has(p.id))return badge("Проверяется","warn");if(!r)return badge("Не проверялся","neutral");return badge(r.stale?"Проверка устарела":!r.complete?"Не завершена":r.passed?"Есть HTTPS-ответ":"Есть ошибки",r.stale?"neutral":r.passed?"":"warn");}
+function checkReport(p){const r=state.checks?.[p.id];if(!r)return "";const hosts=new Set(r.results.map(v=>new URL(v.url).hostname));const uncovered=p.domains.filter(d=>![...hosts].some(h=>h===d||h.endsWith("."+d)));return `<details class="check-report" data-check-view="${esc(p.id)}" ${checkOpen.get(p.id)?"open":""}><summary>Последняя проверка · ${esc(new Date(r.finished).toLocaleString("ru-RU"))} · ${r.results.filter(v=>v.ok).length}/${r.results.length} проб</summary><p>${r.stale?"Конфигурация или состояние службы изменились — повторите проверку. ":""}${!r.running?"Проверка при остановленном обходе. ":""}Профиль: ${esc(strategyName(r.strategy))}${r.adaptive?"; автоподбор по трафику включён, метод может отличаться по доменам и протоколам":""}.</p>${r.error?`<p class="fail-text">${esc(r.error)}</p>`:""}<div class="table-scroll"><table class="probe-table"><thead><tr><th>HTTPS-адрес</th><th>TLS / IP</th><th>Ответ / время</th><th>Результат</th></tr></thead><tbody>${r.results.map(v=>`<tr><td>${esc(v.url)}</td><td>${esc(v.tls)} / ${esc(v.family)}</td><td>${v.status||"—"} · ${v.duration_ms} мс</td><td class="${v.ok?"ok-text":"fail-text"}">${v.ok?"Есть ответ":esc(v.error||"Ошибка")}</td></tr>`).join("")}</tbody></table></div><small>Контрольные адреса не покрывают весь сервис.${uncovered.length?" Домены без отдельной HTTPS-пробы: "+esc(uncovered.join(", "))+".":""} Отчёт хранится до перезапуска Pilot. Проверка не запускает подбор; её трафик может наблюдаться включённым адаптивным движком.</small><a class="button-link" href="#adaptive">Наблюдаемые методы доменов →</a></details>`;}
+function bindCheckActions(root=document){root.querySelectorAll("[data-check-view]").forEach(el=>el.addEventListener("toggle",()=>checkOpen.set(el.dataset.checkView,el.open)));root.querySelectorAll("[data-check-profile]").forEach(button=>{button.disabled=state.busy||checkPending.size>0;button.addEventListener("click",async()=>{const id=button.dataset.checkProfile;if(checkPending.size)return;checkPending.add(id);updateCheckReports();try{await api("check","POST",{profile:id});}catch(e){notify(e.message,true);}finally{checkPending.delete(id);if(signedIn){try{await refresh();}catch(e){notify(e.message,true);}updateCheckReports();}}});});}
+function updateCheckReports(){document.querySelectorAll("[data-check-profile]").forEach(el=>{el.disabled=state.busy||checkPending.size>0;el.textContent=checkPending.has(el.dataset.checkProfile)?"Проверяется…":"Проверить";});for(const p of state.config.profiles){const status=$(`[data-check-status="${p.id}"]`),report=$(`[data-check-report="${p.id}"]`);if(status)status.innerHTML=checkStatus(p);if(report){report.innerHTML=checkReport(p);report.querySelectorAll("[data-check-view]").forEach(el=>el.addEventListener("toggle",()=>checkOpen.set(el.dataset.checkView,el.open)));}}}
 const profileDrafts = new Map(), profileOpen = new Map();
 let serviceCatalogOpen = false, serviceCatalogQuery = "", selectedTuneProfile = "", serviceMutationPending = false;
 function presetNote(id) {
@@ -187,7 +186,7 @@ function serviceCatalog() {
 }
 function profileCard(p) {
   const edit = profileDrafts.get(p.id) || p;
-  return `<details class="panel service-profile" data-profile-card="${esc(p.id)}" ${profileOpen.get(p.id) ? "open" : ""}><summary><span class="profile-summary">${logo(p)}<span><strong>${esc(p.name)}</strong><small>${esc(strategyName(p.strategy))} · доменов: ${p.domains.length}</small></span></span></summary><div class="profile-editor"><p class="subtle">${esc(presetNote(p.id))}</p><label for="strategy-${esc(p.id)}">Текущая стратегия</label><select id="strategy-${esc(p.id)}">${strategyOptions(edit.strategy)}</select><details><summary>Домены и проверки</summary><label for="domains-${esc(p.id)}">Один домен на строку, поддомены включаются автоматически</label><textarea rows="4" id="domains-${esc(p.id)}">${esc(edit.domains.join("\n"))}</textarea><div class="field"></div><label>Контрольные запросы</label>${edit.targets.map((t, i) => `<div class="target-editor" data-profile="${esc(p.id)}" data-target="${i}"><label>Адрес HTTPS</label><input type="url" data-field="url" value="${esc(t.url)}"><div class="target-small"><div><label>HTTP</label><input type="number" min="200" max="399" data-field="status" value="${t.status}"></div><div><label>Фрагмент ответа</label><input data-field="contains" value="${esc(t.contains || "")}" placeholder="Необязательно"></div></div></div>`).join("")}<small>Каждый адрес проверяется с TLS 1.2 и TLS 1.3. HTTP 403/451 и ошибки сертификата не считаются успешным обходом. Контрольные адреса можно изменить под нужный сценарий.</small></details>${domainSourceEditor(edit)}<div class="profile-buttons"><button data-save-profile="${esc(p.id)}" ${state.busy ? "disabled" : ""}>Сохранить</button><button data-tune-profile="${esc(p.id)}" class="primary" ${!state.running || state.busy ? "disabled" : ""}>Подобрать ↗</button><button data-remove-service="${esc(p.id)}" ${state.busy || state.config.profiles.length <= 1 ? "disabled" : ""}>Удалить профиль</button></div></div></details>`;
+  return `<details class="panel service-profile" data-profile-card="${esc(p.id)}" ${profileOpen.get(p.id) ? "open" : ""}><summary><span class="profile-summary">${logo(p)}<span><strong>${esc(p.name)}</strong><small>${esc(strategyName(p.strategy))} · доменов: ${p.domains.length}</small></span></span></summary><div class="profile-editor"><p class="subtle">${esc(presetNote(p.id))}</p><label for="strategy-${esc(p.id)}">Текущая стратегия</label><select id="strategy-${esc(p.id)}">${strategyOptions(edit.strategy)}</select><details><summary>Домены и проверки</summary><label for="domains-${esc(p.id)}">Один домен на строку, поддомены включаются автоматически</label><textarea rows="4" id="domains-${esc(p.id)}">${esc(edit.domains.join("\n"))}</textarea><div class="field"></div><label>Контрольные запросы</label>${edit.targets.map((t, i) => `<div class="target-editor" data-profile="${esc(p.id)}" data-target="${i}"><label>Адрес HTTPS</label><input type="url" data-field="url" value="${esc(t.url)}"><div class="target-small"><div><label>HTTP</label><input type="number" min="200" max="399" data-field="status" value="${t.status}"></div><div><label>Фрагмент ответа</label><input data-field="contains" value="${esc(t.contains || "")}" placeholder="Необязательно"></div></div></div>`).join("")}<small>Каждый адрес проверяется с TLS 1.2 и TLS 1.3. HTTP 403/451 и ошибки сертификата не считаются успешным обходом. Контрольные адреса можно изменить под нужный сценарий.</small></details>${domainSourceEditor(edit)}<div class="profile-buttons"><button data-save-profile="${esc(p.id)}" ${state.busy ? "disabled" : ""}>Сохранить</button><button data-check-profile="${esc(p.id)}">Проверить сервис</button><button data-tune-profile="${esc(p.id)}" class="primary" ${!state.running || state.busy ? "disabled" : ""}>Подобрать ↗</button><button data-remove-service="${esc(p.id)}" ${state.busy || state.config.profiles.length <= 1 ? "disabled" : ""}>Удалить профиль</button></div><div data-check-status="${esc(p.id)}">${checkStatus(p)}</div><div data-check-report="${esc(p.id)}">${checkReport(p)}</div></div></details>`;
 }
 function domainSourceEditor(p){
  const preset=(state.service_presets||[]).some(s=>s.profile.id===p.id),fromPilot=p.domain_source?.startsWith("pilot:");
@@ -256,7 +255,7 @@ function settings() {
       "Настройки",
       "Сетевые параметры и правила автоматического подбора.",
     ) +
-    `<form id="settings-form"><div class="settings-grid"><div class="panel"><div class="panel-head"><h2>Подключение</h2></div><div class="field"><label for="wan">WAN-интерфейс</label><input id="wan" value="${esc(c.wan)}" placeholder="Например: ppp0"><small>Имя активного интерфейса провайдера на роутере.</small></div>${toggle("ipv6", "Обрабатывать IPv6", "Включайте при наличии работающего IPv6 у провайдера.", c.ipv6)}${toggle("ppe", "Сохранять видимость handshake", "Первые пакеты без аппаратного ускорения: окно 48 при автоподборе по трафику, иначе 30.", c.ppe)}${toggle("quic", "Обрабатывать QUIC", "Статическая стратегия UDP/443. Подбор HTTPS её не проверяет.", c.quic)}${toggle("discord_voice", "Discord Voice · экспериментально", "Обработка UDP 50000–50099. Нужна проверка реального звонка.", c.discord_voice)}</div><div class="panel"><div class="panel-head"><h2>Автоматический подбор</h2></div>${toggle("adaptive", "Автоподбор по трафику", "Обнаруживать повторные ошибки HTTPS и менять метод отдельно для каждого сайта. Сохранённый метод используется первым.", c.adaptive)}<div class="info-note">Новые наблюдения и выбранные методы — в разделе «Коробки обхода». Сетевые ошибки не всегда означают блокировку.</div>${toggle("adaptive_reuse", "Использовать опыт коробок", "После повторных сбоев сначала пробовать до трёх методов, давших ответ в похожем контексте за последние семь дней.", c.adaptive_reuse)}<div class="two-fields"><div class="field"><label for="adaptive-cooldown">Пауза между сменами, с</label><input id="adaptive-cooldown" type="number" min="10" max="300" value="${c.adaptive_cooldown_seconds}"></div><div class="field"><label for="adaptive-max-switches">Максимум смен за 10 минут</label><input id="adaptive-max-switches" type="number" min="1" max="20" value="${c.adaptive_max_switches}"></div></div>${toggle("auto_catalog", "Обновлять каталог стратегий", "Подписанный каталог Pilot: проверка раз в сутки. Новые варианты проверяются при подборе.", c.auto_catalog)}<div class="form-actions"><button type="button" id="catalog-update">Загрузить стратегии сейчас</button></div>${toggle("auto", "Следить за доступностью", "После двух неудачных циклов проверок начинается новый подбор.", c.auto)}<div class="field"></div><div class="two-fields"><div class="field"><label for="interval">Интервал, мин</label><input id="interval" type="number" min="5" max="1440" value="${c.interval_minutes}"></div><div class="field"><label for="timeout">Таймаут запроса, с</label><input id="timeout" type="number" min="2" max="20" value="${c.timeout_seconds}"></div></div><div class="field"><label for="attempts">Попыток на протокол и адрес</label><input id="attempts" type="number" min="1" max="3" value="${c.attempts}"></div><div class="field"><label for="exclusions">Исключения · по одному домену на строку</label><textarea id="exclusions" rows="6" placeholder="example.com">${esc(c.exclusions.join("\n"))}</textarea><small>Исключённые домены не обрабатываются движком.</small></div></div></div><div class="form-actions"><button type="submit" class="primary" ${state.busy ? "disabled" : ""}>Сохранить настройки ↗</button><small>Работающий сервис перезапустится. При ошибке настройки откатятся.</small></div></form>`
+    `<form id="settings-form"><div class="settings-grid"><div class="panel"><div class="panel-head"><h2>Подключение</h2></div><div class="field"><label for="wan">WAN-интерфейс</label><input id="wan" value="${esc(c.wan)}" placeholder="Например: ppp0"><small>Имя активного интерфейса провайдера на роутере.</small></div>${toggle("ipv6", "Обрабатывать IPv6", "Включайте при наличии работающего IPv6 у провайдера.", c.ipv6)}${toggle("ppe", "Сохранять видимость handshake", "Первые пакеты без аппаратного ускорения: окно 48 при автоподборе по трафику, иначе 30.", c.ppe)}${toggle("quic", "Обрабатывать QUIC", "Статическая стратегия UDP/443. Подбор HTTPS её не проверяет.", c.quic)}${toggle("discord_voice", "Discord Voice · экспериментально", "Обработка UDP 50000–50099. Нужна проверка реального звонка.", c.discord_voice)}</div><div class="panel"><div class="panel-head"><h2>Автоматический подбор</h2></div>${toggle("adaptive", "Автоподбор по трафику", "Обнаруживать повторные ошибки HTTPS и менять метод отдельно для каждого сайта. Сохранённый метод используется первым.", c.adaptive)}<div class="info-note">Новые наблюдения и выбранные методы — в разделе «Коробки обхода». Сетевые ошибки не всегда означают блокировку.</div>${toggle("adaptive_reuse", "Использовать опыт коробок", "После повторных сбоев сначала пробовать до трёх методов, давших ответ в похожем контексте за последние семь дней.", c.adaptive_reuse)}<div class="two-fields"><div class="field"><label for="adaptive-cooldown">Пауза между сменами, с</label><input id="adaptive-cooldown" type="number" min="10" max="300" value="${c.adaptive_cooldown_seconds}"></div><div class="field"><label for="adaptive-max-switches">Максимум смен за 10 минут</label><input id="adaptive-max-switches" type="number" min="1" max="20" value="${c.adaptive_max_switches}"></div></div><div class="field"><label for="adaptive-global-max">Общий лимит смен движка за 10 минут</label><input id="adaptive-global-max" type="number" min="1" max="300" value="${c.adaptive_global_max_switches??30}"><small>Для всех коробок вместе. Рабочие методы сохраняются; при достижении лимита смена ждёт окончания окна.</small></div>${toggle("probe_load_guard","Защита фоновых проверок","Откладывать плановые проверки, подбор и загрузку каталогов при CPU ≥85%, высокой очереди задач или нехватке памяти. Работающий обход продолжается.",c.probe_load_guard!==false)}${toggle("auto_catalog", "Обновлять каталог стратегий", "Подписанный каталог Pilot: проверка раз в сутки. Новые варианты проверяются при подборе.", c.auto_catalog)}<div class="form-actions"><button type="button" id="catalog-update">Загрузить стратегии сейчас</button></div>${toggle("auto", "Следить за доступностью", "После двух неудачных циклов проверок начинается новый подбор.", c.auto)}<div class="field"></div><div class="two-fields"><div class="field"><label for="interval">Интервал, мин</label><input id="interval" type="number" min="5" max="1440" value="${c.interval_minutes}"></div><div class="field"><label for="timeout">Таймаут запроса, с</label><input id="timeout" type="number" min="2" max="20" value="${c.timeout_seconds}"></div></div><div class="field"><label for="attempts">Попыток на протокол и адрес</label><input id="attempts" type="number" min="1" max="3" value="${c.attempts}"></div><div class="field"><label for="exclusions">Исключения · по одному домену на строку</label><textarea id="exclusions" rows="6" placeholder="example.com">${esc(c.exclusions.join("\n"))}</textarea><small>Исключённые домены не обрабатываются движком.</small></div></div></div><div class="form-actions"><button type="submit" class="primary" ${state.busy ? "disabled" : ""}>Сохранить настройки ↗</button><small>Работающий сервис перезапустится. При ошибке настройки откатятся.</small></div></form>`
   );
 }
 function lines(value) {
@@ -281,10 +280,12 @@ async function refresh(render = false) {
   state = await api("status");
   updateChrome();
   updateServiceButtons();
+  updateCheckReports();
   if (render) renderPage();
   else if (page === "overview") {
     $("#content").innerHTML = overview();
     bindActions();
+    loadTelemetry();loadOverviewBoxes();
   } else if (page === "tune") {
     $("#job-panel").innerHTML = jobPanel();
     bindTrials();
@@ -347,6 +348,7 @@ function renderPage() {
                     ) +
                     '<div class="panel"><pre id="log-view" class="log-view">Загрузка…</pre></div>';
   bindActions();
+  if(page==="overview"){loadTelemetry();loadOverviewBoxes();}
   if(page==="device")loadDevice();
   if(page==="updates")loadUpdates();
   if (page === "logs") loadLogs();
@@ -368,7 +370,7 @@ async function action(fn) {
   }
 }
 function bindActions() {
-  bindMethodViews();bindTrials();
+  bindMethodViews();bindTrials();bindCheckActions();
   $("#method-search")?.addEventListener("input",e=>{methodQuery=e.target.value;$("#method-results").innerHTML=methodResults();bindMethodViews();});
   $("#method-family")?.addEventListener("change",e=>{methodFamily=e.target.value;$("#method-results").innerHTML=methodResults();bindMethodViews();});
   $("#update-check")?.addEventListener("click",async e=>{const button=e.currentTarget;button.disabled=true;try{await api("updates/check","POST",{});await loadUpdates(true);}catch(error){notify(error.message,true);button.disabled=false;}});
@@ -492,7 +494,9 @@ function bindActions() {
         "auto_catalog",
         "adaptive",
         "adaptive_reuse",
+        "probe_load_guard",
       ].forEach((key) => (c[key] = $(`#${key}`).checked));
+      c.adaptive_global_max_switches = Number($("#adaptive-global-max").value);
       c.adaptive_cooldown_seconds = Number($("#adaptive-cooldown").value);
       c.adaptive_max_switches = Number($("#adaptive-max-switches").value);
       c.interval_minutes = Number($("#interval").value);
@@ -537,7 +541,7 @@ function eventReason(r) {
   if (r.status === "held")
     return (
       (r.hold_reason === "limit"
-        ? "Лимит смен за 10 минут"
+        ? "Лимит смен домена или движка за 10 минут"
         : "Пауза между сменами") +
       " · до " +
       new Date(r.hold_until * 1000).toLocaleTimeString("ru-RU")
@@ -551,7 +555,7 @@ function currentHold(r, enabled = true, now = Date.now() / 1000) {
   if (r.hold_reason !== "limit" && r.hold_reason !== "cooldown") return null;
   return {
     reason: r.hold_reason,
-    label: r.hold_reason === "limit" ? "Лимит смен за 10 минут" : "Пауза между сменами",
+    label: r.hold_reason === "limit" ? "Лимит смен домена или движка за 10 минут" : "Пауза между сменами",
     until: r.hold_until,
   };
 }
@@ -752,6 +756,7 @@ function boxCard(b, enabled = true) {
   const eventTotal = b.history.reduce((sum, r) => sum + (r.event_count || 1), 0);
   return `<article class="panel bypass-box" data-box="${esc(b.id)}">
     <div class="panel-head"><h2>${esc(tlsLabels[b.tls] || tlsLabels.unknown)} · ${esc(b.family === "ipv6" ? "IPv6" : b.family === "ipv4" ? "IPv4" : "IP не определён")}</h2><span class="subtle">Домены: ${domains.length}</span></div>
+    <p class="box-health">${esc(boxHealthLabel(b,enabled))} · смены в записанных 10-минутных окнах: ${boxHealth(b,enabled).switches}</p>
     <p class="box-context">${esc(symptomLabels[b.symptom] || symptomLabels.unknown)} · ${esc(b.network === "-" ? "WAN не записан" : b.network)}${b.port ? ":" + b.port : ""}</p>
     <p class="box-domains">${domains.slice(0, 2).map((d) => `<span title="${esc(d)}">${esc(d)}</span>`).join("")}${domains.length > 2 ? `<small>ещё ${domains.length - 2}</small>` : ""}</p>
     <div class="box-methods box-current" aria-label="Текущие методы доменов">${currentBoxMethods(b.hosts, enabled, true)}</div>
@@ -824,14 +829,14 @@ function renderAdaptive() {
   saveAdaptiveView(target);
   const data = adaptiveData, boxes = data.boxes || [];
   const visible = boxes.filter((b) => boxMatches(b, adaptiveQuery, adaptiveFilter, data.enabled));
-  const recent = visible.filter(boxHasRecentTraffic);
+  const recent = visible.filter(boxHasRecentTraffic).sort(problemFirst);
   const saved = visible.filter((b) => !boxHasRecentTraffic(b));
   if (adaptiveRevealSaved && (saved.length || (!adaptiveQuery.trim() && adaptiveFilter === "all"))) {
     if (saved.length && (adaptiveQuery.trim() || adaptiveFilter !== "all")) adaptiveDetails.set("saved-boxes", true);
     adaptiveRevealSaved = false;
   }
   target.innerHTML =
-    manualRules() +
+    loadControlPanel() + manualRules() +
     (!data.enabled
       ? '<div class="notice">Включите «Автоподбор по трафику» в настройках. Текущие стратегии сохранятся.</div>'
       : '<p class="adaptive-note">«Есть ответ» — передача данных, без подтверждения видео и голоса. Свежие наблюдения — за последние сутки. Отсутствие свежих записей не останавливает автоподбор: он продолжится при новых сбоях трафика.</p>') +
@@ -874,6 +879,16 @@ async function loadAdaptive() {
     adaptiveLoading = false;
   }
 }
+const cpuSamples=[];
+let telemetryLoading=false,overviewBoxesLoading=false;
+function cpuChart(){const values=cpuSamples.filter(v=>v.value!=null);if(values.length<2)return '<p class="subtle">График появится после двух замеров CPU.</p>';const now=Date.now(),start=now-60000,points=values.map(v=>`${Math.max(0,Math.min(300,(v.at-start)/200))},${Math.max(0,Math.min(70,70-v.value*.7))}`).join(" ");return `<svg class="cpu-chart" viewBox="0 0 300 90" role="img" aria-label="Общая загрузка CPU за последние 60 секунд"><path d="M0 0V70H300M0 35H300" class="chart-grid"/><polyline points="${points}"/><text x="0" y="87">−60 с</text><text x="240" y="87">сейчас</text></svg>`;}
+function telemetryMarkup(d){return `<div class="telemetry-cell"><span>CPU</span><strong>${d.cpu_percent==null?"—":d.cpu_percent.toFixed(1)+" %"}</strong><small>${d.cpu_percent==null?"Нет замера CPU":"Общая загрузка роутера"}</small></div><div class="telemetry-cell"><span>Память</span><strong>${d.memory_available==null?"—":prettyBytes(d.memory_total-d.memory_available)}</strong><small>из ${prettyBytes(d.memory_total||null)}</small>${d.memory_available!=null&&d.memory_total?`<meter min="0" max="${d.memory_total}" value="${d.memory_total-d.memory_available}" aria-label="Занятая память"></meter>`:""}</div><div class="telemetry-cell"><span>Температура</span>${d.temperatures.length?d.temperatures.map(t=>`<div class="sensor-value"><small>${esc(t.name)}</small><strong>${t.celsius.toFixed(1)} °C</strong></div>`).join(""):'<strong>—</strong><small>Датчики не предоставлены</small>'}</div><div class="telemetry-cell"><span>WAN · ${esc(d.wan||"не задан")}</span><strong>↓ ${prettyRate(d.rx_bytes_per_second)}</strong><strong>↑ ${prettyRate(d.tx_bytes_per_second)}</strong><small>Текущая скорость</small></div>`;}
+function prettyRate(bytes){return bytes==null?"—":(bytes*8/1000000).toLocaleString("ru-RU",{maximumFractionDigits:1})+" Мбит/с";}
+async function loadTelemetry(){const target=$("#network-telemetry");if(!target||telemetryLoading)return;telemetryLoading=true;try{const d=await api("device");if(!signedIn||target!==$("#network-telemetry"))return;deviceData=d;const now=Date.now();cpuSamples.push({at:now,value:d.cpu_percent});while(cpuSamples.length>16||cpuSamples[0]?.at<now-60000)cpuSamples.shift();target.innerHTML=telemetryMarkup(d);const chart=$("#cpu-chart");if(chart)chart.innerHTML=cpuChart();}catch(e){if(target===$("#network-telemetry"))target.textContent="Показатели недоступны: "+e.message;}finally{telemetryLoading=false;}}
+function boxHealth(b,enabled=true){const stats={connected:0,probing:0,held:0,paused:0,pinned:0,stale:0,switches:0};const now=Date.now()/1000;for(const r of b.hosts){if(r.window_start>0&&r.window_start<=now&&r.window_start+600>now)stats.switches+=r.switches||0;if(r.paused)stats.paused++;else if(observationStale(r))stats.stale++;else if(currentHold(r,enabled))stats.held++;else if(r.status==="connected")stats.connected++;else if(r.pinned)stats.pinned++;else stats.probing++;}return stats;}
+function boxHealthLabel(b,enabled){if(!enabled)return `Автоподбор выключен · сохранено наблюдений: ${b.hosts.length}`;const v=boxHealth(b,enabled);return `Ответ: ${v.connected} · проверяются: ${v.probing} · ждут: ${v.held} · пауза: ${v.paused} · закреплены: ${v.pinned} · старые: ${v.stale}`;}
+function problemFirst(a,b){const av=boxHealth(a),bv=boxHealth(b);return (bv.probing+bv.held)-(av.probing+av.held)||b.updated-a.updated;}
+async function loadOverviewBoxes(){const target=$("#overview-boxes");if(!target||overviewBoxesLoading)return;overviewBoxesLoading=true;try{const d=await api("adaptive");if(!signedIn||target!==$("#overview-boxes"))return;const boxes=d.boxes||[],recent=boxes.filter(boxHasRecentTraffic).sort(problemFirst),saved=boxes.length-recent.length;target.innerHTML=(recent.length?`<div class="table-scroll"><table class="box-overview-table"><thead><tr><th>Группа</th><th>Домены</th><th>Состояния</th></tr></thead><tbody>${recent.map(b=>`<tr><td><a href="#adaptive">${esc(tlsLabels[b.tls]||tlsLabels.unknown)} · ${esc(b.family)}</a></td><td>${new Set(b.hosts.map(r=>r.host)).size}</td><td>${esc(boxHealthLabel(b,d.enabled))}</td></tr>`).join("")}</tbody></table></div>`:'<p>Свежих наблюдений пока нет. При новых подключениях автоподбор продолжится.</p>')+`<small>Сохранённая история: ${saved} коробок. ${!d.enabled?"Автоподбор по трафику выключен.":""}</small>`;}catch(e){if(target===$("#overview-boxes"))target.textContent="Наблюдения недоступны: "+e.message;}finally{overviewBoxesLoading=false;}}
 let deviceData=null,deviceLoading=false,updatesData=null,updatesLoading=false,updatesSerial=0;
 const prettyBytes=n=>n==null?"недоступно":n>=1048576?(n/1048576).toFixed(1)+" МиБ":n>=1024?(n/1024).toFixed(1)+" КиБ":Math.round(n)+" Б";
 function devicePage(){return heading("Роутер","Данные устройства, на котором запущен Pilot. Недоступные датчики не заменяются примерными значениями.")+`<div id="device-data">Загрузка…</div>`;}

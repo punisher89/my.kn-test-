@@ -47,3 +47,31 @@ func TestDeviceSamplesAndMissingSensors(t *testing.T) {
 		t.Fatal("missing metrics fabricated")
 	}
 }
+
+func TestWiFiHwmonNamesAndDuplicatePaths(t *testing.T) {
+	root := t.TempDir()
+	hwmon := filepath.Join(root, "sys/class/hwmon/hwmon0")
+	if err := os.MkdirAll(hwmon, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for name, value := range map[string]string{"name": "mt7915", "temp1_input": "61000", "temp1_label": "radio 2.4 GHz", "temp2_input": "65000", "temp2_label": "radio 5 GHz"} {
+		if err := os.WriteFile(filepath.Join(hwmon, name), []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	radio := filepath.Join(root, "sys/class/ieee80211/phy0/device/hwmon")
+	if err := os.MkdirAll(radio, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(hwmon, filepath.Join(radio, "hwmon0")); err != nil {
+		t.Fatal(err)
+	}
+	r := deviceReader{}
+	d := r.Read(root, "", time.Now())
+	if len(d.Temperatures) != 2 {
+		t.Fatalf("duplicate radio sensors: %+v", d.Temperatures)
+	}
+	if d.Temperatures[0].Name != "Wi-Fi phy0 · mt7915 · radio 2.4 GHz" || d.Temperatures[0].Celsius != 61 || d.Temperatures[1].Name != "Wi-Fi phy0 · mt7915 · radio 5 GHz" || d.Temperatures[1].Celsius != 65 {
+		t.Fatalf("radio names or units: %+v", d.Temperatures)
+	}
+}

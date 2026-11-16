@@ -4,6 +4,8 @@ local cache, generation, dirty, last_write = {}, 0, false, 0
 local maximum = 512
 local discovered, discovered_count = {}, 0
 local queues = {}
+-- Shared budget across every profile/TLS/IP context in this engine process.
+local global_window, global_switches = 0, 0
 -- Router builds use LuaJIT / Lua 5.1; desktop builds may use Lua 5.3/5.4.
 local unpack_fields = table.unpack or unpack
 local history = {}
@@ -187,9 +189,11 @@ local function rotation(h,group,host,ids,indices)
     if now<(h.pilot_switched or 0) or now<(h.pilot_window or 0) then
         h.pilot_switched=0;h.pilot_window=0;h.pilot_switches=0
     end
+    if now<global_window or now>=global_window+600 then global_window=now;global_switches=0 end
     if not h.pilot_window or h.pilot_window==0 or now>=h.pilot_window+600 then h.pilot_window=now;h.pilot_switches=0 end
     local until_time,reason=0,'none'
-    if (h.pilot_switches or 0)>=(pilot_max_switches or 6) then until_time=h.pilot_window+600;reason='limit'
+    if global_switches>=(pilot_global_max_switches or 30) then until_time=global_window+600;reason='limit'
+    elseif (h.pilot_switches or 0)>=(pilot_max_switches or 6) then until_time=h.pilot_window+600;reason='limit'
     elseif (h.pilot_switched or 0)>0 and now<h.pilot_switched+(pilot_cooldown or 30) then until_time=h.pilot_switched+(pilot_cooldown or 30);reason='cooldown' end
     if until_time>now then
         h.nstrategy=h.pilot_before;h.pilot_hold=until_time;h.pilot_hold_reason=reason
@@ -212,7 +216,7 @@ local function rotation(h,group,host,ids,indices)
     h.pilot_cursor=h.pilot_cursor%#h.pilot_order+1
     local next=h.pilot_order[h.pilot_cursor]
     h.nstrategy=next.n;h.pilot_origin=next.origin
-    if h.nstrategy~=h.pilot_before then h.pilot_switched=now;h.pilot_switches=(h.pilot_switches or 0)+1 end
+    if h.nstrategy~=h.pilot_before then h.pilot_switched=now;h.pilot_switches=(h.pilot_switches or 0)+1;global_switches=global_switches+1 end
     circular_sync_generation(h)
     if h.pilot_cursor==1 then h.pilot_order=nil end
 end

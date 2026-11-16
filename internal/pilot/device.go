@@ -124,7 +124,30 @@ func (r *deviceReader) Read(root, wan string, now time.Time) DeviceInfo {
 	}
 	thermal, _ := filepath.Glob(filepath.Join(root, "sys/class/thermal/thermal_zone*/temp"))
 	hwmon, _ := filepath.Glob(filepath.Join(root, "sys/class/hwmon/hwmon*/temp*_input"))
+	radioNames := map[string]string{}
+	for _, pattern := range []string{"sys/class/ieee80211/phy*/device/hwmon/hwmon*/temp*_input", "sys/class/ieee80211/phy*/hwmon*/temp*_input"} {
+		paths, _ := filepath.Glob(filepath.Join(root, pattern))
+		for _, path := range paths {
+			resolved, err := filepath.EvalSymlinks(path)
+			if err != nil {
+				continue
+			}
+			for _, part := range strings.Split(path, string(filepath.Separator)) {
+				if strings.HasPrefix(part, "phy") {
+					radioNames[resolved] = "Wi-Fi " + part
+					break
+				}
+			}
+			hwmon = append(hwmon, path)
+		}
+	}
+	seenSensors := map[string]bool{}
 	for _, path := range append(thermal, hwmon...) {
+		resolved, err := filepath.EvalSymlinks(path)
+		if err != nil || seenSensors[resolved] {
+			continue
+		}
+		seenSensors[resolved] = true
 		b, e := os.ReadFile(path)
 		if e != nil || len(b) > 64 {
 			continue
@@ -139,11 +162,23 @@ func (r *deviceReader) Read(root, wan string, now time.Time) DeviceInfo {
 			continue
 		}
 		name := smallRead("", filepath.Join(filepath.Dir(path), "type"))
+		// hwmon names identify radio chips (mt7915, mt76, ath10k...) even
+		// when the driver provides no tempN_label. Keep the channel distinct.
+		chip := smallRead("", filepath.Join(filepath.Dir(path), "name"))
 		if name == "" {
 			name = smallRead("", strings.TrimSuffix(path, "_input")+"_label")
+			if chip != "" {
+				if name == "" {
+					name = strings.TrimSuffix(filepath.Base(path), "_input")
+				}
+				name = chip + " · " + name
+			}
 		}
 		if name == "" {
 			name = filepath.Base(filepath.Dir(path)) + "/" + filepath.Base(path)
+		}
+		if radio := radioNames[resolved]; radio != "" {
+			name = radio + " · " + name
 		}
 		d.Temperatures = append(d.Temperatures, Temperature{Name: name, Celsius: v})
 	}

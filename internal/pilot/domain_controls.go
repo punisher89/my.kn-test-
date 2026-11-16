@@ -52,6 +52,9 @@ func (c Config) excludedBy(host string) string {
 	return ""
 }
 func (c Config) validateDomainControls() error {
+	if c.AdaptiveGlobalMaxSwitches < 1 || c.AdaptiveGlobalMaxSwitches > 300 {
+		return errors.New("общий лимит смен: 1–300 за 10 минут")
+	}
 	if c.AdaptiveCooldownSeconds < 10 || c.AdaptiveCooldownSeconds > 300 || c.AdaptiveMaxSwitches < 1 || c.AdaptiveMaxSwitches > 20 {
 		return errors.New("пауза смены: 10–300 секунд; лимит смен: 1–20 за 10 минут")
 	}

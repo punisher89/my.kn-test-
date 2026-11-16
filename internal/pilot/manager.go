@@ -30,17 +30,22 @@ type Job struct {
 	Trials   []Trial    `json:"trials"`
 }
 type Snapshot struct {
-	ServicePresets []ServicePreset `json:"service_presets"`
-	Version        string          `json:"version"`
-	Mode           string          `json:"mode"`
-	Running        bool            `json:"running"`
-	Busy           bool            `json:"busy"`
-	Config         Config          `json:"config"`
-	Job            *Job            `json:"job"`
-	Error          string          `json:"error,omitempty"`
-	Strategies     []Strategy      `json:"strategies"`
+	Checks         map[string]ServiceCheck `json:"checks"`
+	BackgroundHold string                  `json:"background_hold,omitempty"`
+	ServicePresets []ServicePreset         `json:"service_presets"`
+	Version        string                  `json:"version"`
+	Mode           string                  `json:"mode"`
+	Running        bool                    `json:"running"`
+	Busy           bool                    `json:"busy"`
+	Config         Config                  `json:"config"`
+	Job            *Job                    `json:"job"`
+	Error          string                  `json:"error,omitempty"`
+	Strategies     []Strategy              `json:"strategies"`
 }
 type Manager struct {
+	checks           map[string]ServiceCheck
+	backgroundHold   string
+	guardDevice      deviceReader
 	domainCacheError error
 	updating         atomic.Bool
 	release          *releaseDocument
@@ -102,7 +107,7 @@ func (m *Manager) Snapshot() Snapshot {
 		j.Trials = append([]Trial{}, m.job.Trials...)
 		job = &j
 	}
-	return Snapshot{ServicePresets: ServicePresets(), Version: Version, Mode: m.backend.Kind(), Running: m.backend.Running(), Busy: busy, Config: cloneConfig(m.c), Job: job, Error: m.lastError, Strategies: StrategiesFor(m.c)}
+	return Snapshot{Checks: m.checksLocked(), BackgroundHold: m.backgroundHold, ServicePresets: ServicePresets(), Version: Version, Mode: m.backend.Kind(), Running: m.backend.Running(), Busy: busy, Config: cloneConfig(m.c), Job: job, Error: m.lastError, Strategies: StrategiesFor(m.c)}
 }
 func (m *Manager) setError(err error) error {
 	m.mu.Lock()
@@ -385,7 +390,13 @@ func (m *Manager) Check(ctx context.Context, id string) ([]ProbeResult, error) {
 	c := m.Config()
 	for _, p := range c.Profiles {
 		if p.ID == id {
-			return m.prober.Check(ctx, p, c, false), nil
+			m.mu.Lock()
+			previous := m.checks[id]
+			m.mu.Unlock()
+			if err := checkCooldown(previous); err != nil {
+				return nil, err
+			}
+			return m.checkLocked(ctx, p, c), nil
 		}
 	}
 	return nil, errors.New("профиль не найден")
@@ -396,6 +407,7 @@ func (m *Manager) Watch(ctx context.Context) {
 	defer ticker.Stop()
 	next := time.Now()
 	failures := map[string]int{}
+	profileIndex := 0
 	nextCatalog := time.Now()
 	nextDomains := map[string]time.Time{}
 	for {
@@ -407,7 +419,8 @@ func (m *Manager) Watch(ctx context.Context) {
 				continue
 			}
 			c := m.Config()
-			if c.AutoCatalog && time.Now().After(nextCatalog) {
+			allowed := m.backgroundAllowed(c)
+			if allowed && c.AutoCatalog && time.Now().After(nextCatalog) {
 				nextCatalog = time.Now().Add(24 * time.Hour)
 				if err := m.updateCatalog(ctx); err != nil {
 					m.log.Add("Каталог стратегий: " + err.Error())
@@ -415,7 +428,7 @@ func (m *Manager) Watch(ctx context.Context) {
 				c = m.Config()
 			}
 			for _, p := range c.Profiles {
-				if p.AutoDomains && p.DomainSource != "" && time.Now().After(nextDomains[p.ID]) {
+				if allowed && p.AutoDomains && p.DomainSource != "" && time.Now().After(nextDomains[p.ID]) {
 					nextDomains[p.ID] = time.Now().Add(24 * time.Hour)
 					if err := m.updateServiceDomains(ctx, p.ID); err != nil {
 						m.log.Add("Домены " + p.ID + ": " + err.Error())
@@ -438,18 +451,33 @@ func (m *Manager) Watch(ctx context.Context) {
 				m.op.Unlock()
 				continue
 			}
-			if !c.Auto || time.Now().Before(next) {
+			if !c.Auto || !allowed || time.Now().Before(next) {
 				m.op.Unlock()
 				continue
 			}
 			next = time.Now().Add(time.Duration(c.IntervalMinutes) * time.Minute)
 			toTune := ""
-			for _, p := range c.Profiles {
+			checkContext, cancelChecks := context.WithTimeout(ctx, 90*time.Second)
+			for checked := 0; checked < len(c.Profiles); checked++ {
+				if checkContext.Err() != nil {
+					break
+				}
+				if !m.backgroundAllowed(c) {
+					next = time.Now().Add(30 * time.Second)
+					break
+				}
+				// Resume from the next profile after a slow/failed one so a
+				// bounded cycle cannot permanently starve later services.
+				p := c.Profiles[profileIndex%len(c.Profiles)]
+				profileIndex = (profileIndex + 1) % len(c.Profiles)
 				if profileControlReason(c, p) != "" {
 					failures[p.ID] = 0
 					continue
 				}
-				r := m.prober.Check(ctx, p, c, false)
+				r := m.checkLocked(checkContext, p, c)
+				if checkContext.Err() != nil {
+					break
+				} // A time budget is not a site failure.
 				if allPassed(r, p, c) {
 					failures[p.ID] = 0
 				} else {
@@ -460,8 +488,9 @@ func (m *Manager) Watch(ctx context.Context) {
 					}
 				}
 			}
+			cancelChecks()
 			m.op.Unlock()
-			if toTune != "" {
+			if toTune != "" && m.backgroundAllowed(c) {
 				failures[toTune] = 0
 				if err = m.BeginTune(toTune); err != nil {
 					m.log.Add(fmt.Sprintf("Автоподбор: %v", err))

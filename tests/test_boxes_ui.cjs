@@ -30,7 +30,7 @@ let calls = 0, fail = false, diagnosticFail = false, holdResponse;
       }
       if (url.pathname === '/api/adaptive') {
         calls++;
-        if (holdResponse) await new Promise((resolve) => { holdResponse.resolve = resolve; });
+        if (holdResponse && !holdResponse.captured) { const held = holdResponse; held.captured = true; await new Promise((resolve) => { held.resolve = resolve; }); }
         return fail ? json({error:'Проверка ошибки обновления'}, 503) : json(snapshot);
       }
       const file = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
@@ -119,7 +119,7 @@ let calls = 0, fail = false, diagnosticFail = false, holdResponse;
     await page.evaluate(() => loadAdaptive());
     await filter.selectOption('held');
     assert.equal(await cards.count(), 1);
-    assert.match(await cards.first().innerText(), /Лимит смен за 10 минут/);
+    assert.match(await cards.first().innerText(), /Лимит смен домена или движка за 10 минут/);
     row.pinned = row.strategy;
     await page.evaluate(() => loadAdaptive());
     assert.equal(await cards.count(), 0);

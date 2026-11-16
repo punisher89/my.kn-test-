@@ -1,8 +1,8 @@
 #!/bin/sh
 # Single-command entry point; metadata is pinned by scripts/publish-packages.py.
 set -eu
-PACKAGE_VERSION=0.2.0-alpha.10
-MANIFEST_SHA256=1aade5fe307684c55e367ad214e9bd76e99c32a6dd99684475b069208136e71e
+PACKAGE_VERSION=0.2.0-alpha.11
+MANIFEST_SHA256=9f62e5cce548ee261366eef80edc6fe01985b79efa7e2fc3e6c5cc9468ace8e5
 BASE_URL=https://raw.githubusercontent.com/punisher89/my.kn-test-/refs/heads/packages
 PREFIX=${PILOT_PREFIX:-/opt}
 case "$PREFIX" in /*) ;; *) echo "Нужен абсолютный путь установки" >&2; exit 2;; esac

@@ -21,6 +21,8 @@ func TestUpgradeKeepsWorkingStrategiesAndAdaptiveOptOut(t *testing.T) {
 	json.Unmarshal(data, &legacy)
 	delete(legacy, "adaptive")
 	delete(legacy, "runtime_dir")
+	delete(legacy, "probe_load_guard")
+	delete(legacy, "adaptive_global_max_switches")
 	path := filepath.Join(t.TempDir(), "config.json")
 	if err := WriteJSON(path, legacy); err != nil {
 		t.Fatal(err)
@@ -29,7 +31,7 @@ func TestUpgradeKeepsWorkingStrategiesAndAdaptiveOptOut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Adaptive || loaded.RuntimeDir == "" || loaded.Profiles[0].Strategy != "fake-md5" || loaded.Profiles[1].Strategy != "disorder" {
+	if !loaded.ProbeLoadGuard || loaded.AdaptiveGlobalMaxSwitches != 30 || loaded.Adaptive || loaded.RuntimeDir == "" || loaded.Profiles[0].Strategy != "fake-md5" || loaded.Profiles[1].Strategy != "disorder" {
 		t.Fatalf("working installation changed: %+v", loaded)
 	}
 }
@@ -227,7 +229,7 @@ orchestrate=function(ctx,d) assert(d.plan,'missing test execution plan') end
 plan_instance_pop=function(d) return table.remove(d.plan,1) end
 apply_execution_plan=function(d,i) d.arg=i.arg end
 `
-	program := prelude + "\n" + string(auto) + "\npilot_runtime=" + luaString(c.RuntimeDir) + "\nPILOT_SCRIPT=" + luaString(filepath.Join(filepath.Dir(c.EngineDir), "lua/pilot-auto.lua")) + "\npilot_network=\"ppp0\"\npilot_reuse=true\npilot_cooldown=0\npilot_max_switches=1000\ndofile(PILOT_SCRIPT)\n" + script
+	program := prelude + "\n" + string(auto) + "\npilot_runtime=" + luaString(c.RuntimeDir) + "\nPILOT_SCRIPT=" + luaString(filepath.Join(filepath.Dir(c.EngineDir), "lua/pilot-auto.lua")) + "\npilot_network=\"ppp0\"\npilot_reuse=true\npilot_cooldown=0\npilot_max_switches=1000\npilot_global_max_switches=10000\ndofile(PILOT_SCRIPT)\n" + script
 	path := filepath.Join(filepath.Dir(c.RuntimeDir), "controller-test.lua")
 	if err = os.WriteFile(path, []byte(program), 0600); err != nil {
 		t.Fatal(err)
