@@ -75,7 +75,7 @@ function pilot_capture_hello(d,h)
     local family=d.dis.ip6 and 'ipv6' or 'ipv4';local port=h.pilot_port
     if not host_ok(host) or not scope_ok(tls,family,port) then return end
     local key=route_key(host,tls,family,port);local now=os.time();local slot=hello_slots[key]
-    if slot and now>=slot.at and now-slot.at<60 then return end
+    if slot and slot.at and now>=slot.at and now-slot.at<60 then return end
     if not slot then
         local index=hello_next;hello_next=(hello_next+1)%64
         if hello_keys[index] then hello_slots[hello_keys[index]]=nil end

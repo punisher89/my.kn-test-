@@ -24,6 +24,7 @@ type DomainSearch struct {
 	Candidate      string      `json:"candidate,omitempty"`
 	Selected       string      `json:"selected,omitempty"`
 	Error          string      `json:"error,omitempty"`
+	Reason         string      `json:"reason,omitempty"`
 	Trials         []Trial     `json:"trials"`
 }
 type domainTask struct {
@@ -33,7 +34,37 @@ type domainTask struct {
 	Scope           DomainScope
 	Signal, Handled int64
 	Next            time.Time
+	Attempted       time.Time
+	ProofFailures   int
 }
+
+// Stable codes are safe to include in exported diagnostics; raw probe errors
+// can contain private URLs and must stay in the authenticated local report.
+func activeReasonCode(reason string) string {
+	switch reason {
+	case "resources", "execution_unconfirmed", "http_response", "dns", "certificate", "client_hello", "probe_unmeasured", "client_hello_missing", "mixed_direct", "time_slice", "switch_budget":
+		return reason
+	}
+	return ""
+}
+
+func activeProbeReason(r ProbeResult) string {
+	if r.Status != 0 {
+		return "http_response"
+	}
+	message := strings.ToLower(r.Error)
+	if strings.Contains(message, "dns:") || strings.Contains(message, "no such host") {
+		return "dns"
+	}
+	if strings.Contains(message, "certificate") || strings.Contains(message, "x509:") {
+		return "certificate"
+	}
+	if strings.Contains(message, "clienthello") {
+		return "client_hello"
+	}
+	return "probe_unmeasured"
+}
+
 type activeEvidence struct {
 	Result   ProbeResult
 	Executed bool
@@ -129,6 +160,11 @@ func (m *Manager) domainStage(stage, id string) {
 	m.domainJob.Candidate = id
 	m.mu.Unlock()
 }
+func (m *Manager) domainReason(reason string) {
+	m.mu.Lock()
+	m.domainJob.Reason = activeReasonCode(reason)
+	m.mu.Unlock()
+}
 func (m *Manager) domainRecord(phase, id string, results []ProbeResult, passed bool, message string) {
 	m.mu.Lock()
 	m.domainJob.Trials = append(m.domainJob.Trials, Trial{Strategy: phase + ":" + id, Passed: passed, Results: append([]ProbeResult{}, results...), Error: message})
@@ -167,27 +203,50 @@ func (m *Manager) searchDomain(ctx context.Context, c Config, s DomainScope) (st
 	if task.Fingerprint != fingerprint {
 		task.Pool = nil
 		task.Cursor = 0
+		task.ProofFailures = 0
 		task.Fingerprint = fingerprint
 	}
 	interrupted := func() (string, time.Time) {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			m.domainReason("time_slice")
 			return finish("waiting", "", "Отрезок поиска завершён по времени; очередь продолжит с текущего кандидата", time.Now().Add(time.Minute))
 		}
 		return finish("cancelled", "", "Поиск отменён", time.Time{})
 	}
 	notMeasured := func(message string) (string, time.Time) {
-		if strings.Contains(message, "ресурс") {
+		m.mu.Lock()
+		reason := m.domainJob.Reason
+		m.mu.Unlock()
+		if reason == "resources" {
 			return finish("waiting", "", message, time.Now().Add(30*time.Second))
+		}
+		if reason == "execution_unconfirmed" {
+			// Retry this same candidate, with bounded backoff. A temporary lack
+			// of engine proof must not hold the entire search for 15 minutes.
+			task.ProofFailures++
+			delay := 30 * time.Second
+			for i := 1; i < task.ProofFailures && delay < 5*time.Minute; i++ {
+				delay *= 2
+			}
+			if delay > 5*time.Minute {
+				delay = 5 * time.Minute
+			}
+			return finish("unmeasured", "", message, time.Now().Add(delay))
+		}
+		if reason == "client_hello" {
+			return finish("unmeasured", "", message, time.Now().Add(time.Minute))
 		}
 		return finish("unmeasured", "", message, time.Now().Add(15*time.Minute))
 	}
 	if until := m.domainBudget(c, s, time.Now().Unix()); until > 0 {
+		m.domainReason("switch_budget")
 		next := time.Unix(until, 0)
 		return finish("waiting", "", "Достигнут лимит применения; пробные подключения не запускаются", next)
 	}
 	if m.activeProbeHook == nil {
 		sample, err := readHelloSample(c, s)
 		if err != nil {
+			m.domainReason("client_hello_missing")
 			return finish("unmeasured", "", err.Error(), time.Now().Add(time.Minute))
 		}
 		m.activeHello = &sample
@@ -208,6 +267,7 @@ func (m *Manager) searchDomain(ctx context.Context, c Config, s DomainScope) (st
 				break
 			}
 			if !m.backgroundAllowed(c) {
+				m.domainReason("resources")
 				measured = false
 				passed = false
 				message = "Поиск ждёт свободных ресурсов роутера"
@@ -217,16 +277,21 @@ func (m *Manager) searchDomain(ctx context.Context, c Config, s DomainScope) (st
 			evidence.Result.Attempt = i
 			results = append(results, evidence.Result)
 			if evidence.Local && !evidence.Result.OK {
+				m.domainReason(activeProbeReason(evidence.Result))
 				measured = false
 				passed = false
 				message = "Проба не измеряет обход: " + evidence.Result.Error
 				break
 			}
 			if !evidence.Executed {
+				m.domainReason("execution_unconfirmed")
 				measured = false
 				passed = false
 				message = "Движок не подтвердил исполнение пробного метода"
 				break
+			}
+			if id != "direct" {
+				task.ProofFailures = 0
 			}
 			if !evidence.Result.OK {
 				passed = false
@@ -264,6 +329,7 @@ func (m *Manager) searchDomain(ctx context.Context, c Config, s DomainScope) (st
 	m.mu.Unlock()
 	for _, r := range baseline {
 		if r.OK {
+			m.domainReason("mixed_direct")
 			return finish("unmeasured", "", "Прямые пробы расходятся; рабочий метод сохранён", time.Now().Add(time.Minute))
 		}
 	}
@@ -428,7 +494,15 @@ func (m *Manager) activeTick(parent context.Context) {
 			pending = append(pending, task)
 		}
 	}
-	sort.Slice(pending, func(i, j int) bool { return pending[i].Signal < pending[j].Signal })
+	sort.Slice(pending, func(i, j int) bool {
+		if !pending[i].Attempted.Equal(pending[j].Attempted) {
+			return pending[i].Attempted.Before(pending[j].Attempted)
+		}
+		if pending[i].Signal != pending[j].Signal {
+			return pending[i].Signal < pending[j].Signal
+		}
+		return pending[i].Scope.key() < pending[j].Scope.key()
+	})
 	m.mu.Lock()
 	m.domainQueue = len(pending)
 	closed := m.closed
@@ -446,6 +520,7 @@ func (m *Manager) activeTick(parent context.Context) {
 	if task == nil {
 		return
 	}
+	task.Attempted = now
 	ctx, cancel := context.WithTimeout(parent, 6*time.Minute)
 	defer cancel()
 	m.mu.Lock()

@@ -139,3 +139,25 @@ pilot_auto(nil,d)
 		t.Fatal("client sample is not private")
 	}
 }
+
+func TestLuaClientHelloCaptureRecoversAfterWriteFailure(t *testing.T) {
+	c := adaptiveFixture(t)
+	if err := PrepareAdaptive(c); err != nil {
+		t.Fatal(err)
+	}
+	runAdaptiveLua(t, c, luaPacketHarness+`
+dofile(PILOT_SCRIPT:gsub('pilot%-auto.lua','pilot-measure.lua'))
+local d={track={hostname='capture.example.com',lua_state={pilot_hello=hello(true),pilot_peer='8.8.8.8'}},dis={ip={}}}
+local open=io.open;local failed=false
+io.open=function(path,mode)
+ if mode=='w' and path:find('/hello00.tsv',1,true) and not failed then failed=true;return nil,'temporary write error' end
+ return open(path,mode)
+end
+pilot_capture_hello(d,{pilot_port=443})
+assert(failed,'write failure was not exercised')
+pilot_capture_hello(d,{pilot_port=443})
+io.open=open
+local f=assert(io.open(pilot_runtime..'/hello00.tsv','r'));local body=f:read('*a');f:close()
+assert(body:find('PILOT_HELLO1\tcapture.example.com',1,true),'capture did not recover')
+`)
+}

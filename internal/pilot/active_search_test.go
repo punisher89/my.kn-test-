@@ -124,6 +124,92 @@ func TestActiveSearchNeverAcceptsMissingProofOrHTTPRejection(t *testing.T) {
 		})
 	}
 }
+
+func TestActiveSearchRetriesUnconfirmedCandidateWithBoundedBackoff(t *testing.T) {
+	m, c, _, s := activeFixture(t)
+	task := &domainTask{Scope: s, Signal: time.Now().Unix()}
+	m.domainTasks = map[DomainScope]*domainTask{s: task}
+	firstCandidate := ""
+	m.activeProbeHook = func(_ context.Context, _ Config, _ DomainScope, _ Target, id string) activeEvidence {
+		if id == "direct" {
+			return evidence(false, true)
+		}
+		if firstCandidate == "" {
+			firstCandidate = id
+		}
+		if id != firstCandidate {
+			t.Fatal("unmeasured candidate was skipped", id)
+		}
+		return evidence(false, false)
+	}
+	for _, delay := range []time.Duration{30, 60, 120, 240, 300, 300} {
+		m.domainJob = &DomainSearch{Scope: s, Trials: []Trial{}}
+		start := time.Now()
+		stage, next := m.searchDomain(context.Background(), c, s)
+		if stage != "unmeasured" || m.domainJob.Reason != "execution_unconfirmed" || len(m.domainPlans.Plans) != 0 {
+			t.Fatalf("unconfirmed method accepted or reason lost: %+v", m.domainJob)
+		}
+		if got := next.Sub(start); got < delay*time.Second || got > delay*time.Second+time.Second {
+			t.Fatalf("retry delay %v, expected %v seconds", got, delay)
+		}
+	}
+	m.activeProbeHook = func(_ context.Context, _ Config, _ DomainScope, _ Target, id string) activeEvidence {
+		return evidence(id == firstCandidate, true)
+	}
+	m.domainJob = &DomainSearch{Scope: s, Trials: []Trial{}}
+	if stage, _ := m.searchDomain(context.Background(), c, s); stage != "applied" {
+		t.Fatal("search did not recover after proof returned", stage)
+	}
+}
+
+func TestActiveQueueGivesUntriedDomainTurnBeforeReadyRetry(t *testing.T) {
+	m, c, _, s := activeFixture(t)
+	if err := os.WriteFile(filepath.Join(c.RuntimeDir, "state1.tsv"), adaptiveFrame(3, nil, nil), 0600); err != nil {
+		t.Fatal(err)
+	}
+	other := DomainScope{"other.example.com", s.TLS, s.Family, s.Port}
+	now := time.Now()
+	m.domainTasks = map[DomainScope]*domainTask{
+		s:     {Scope: s, Signal: now.Unix() - 20, Attempted: now.Add(-time.Minute)},
+		other: {Scope: other, Signal: now.Unix() - 10},
+	}
+	seen := []DomainScope{}
+	m.activeProbeHook = func(_ context.Context, _ Config, scope DomainScope, _ Target, _ string) activeEvidence {
+		seen = append(seen, scope)
+		return activeEvidence{Local: true, Result: ProbeResult{Status: 403, Error: "HTTP rejected"}}
+	}
+	m.activeTick(context.Background())
+	if len(seen) != 1 || seen[0] != other {
+		t.Fatal("old failure starved untried domain", seen)
+	}
+	if m.domainJob.Reason != "http_response" {
+		t.Fatal("HTTP failure not explained", m.domainJob)
+	}
+	m.domainTasks[other].Next = time.Time{}
+	m.activeTick(context.Background())
+	if len(seen) != 2 || seen[1] != s {
+		t.Fatal("ready tasks did not alternate", seen)
+	}
+}
+
+func TestActiveMissingClientHelloExplainsWaitingWithoutProbes(t *testing.T) {
+	m, c, _, s := activeFixture(t)
+	stage, next := m.searchDomain(context.Background(), c, s)
+	if stage != "unmeasured" || m.domainJob.Reason != "client_hello_missing" || next.IsZero() || len(m.domainJob.Trials) != 0 {
+		t.Fatal("missing client sample did not explain waiting", m.domainJob)
+	}
+	if code := activeReasonCode("private-url-secret"); code != "" {
+		t.Fatal("unknown diagnostic reason allowed", code)
+	}
+	m.domainJob.Reason = "private-url-secret"
+	if m.Diagnostics().ActiveSearch.Reason != "" {
+		t.Fatal("free text leaked into diagnostic reason")
+	}
+	m.domainJob.Reason = "client_hello_missing"
+	if m.Diagnostics().ActiveSearch.Reason != "client_hello_missing" {
+		t.Fatal("safe diagnostic reason missing")
+	}
+}
 func TestActiveBudgetAppliesToInstallationNotCandidateExperiments(t *testing.T) {
 	m, c, _, s := activeFixture(t)
 	c.AdaptiveMaxSwitches = 1

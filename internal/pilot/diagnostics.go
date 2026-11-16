@@ -31,6 +31,7 @@ type DiagnosticReport struct {
 	Notes                []string                `json:"notes"`
 }
 type DiagnosticActiveSearch struct {
+	Reason    string      `json:"reason,omitempty"`
 	Scope     DomainScope `json:"scope"`
 	Stage     string      `json:"stage"`
 	Candidate string      `json:"candidate,omitempty"`
@@ -195,6 +196,7 @@ func (m *Manager) Diagnostics() DiagnosticReport {
 			selected = j.Selected
 		}
 		d.ActiveSearch = &DiagnosticActiveSearch{Scope: j.Scope, Stage: stage, Candidate: candidate, Selected: selected, Started: j.Started, Finished: j.Finished, NextAt: j.NextAt, Trials: len(j.Trials), Queue: s.DomainQueue, Saved: s.VerifiedDomains, HasError: j.Error != ""}
+		d.ActiveSearch.Reason = activeReasonCode(j.Reason)
 	}
 	for _, p := range s.Config.Profiles {
 		d.Profiles = append(d.Profiles, DiagnosticProfile{ID: p.ID, Domains: append([]string{}, p.Domains...), Strategy: p.Strategy})
