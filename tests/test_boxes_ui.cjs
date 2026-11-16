@@ -17,6 +17,8 @@ let calls = 0, fail = false, diagnosticFail = false, holdResponse;
     const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
     await page.clock.install();
+    const freshAt = await page.evaluate(() => Math.floor(Date.now() / 1000) - 30);
+    for (const r of [...snapshot.hosts, ...snapshot.history, ...snapshot.boxes.flatMap(b => [...b.hosts, ...b.history])]) r.updated = freshAt;
     await page.route('http://pilot.test/**', async (route) => {
       const url = new URL(route.request().url());
       const json = (body, status = 200) => route.fulfill({ status, json: body });
@@ -147,9 +149,58 @@ let calls = 0, fail = false, diagnosticFail = false, holdResponse;
     await cards.first().waitFor();
     assert.equal(await select.inputValue(), draft);
     assert.equal(await management.evaluate((el) => el.open), true);
+
+    // A stale record retains its method and moves to a collapsed saved section.
+    const oldRow = {...snapshot.boxes[0].hosts[0], host:'old.example.com', updated:await page.evaluate(() => Date.now()/1000 - 86400), pinned:'', paused:false, hold_until:0};
+    const oldMethod = oldRow.strategy;
+    const oldBox = {...snapshot.boxes[0], id:'box-saved-test', hosts:[oldRow], history:[], methods:[]};
+    snapshot.boxes.push(oldBox);
+    await page.evaluate(() => loadAdaptive());
+    const saved = page.locator('.saved-boxes');
+    assert.equal(await saved.evaluate(el => el.open), false);
+    await filter.selectOption('stale');
+    assert.equal(await saved.evaluate(el => el.open), true, 'Filters reveal saved matches');
+    assert.equal(await cards.count(), 1);
+    assert.match(await cards.first().innerText(), /Нет свежих наблюдений/);
+    assert.equal(oldRow.strategy, oldMethod);
+    await filter.selectOption('probing');
+    assert.equal(await page.locator('[data-box="box-saved-test"]').count(), 0);
+    await filter.selectOption('all');
+    // A new observation returns the same method/context to the recent section.
+    oldRow.updated = await page.evaluate(() => Date.now()/1000);
+    oldRow.status = 'connected';
+    await page.evaluate(() => loadAdaptive());
+    assert.equal(await page.locator('.saved-boxes [data-box="box-saved-test"]').count(), 0);
+    assert.match(await page.locator('[data-box="box-saved-test"]').innerText(), /Есть ответ/);
+    assert.equal(oldRow.strategy, oldMethod);
+    const legacyRow = {...oldRow, host:'legacy.example.com', network:'-', port:0};
+    snapshot.boxes.push({...oldBox, id:'box-legacy-test', network:'-', port:0, hosts:[legacyRow]});
+    await page.evaluate(() => loadAdaptive());
+    assert.equal(await page.locator('.saved-boxes [data-box="box-legacy-test"]').count(), 1);
+    // A saved match appearing after an empty search is revealed on the next poll.
+    await search.fill('late.example.com');
+    assert.equal(await cards.count(), 0);
+    const lateRow = {...legacyRow, host:'late.example.com'};
+    snapshot.boxes.push({...oldBox, id:'box-late-test', network:'-', port:0, hosts:[lateRow]});
+    await page.evaluate(() => loadAdaptive());
+    assert.equal(await saved.evaluate(el => el.open), true);
+    assert.equal(await page.locator('[data-box="box-late-test"]').isVisible(), true);
+    await search.fill('');
+    // Interleaving other hosts does not hide a transition or rewrite raw history.
+    const grouping = await page.evaluate(() => {
+      const a={host:'a.example.com', group:'g', network:'ppp0', port:443, strategy:'split-sni', status:'failed', symptom:'rst', origin:'pool', updated:100};
+      const raw=[a,{...a,host:'b.example.com',updated:101},{...a,updated:102},{...a,status:'selected',updated:103},{...a,updated:104}];
+      const before=JSON.stringify(raw), grouped=groupedHistory(raw);
+      return {count:grouped.length, counts:grouped.map(r=>r.event_count), first:grouped[2].first_updated, last:grouped[2].updated, unchanged:before===JSON.stringify(raw), boundary:observationStale({updated:100},86500), beforeBoundary:observationStale({updated:101},86500)};
+    });
+    assert.equal(grouping.count,4);
+    assert.deepEqual(grouping.counts,[1,1,2,1]);
+    assert.equal(grouping.first,100); assert.equal(grouping.last,102);
+    assert.equal(grouping.unchanged,true);
+    assert.equal(grouping.boundary,true); assert.equal(grouping.beforeBoundary,false);
     await page.setViewportSize({ width: 390, height: 844 });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'Mobile view must fit the viewport');
     assert.deepEqual(errors, []);
-    console.log('PASS: search, effective filters, polling, drafts, focus, expanded sections, errors, navigation races, diagnostic downloads and failures, mobile layout');
+    console.log('PASS: search, effective filters, polling, drafts, focus, expanded sections, errors, navigation races, diagnostic downloads and failures, freshness, saved records, history grouping, mobile layout');
   } finally { await browser.close(); }
 })().catch((error) => { console.error(error); process.exitCode = 1; });

@@ -1314,3 +1314,9 @@ summary {
   .adaptive-actions { width: 100%; justify-content: flex-start; }
   .adaptive-actions button { padding: 10px 12px; font-size: 11px; }
 }
+
+.saved-boxes { margin-top: 16px; }
+.saved-boxes > summary { margin: 0; font-weight: 600; }
+.saved-boxes[open] > summary { margin-bottom: 12px; }
+.saved-boxes > .box-grid { margin-top: 12px; }
+.box-method-line .badge { max-width: 54%; white-space: normal; overflow-wrap: anywhere; }
