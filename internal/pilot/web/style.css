@@ -1371,11 +1371,11 @@ summary {
  .trial-compact > summary strong { flex-basis:100%; }
 }
 
-/* Matrix theme: static CSS texture; no fonts, animation loops or remote assets. */
+/* Matrix theme; decorative animation stays in the browser. */
 :root { --mono:ui-monospace,"Cascadia Code",Consolas,monospace; color-scheme:dark; }
 body { background:radial-gradient(ellipse at 85% 0%,#0c201355,transparent 48%),var(--bg); }
 .sidebar { background:linear-gradient(110deg,#07120b,#030806); }
-.sidebar::before { content:"0 1 0 1 1 0 0 1 0 1 1 0 1 0 0 1"; position:absolute;left:2px;top:10px;bottom:8px;width:9px;overflow:hidden;word-break:break-all;color:#1c7133;opacity:.3;font:10px/26px var(--mono);pointer-events:none; }
+
 .brand { color:var(--accent); font-family:var(--mono); font-size:17px; }
 .brand-mark,.brand-mark.small { background:#06130a;border:1px solid var(--accent);border-radius:2px;color:var(--accent);font:600 23px var(--mono);letter-spacing:-1px; }
 .brand-mark span { display:none; }
@@ -1437,3 +1437,16 @@ pre {overflow:auto;}
 meter::-webkit-meter-bar { background:#12331f;border:0;border-radius:3px; }
 meter::-webkit-meter-optimum-value { background:var(--accent); }
 meter::-moz-meter-bar { background:var(--accent); }
+
+/* Two narrow gutters keep the falling glyphs away from text and controls. */
+.matrix-rain { position:fixed;top:0;bottom:0;width:18px;overflow:hidden;z-index:2;pointer-events:none;user-select:none;opacity:.42;contain:strict; }
+.rain-left { left:0; }.rain-right {right:0;}
+.matrix-rain span {position:absolute;top:0;left:0;writing-mode:vertical-rl;text-orientation:upright;white-space:nowrap;font:10px/1 ui-monospace,monospace;letter-spacing:4px;color:#39e873;animation:matrix-fall 14s linear infinite;will-change:transform;}
+.matrix-rain span:nth-child(2) {left:9px;animation-duration:19s;animation-delay:-11s;color:#218f48;}
+.matrix-rain span:nth-child(3) {animation-duration:16s;animation-delay:-8s;}
+.matrix-rain span:nth-child(4) {left:9px;animation-duration:21s;animation-delay:-19s;color:#a0ffc0;}
+.rain-right span {animation-delay:-5s;}.rain-right span:nth-child(3) {animation-delay:-13s;}
+@keyframes matrix-fall {from {transform:translateY(-100%);}to {transform:translateY(100vh);}}
+.page-hidden .matrix-rain span {animation-play-state:paused;}
+@media(max-width:730px){.matrix-rain {width:8px;opacity:.25;}.matrix-rain span:nth-child(even){display:none;}}
+@media(prefers-reduced-motion:reduce){.matrix-rain {display:none;}}

@@ -42,6 +42,7 @@ type Config struct {
 	probeFailFast bool
 
 	Adaptive                  bool        `json:"adaptive"`
+	AdaptiveFastStart         bool        `json:"adaptive_fast_start"`
 	AdaptiveReuse             bool        `json:"adaptive_reuse"`
 	AdaptiveCooldownSeconds   int         `json:"adaptive_cooldown_seconds"`
 	AdaptiveMaxSwitches       int         `json:"adaptive_max_switches"`
@@ -75,7 +76,7 @@ type Config struct {
 
 func DefaultConfig() Config {
 	return Config{
-		AdaptiveGlobalMaxSwitches: 30, ProbeLoadGuard: true,
+		AdaptiveFastStart: true, AdaptiveGlobalMaxSwitches: 30, ProbeLoadGuard: true,
 		AdaptiveReuse: true, AdaptiveCooldownSeconds: 30, AdaptiveMaxSwitches: 6, RuntimeDir: "/opt/keenetic-pilot-state", Listen: "127.0.0.1:9080", EngineDir: "/opt/keenetic-pilot/engine", Queue: 220,
 		AutoCatalog: true, PPE: true, QUIC: true, DiscordVoice: false, Auto: true,
 		IntervalMinutes: 15, TimeoutSeconds: 8, Attempts: 2,

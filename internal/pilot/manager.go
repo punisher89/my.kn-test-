@@ -311,16 +311,35 @@ func (m *Manager) tune(ctx context.Context, old Config, idx int) {
 			m.finish("", errors.Join(errors.New(message), cause, ctx.Err(), err))
 		}
 	}()
+	// Screening visits every target/TLS/IP once. Confirmation always uses the
+	// user's original attempt count and timeout after a fresh backend restart.
+	selected := ""
+	var candidate Config
+	confirm := func(id string) bool {
+		candidate = cloneConfig(old)
+		candidate.Profiles[idx].Strategy = id
+		candidate.tuning = true
+		candidate.probeFailFast = true
+		m.stage("confirm")
+		if err := m.backend.Start(candidate); err != nil {
+			m.record(Trial{Strategy: "confirm:" + id, Error: err.Error(), Results: []ProbeResult{}})
+			return false
+		}
+		results := m.prober.Check(ctx, p, candidate, false)
+		passed := allPassed(results, p, candidate) && ctx.Err() == nil
+		m.record(Trial{Strategy: "confirm:" + id, Passed: passed, Results: results})
+		return passed
+	}
 	directConfig := cloneConfig(old)
+	directConfig.Attempts = 1
 	directConfig.probeFailFast = true
 	baseline := m.prober.Check(ctx, p, directConfig, true)
-	directOK := allPassed(baseline, p, old)
+	directOK := allPassed(baseline, p, directConfig) && ctx.Err() == nil
 	m.record(Trial{Strategy: "direct", Passed: directOK, Results: baseline})
-	selected := ""
-	if directOK {
+	if directOK && confirm("none") {
 		selected = "none"
 	}
-	for _, s := range StrategiesFor(old) {
+	for _, s := range tuningStrategies(old, p, ReadAdaptive(old), time.Now().Unix()) {
 		if selected != "" || ctx.Err() != nil {
 			break
 		}
@@ -328,39 +347,23 @@ func (m *Manager) tune(ctx context.Context, old Config, idx int) {
 			continue
 		}
 		m.stage(s.ID)
-		candidate := cloneConfig(old)
-		candidate.Profiles[idx].Strategy = s.ID
-		candidate.tuning = true
-		candidate.probeFailFast = true
-		if err := m.backend.Start(candidate); err != nil {
+		trial := cloneConfig(old)
+		trial.Profiles[idx].Strategy = s.ID
+		trial.tuning = true
+		trial.Attempts = 1
+		trial.probeFailFast = true
+		if err := m.backend.Start(trial); err != nil {
 			m.record(Trial{Strategy: s.ID, Error: err.Error(), Results: []ProbeResult{}})
 			continue
 		}
-		results := m.prober.Check(ctx, p, candidate, false)
-		passed := allPassed(results, p, candidate)
+		results := m.prober.Check(ctx, p, trial, false)
+		passed := allPassed(results, p, trial) && ctx.Err() == nil
 		m.record(Trial{Strategy: s.ID, Passed: passed, Results: results})
-		if passed {
+		if passed && confirm(s.ID) {
 			selected = s.ID
 		}
 	}
 	if selected == "" || ctx.Err() != nil {
-		return
-	}
-	candidate := cloneConfig(old)
-	candidate.Profiles[idx].Strategy = selected
-	candidate.tuning = true
-	candidate.probeFailFast = true
-	// Reapply and recheck after selection: the saved result must survive an
-	// engine restart, not merely a lucky request from the previous process.
-	m.stage("confirm")
-	if err := m.backend.Start(candidate); err != nil {
-		cause = err
-		return
-	}
-	confirmation := m.prober.Check(ctx, p, candidate, false)
-	passed := allPassed(confirmation, p, candidate)
-	m.record(Trial{Strategy: "confirm:" + selected, Passed: passed, Results: confirmation})
-	if !passed || ctx.Err() != nil {
 		return
 	}
 	if err := WriteJSON(m.path+".previous", old); err != nil {

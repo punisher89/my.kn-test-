@@ -162,7 +162,15 @@ end
 local function learned_candidates(group,host,h,indices)
     local tls,ip=context(group)
     if pilot_reuse==false or not tls or not ip or h.pilot_reason=='unknown' or network()=='-' or h.pilot_port==0 then return {} end
-    local scores={};local now=os.time();local latest={}
+    local scores={};local now=os.time();local latest={};local recent={}
+    -- Recent own outcomes only change priority, never remove pool fallbacks.
+    for _,r in ipairs(history) do
+        local rtls,rip=context(r.group)
+        if r.host==host and r.network==network() and r.port==h.pilot_port and rtls==tls and rip==ip and now>=r.stamp and now-r.stamp<600 and (r.status=='failed' or r.status=='connected') then
+            local old=recent[r.id]
+            if not old or r.stamp>=old.stamp then recent[r.id]=r end
+        end
+    end
     for _,r in pairs(cache) do
         local rtls,rip=context(r.group)
         if r.host~=host and r.network==network() and r.port==h.pilot_port and rtls==tls and rip==ip then
@@ -172,7 +180,7 @@ local function learned_candidates(group,host,h,indices)
     end
     for _,r in pairs(latest) do
         local rtls,rip=context(r.group)
-        if not excluded(r.host) and not pinned(r.host,rtls,rip,r.port) and r.origin~='manual' and r.host~=host and r.status=='connected' and r.id~='none' and indices[r.id] and r.reason==h.pilot_reason and r.network==network() and r.port==h.pilot_port and rtls==tls and rip==ip and now>=r.stamp and now-r.stamp<=learned_lifetime then
+        if not (recent[r.id] and recent[r.id].status=='failed') and not excluded(r.host) and not pinned(r.host,rtls,rip,r.port) and r.origin~='manual' and r.host~=host and r.status=='connected' and r.id~='none' and indices[r.id] and r.reason==h.pilot_reason and r.network==network() and r.port==h.pilot_port and rtls==tls and rip==ip and now>=r.stamp and now-r.stamp<=learned_lifetime then
             local score=scores[r.id] or {id=r.id,count=0,latest=0,hosts={}};scores[r.id]=score
             if not score.hosts[r.host] then score.count=score.count+1;score.hosts[r.host]=true end;score.latest=math.max(score.latest,r.stamp)
         end
@@ -191,10 +199,12 @@ local function rotation(h,group,host,ids,indices)
     end
     if now<global_window or now>=global_window+600 then global_window=now;global_switches=0 end
     if not h.pilot_window or h.pilot_window==0 or now>=h.pilot_window+600 then h.pilot_window=now;h.pilot_switches=0 end
+    local cooldown=pilot_cooldown or 30
+    if pilot_fast_start and (h.pilot_switches or 0)<3 then cooldown=math.min(cooldown,10) end
     local until_time,reason=0,'none'
     if global_switches>=(pilot_global_max_switches or 30) then until_time=global_window+600;reason='limit'
     elseif (h.pilot_switches or 0)>=(pilot_max_switches or 6) then until_time=h.pilot_window+600;reason='limit'
-    elseif (h.pilot_switched or 0)>0 and now<h.pilot_switched+(pilot_cooldown or 30) then until_time=h.pilot_switched+(pilot_cooldown or 30);reason='cooldown' end
+    elseif (h.pilot_switched or 0)>0 and now<h.pilot_switched+cooldown then until_time=h.pilot_switched+cooldown;reason='cooldown' end
     if until_time>now then
         h.nstrategy=h.pilot_before;h.pilot_hold=until_time;h.pilot_hold_reason=reason
         circular_sync_generation(h)

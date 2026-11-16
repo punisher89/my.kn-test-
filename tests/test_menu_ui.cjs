@@ -38,6 +38,15 @@ demo.checks={};
  await page.evaluate(()=>{location.hash='overview';});await page.locator('#network-telemetry .telemetry-cell').first().waitFor();
  assert.match(await page.locator('#content h1').innerText(),/Состояние сети/);
  assert.equal(await page.locator('.telemetry-cell').count(),4);
+ assert.equal(await page.locator('.matrix-rain').count(),2);
+ assert.equal(await page.locator('.matrix-rain span').count(),8);
+ assert.equal(await page.locator('.matrix-rain').first().evaluate(el=>getComputedStyle(el).pointerEvents),'none');
+ assert.equal(await page.locator('.matrix-rain span').first().evaluate(el=>getComputedStyle(el).animationName),'matrix-fall');
+ await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await page.locator('.matrix-rain').first().isVisible(),false);await page.emulateMedia({reducedMotion:'no-preference'});
+ await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));});
+ assert.equal(await page.locator('.matrix-rain span').first().evaluate(el=>getComputedStyle(el).animationPlayState),'paused');
+ await page.evaluate(()=>{delete document.hidden;document.dispatchEvent(new Event('visibilitychange'));});
+
  assert.equal(await page.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()),'#57f68b');
  const originalConfig=JSON.stringify(demo.config);checkGate={};await page.locator('[data-check-profile="youtube"]').click();
  await page.waitForFunction(()=>checkPending.has('youtube'));assert.equal(await page.locator('[data-check-profile="discord"]').isDisabled(),true);
@@ -71,5 +80,10 @@ demo.checks={};
  const item=page.locator('.method-item').first();await item.locator('summary').click();assert.equal(await item.evaluate(el=>el.open),true);
  await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
  for(const hash of ['overview','device','updates','profiles','tune','settings','adaptive']){await page.evaluate(h=>{location.hash=h;},hash);await page.waitForFunction(h=>page===h,hash);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,hash+' must fit mobile width');}
- assert.deepEqual(errors,[]);console.log('PASS: router telemetry, missing temperature, signed-update UI flow, custom services, domain sources, Telegram Web, compact trials/methods, preserved expansion, mobile menus, Matrix overview, read-only service reports, safe error rendering');
+ await page.evaluate(()=>{location.hash='settings';});await page.locator('#adaptive_fast_start').waitFor();
+ assert.equal(await page.locator('#adaptive_fast_start').isChecked(),true);
+ const limits=[demo.config.adaptive_cooldown_seconds,demo.config.adaptive_max_switches,demo.config.adaptive_global_max_switches];
+ await page.locator('#adaptive_fast_start').uncheck();await page.locator('#settings-form button[type=submit]').click();await page.waitForFunction(()=>state.config.adaptive_fast_start===false);
+ assert.deepEqual([demo.config.adaptive_cooldown_seconds,demo.config.adaptive_max_switches,demo.config.adaptive_global_max_switches],limits,'Fast-start opt-out preserves configured limits');
+ assert.deepEqual(errors,[]);console.log('PASS: router telemetry, missing temperature, signed-update UI flow, custom services, domain sources, Telegram Web, compact trials/methods, preserved expansion, mobile menus, Matrix overview, read-only service reports, safe error rendering, animated rain, reduced motion, hidden-tab pause, fast-start opt-out');
 }finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1});

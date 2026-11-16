@@ -23,6 +23,7 @@ func TestUpgradeKeepsWorkingStrategiesAndAdaptiveOptOut(t *testing.T) {
 	delete(legacy, "runtime_dir")
 	delete(legacy, "probe_load_guard")
 	delete(legacy, "adaptive_global_max_switches")
+	delete(legacy, "adaptive_fast_start")
 	path := filepath.Join(t.TempDir(), "config.json")
 	if err := WriteJSON(path, legacy); err != nil {
 		t.Fatal(err)
@@ -31,7 +32,7 @@ func TestUpgradeKeepsWorkingStrategiesAndAdaptiveOptOut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !loaded.ProbeLoadGuard || loaded.AdaptiveGlobalMaxSwitches != 30 || loaded.Adaptive || loaded.RuntimeDir == "" || loaded.Profiles[0].Strategy != "fake-md5" || loaded.Profiles[1].Strategy != "disorder" {
+	if !loaded.AdaptiveFastStart || !loaded.ProbeLoadGuard || loaded.AdaptiveGlobalMaxSwitches != 30 || loaded.Adaptive || loaded.RuntimeDir == "" || loaded.Profiles[0].Strategy != "fake-md5" || loaded.Profiles[1].Strategy != "disorder" {
 		t.Fatalf("working installation changed: %+v", loaded)
 	}
 }
