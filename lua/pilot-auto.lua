@@ -50,6 +50,8 @@ local function tls_variant(s)
 end
 -- Keep distinct transitions, aggregate only repeated failures in the same
 -- context. Moving a group to the tail orders history by its latest event.
+-- Shared only with the isolated measurement orchestrator.
+pilot_tls_variant=tls_variant
 local function append_event(events,row)
     if row.status=='failed' then
         for i=#events,1,-1 do
@@ -243,6 +245,7 @@ function pilot_failure(d,c)
     if failed then
         local h=automate_host_record(d)
         h.pilot_reason=reason
+        if pilot_active and pilot_capture_hello then pilot_capture_hello(d,h) end
         d.pilot_failed_strategy=d.pilot_ids and d.pilot_ids[c.nstrategy]
     end
     return failed,outcome
@@ -266,6 +269,15 @@ function pilot_auto(ctx,d)
     d.track.lua_state=d.track.lua_state or {}
     local variant=d.track.lua_state.pilot_tls_variant
     if not variant then variant=tls_variant(d.reasm_data or (d.dis and d.dis.payload));if variant then d.track.lua_state.pilot_tls_variant=variant end end
+    if pilot_active and d.outgoing and variant then
+        local wire=d.reasm_data or (d.dis and d.dis.payload)
+        local length=wire and #wire>=5 and (wire:byte(4)*256+wire:byte(5)+5) or 0
+        local address=d.dis.ip6 and d.dis.ip6.ip6_dst or d.dis.ip and d.dis.ip.ip_dst
+        if length>0 and length<=4096 and #wire>=length and pilot_tls_variant(wire)==variant and address and ntop then
+            d.track.lua_state.pilot_hello=wire:sub(1,length)
+            d.track.lua_state.pilot_peer=ntop(address)
+        end
+    end
     local suffix='_'..(variant or 'unknown')..(d.dis.ip6 and '_ipv6' or '_ipv4')
     local port=tonumber(d.outgoing and d.dis.tcp.th_dport or d.dis.tcp.th_sport) or 0
     local legacy_group=group..suffix
@@ -293,14 +305,29 @@ function pilot_auto(ctx,d)
             old=cache[h.pilot_legacy]
         end
         h.pilot_port=port
-        if pilot_adaptive~=false and old and indices[old.id] then
+        if pilot_adaptive~=false and not pilot_active and old and indices[old.id] then
             h.nstrategy=indices[old.id];h.pilot_origin=old.origin
             h.pilot_switched=old.switched;h.pilot_window=old.window;h.pilot_switches=old.switches;h.pilot_hold=old.hold;h.pilot_hold_reason=old.hold_reason
             if old.network==network() and old.port==h.pilot_port then h.pilot_reason=old.reason end
         end
         h.pilot_reason=h.pilot_reason or 'unknown';h.pilot_origin=h.pilot_origin or 'initial'
-        h.on_strategy_changed=function(record) rotation(record,group,host,ids,indices) end
+        h.on_strategy_changed=function(record)
+            if pilot_active then
+                -- A suspicion queues controller measurements; it must not
+                -- experiment on unrelated live connections while measuring.
+                record.nstrategy=record.pilot_before;record.pilot_hold=0;record.pilot_hold_reason='none';circular_sync_generation(record)
+            else rotation(record,group,host,ids,indices) end
+        end
         h.pilot_loaded=true
+    end
+    local active_changed=false
+    if pilot_active and pilot_adaptive~=false then
+        local measured=pilot_verified and pilot_verified(host,variant or 'unknown',d.dis.ip6 and 'ipv6' or 'ipv4',port)
+        local selected=measured and indices[measured] or 1
+        active_changed=h.pilot_active_id and h.pilot_active_id~=ids[selected] or false
+        h.nstrategy=selected;h.pilot_active_id=ids[selected];h.pilot_origin=measured and 'learned' or 'initial'
+        h.pilot_hold=0;h.pilot_hold_reason='none'
+        circular_sync_generation(h)
     end
     local pin_id=pinned(host,variant or 'unknown',d.dis.ip6 and 'ipv6' or 'ipv4',port)
     local announce_manual=false
@@ -328,7 +355,7 @@ function pilot_auto(ctx,d)
         event(group,host,ids[current],'selected',h)
         remember(group,host,ids[current],'probing',false,h)
     end
-    if current~=before and ids[current] then
+    if (current~=before or active_changed) and ids[current] then
         event(group,host,ids[current],'selected',h)
         remember(group,host,ids[current],'probing',newsite,h)
     elseif h.pilot_connected and ids[current] then

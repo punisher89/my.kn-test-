@@ -125,6 +125,17 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 		jsonReply(w, 200, ReadAdaptive(m.Config()))
 	})
 	api("GET /api/adaptive", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, ReadAdaptive(m.Config())) })
+	api("POST /api/domain-search", func(w http.ResponseWriter, r *http.Request) {
+		var scope DomainScope
+		if !read(w, r, &scope) {
+			return
+		}
+		if err := m.QueueDomain(scope); err != nil {
+			replyError(w, err)
+			return
+		}
+		jsonReply(w, 202, m.Snapshot())
+	})
 	api("GET /api/network", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, DetectNetwork()) })
 	api("POST /api/services/custom", func(w http.ResponseWriter, r *http.Request) {
 		var p Profile

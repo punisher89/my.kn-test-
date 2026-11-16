@@ -30,19 +30,30 @@ type Job struct {
 	Trials   []Trial    `json:"trials"`
 }
 type Snapshot struct {
-	Checks         map[string]ServiceCheck `json:"checks"`
-	BackgroundHold string                  `json:"background_hold,omitempty"`
-	ServicePresets []ServicePreset         `json:"service_presets"`
-	Version        string                  `json:"version"`
-	Mode           string                  `json:"mode"`
-	Running        bool                    `json:"running"`
-	Busy           bool                    `json:"busy"`
-	Config         Config                  `json:"config"`
-	Job            *Job                    `json:"job"`
-	Error          string                  `json:"error,omitempty"`
-	Strategies     []Strategy              `json:"strategies"`
+	DomainJob       *DomainSearch           `json:"domain_job,omitempty"`
+	DomainQueue     int                     `json:"domain_queue"`
+	VerifiedDomains int                     `json:"verified_domains"`
+	Checks          map[string]ServiceCheck `json:"checks"`
+	BackgroundHold  string                  `json:"background_hold,omitempty"`
+	ServicePresets  []ServicePreset         `json:"service_presets"`
+	Version         string                  `json:"version"`
+	Mode            string                  `json:"mode"`
+	Running         bool                    `json:"running"`
+	Busy            bool                    `json:"busy"`
+	Config          Config                  `json:"config"`
+	Job             *Job                    `json:"job"`
+	Error           string                  `json:"error,omitempty"`
+	Strategies      []Strategy              `json:"strategies"`
 }
 type Manager struct {
+	domainJob        *DomainSearch
+	domainQueue      int
+	domainTasks      map[DomainScope]*domainTask
+	domainPlans      domainPlanStore
+	domainPlanIssue  string
+	domainPublished  string
+	activeProbeHook  activeProbeFunc
+	activeHello      *helloSample
 	checks           map[string]ServiceCheck
 	backgroundHold   string
 	guardDevice      deviceReader
@@ -71,6 +82,13 @@ func NewManager(c Config, path string, b Backend, p Prober, log *LogBuffer) *Man
 		var job Job
 		if json.Unmarshal(data, &job) == nil && job.Finished != nil {
 			m.job = &job
+		}
+	}
+	m.loadDomainPlans()
+	if data, err := os.ReadFile(filepath.Join(filepath.Dir(path), "last-domain-search.json")); err == nil && len(data) < 1<<20 {
+		var job DomainSearch
+		if json.Unmarshal(data, &job) == nil && job.Finished != nil && job.Scope.valid() && len(job.Trials) <= 128 {
+			m.domainJob = &job
 		}
 	}
 	return m
@@ -107,7 +125,16 @@ func (m *Manager) Snapshot() Snapshot {
 		j.Trials = append([]Trial{}, m.job.Trials...)
 		job = &j
 	}
-	return Snapshot{Checks: m.checksLocked(), BackgroundHold: m.backgroundHold, ServicePresets: ServicePresets(), Version: Version, Mode: m.backend.Kind(), Running: m.backend.Running(), Busy: busy, Config: cloneConfig(m.c), Job: job, Error: m.lastError, Strategies: StrategiesFor(m.c)}
+	var domainJob *DomainSearch
+	if m.domainJob != nil {
+		j := *m.domainJob
+		j.Trials = append([]Trial{}, m.domainJob.Trials...)
+		for i := range j.Trials {
+			j.Trials[i].Results = append([]ProbeResult{}, j.Trials[i].Results...)
+		}
+		domainJob = &j
+	}
+	return Snapshot{DomainJob: domainJob, DomainQueue: m.domainQueue, VerifiedDomains: len(m.domainPlans.Plans), Checks: m.checksLocked(), BackgroundHold: m.backgroundHold, ServicePresets: ServicePresets(), Version: Version, Mode: m.backend.Kind(), Running: m.backend.Running(), Busy: busy, Config: cloneConfig(m.c), Job: job, Error: m.lastError, Strategies: StrategiesFor(m.c)}
 }
 func (m *Manager) setError(err error) error {
 	m.mu.Lock()
@@ -406,6 +433,7 @@ func (m *Manager) Check(ctx context.Context, id string) ([]ProbeResult, error) {
 }
 
 func (m *Manager) Watch(ctx context.Context) {
+	go m.watchActive(ctx)
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	next := time.Now()
@@ -454,7 +482,7 @@ func (m *Manager) Watch(ctx context.Context) {
 				m.op.Unlock()
 				continue
 			}
-			if !c.Auto || !allowed || time.Now().Before(next) {
+			if (c.Adaptive && c.AdaptiveActive) || !c.Auto || !allowed || time.Now().Before(next) {
 				m.op.Unlock()
 				continue
 			}

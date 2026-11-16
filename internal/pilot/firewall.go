@@ -67,6 +67,11 @@ func FirewallRules(c Config) []Rule {
 				}
 			}
 		}
+		if c.Adaptive && c.AdaptiveActive {
+			// Keep the dedicated probe bit on replies without touching other marks.
+			add("mangle", "POSTROUTING", "-o", c.WAN, "-p", "tcp", "-m", "mark", "--mark", "0x200000dc/0xffffffff", "-m", "comment", "--comment", "keenetic-pilot", "-j", "CONNMARK", "--save-mark", "--nfmask", "0xffffffff", "--ctmask", "0xffffffff")
+			add("mangle", "PREROUTING", "-i", c.WAN, "-p", "tcp", "-m", "connmark", "--mark", "0x200000dc/0xffffffff", "-m", "comment", "--comment", "keenetic-pilot", "-j", "CONNMARK", "--restore-mark", "--nfmask", "0xffffffff", "--ctmask", "0xffffffff")
+		}
 		for _, dir := range []struct{ chain, iface, port, ctdir string }{{"POSTROUTING", "-o", "--dports", "original"}, {"PREROUTING", "-i", "--sports", "reply"}} {
 			for _, proto := range []string{"tcp", "udp"} {
 				if proto == "udp" && !c.QUIC && !c.DiscordVoice {

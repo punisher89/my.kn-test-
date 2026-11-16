@@ -45,7 +45,11 @@ func PrepareAdaptive(c Config) error {
 	if err := os.Chmod(dir, 0711); err != nil {
 		return err
 	}
-	for _, name := range []string{"autohosts.txt", "state0.tsv", "state1.tsv"} {
+	samples := []string{"autohosts.txt", "state0.tsv", "state1.tsv", "probe-proof.tsv"}
+	for i := 0; i < 64; i++ {
+		samples = append(samples, fmt.Sprintf("hello%02d.tsv", i))
+	}
+	for _, name := range samples {
 		path := filepath.Join(dir, name)
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0600)
 		if err != nil {
@@ -67,10 +71,33 @@ func PrepareAdaptive(c Config) error {
 			return err
 		}
 	}
+	for _, name := range []string{"probe-command.tsv", "verified-domains.tsv"} {
+		f, err := os.OpenFile(filepath.Join(dir, name), os.O_CREATE|os.O_RDONLY|syscall.O_NOFOLLOW, 0644)
+		if err != nil {
+			return err
+		}
+		info, err := f.Stat()
+		if err != nil || !info.Mode().IsRegular() {
+			f.Close()
+			return fmt.Errorf("необычный управляющий файл: %s", name)
+		}
+		if os.Geteuid() == 0 {
+			err = f.Chown(0, 0)
+		}
+		if err == nil {
+			err = f.Chmod(0644)
+		}
+		f.Close()
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
 type AdaptiveHost struct {
+	Applied      string `json:"applied_strategy,omitempty"`
+	Measured     bool   `json:"https_measured,omitempty"`
 	EventCount   int64  `json:"event_count"`
 	FirstUpdated int64  `json:"first_updated"`
 	Group        string `json:"group"`
@@ -91,6 +118,7 @@ type AdaptiveHost struct {
 	Paused       bool   `json:"paused"`
 }
 type AdaptiveSnapshot struct {
+	Active     bool           `json:"active"`
 	Enabled    bool           `json:"enabled"`
 	Reuse      bool           `json:"reuse"`
 	Boxes      []AdaptiveBox  `json:"boxes"`
@@ -212,10 +240,31 @@ func allowedOrigin(s string) bool {
 func ReadAdaptive(c Config) (result AdaptiveSnapshot) {
 	result = AdaptiveSnapshot{Enabled: c.Adaptive, Reuse: c.AdaptiveReuse, Hosts: []AdaptiveHost{}, Discovered: []string{}, History: []AdaptiveHost{}, Boxes: []AdaptiveBox{}}
 	defer func() {
+		result.Active = c.Adaptive && c.AdaptiveActive
+		plans := map[DomainScope]string{}
+		if result.Active {
+			plans = runtimeDomainPlans(c)
+		}
 		for i, r := range result.Hosts {
 			b := boxContext(r)
 			result.Hosts[i].Pinned = c.pinFor(r.Host, b.TLS, b.Family, r.Port)
 			result.Hosts[i].Paused = c.excludedBy(r.Host) != ""
+			if result.Active && r.Network == c.WAN {
+				id := profileForDomain(c, r.Host).Strategy
+				if measured, ok := plans[DomainScope{r.Host, b.TLS, b.Family, r.Port}]; ok {
+					id = measured
+					result.Hosts[i].Measured = true
+				}
+				if result.Hosts[i].Pinned != "" {
+					id = result.Hosts[i].Pinned
+					result.Hosts[i].Measured = false
+				}
+				if result.Hosts[i].Paused {
+					id = "none"
+					result.Hosts[i].Measured = false
+				}
+				result.Hosts[i].Applied = id
+			}
 		}
 		result.Boxes = adaptiveBoxes(result.Hosts, result.History, c, time.Now().Unix())
 	}()

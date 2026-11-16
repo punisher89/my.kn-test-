@@ -99,7 +99,7 @@ func strategyFor(c Config, id string) (Strategy, bool) {
 func EngineArgs(c Config) []string {
 	args := []string{fmt.Sprintf("--qnum=%d", c.Queue), "--fwmark=0x40000000", "--lua-init=@" + filepath.Join(c.EngineDir, "lua", "zapret-lib.lua.gz"), "--lua-init=@" + filepath.Join(c.EngineDir, "lua", "zapret-antidpi.lua.gz")}
 	if c.usesAdaptiveController() {
-		args = append(args, "--lua-init=@"+filepath.Join(c.EngineDir, "lua", "zapret-auto.lua.gz"), "--lua-init=pilot_runtime="+luaString(c.RuntimeDir), "--lua-init=pilot_network="+luaString(c.WAN), fmt.Sprintf("--lua-init=pilot_reuse=%t", c.AdaptiveReuse), fmt.Sprintf("--lua-init=pilot_adaptive=%t", c.Adaptive && !c.tuning), fmt.Sprintf("--lua-init=pilot_fast_start=%t", c.AdaptiveFastStart), fmt.Sprintf("--lua-init=pilot_cooldown=%d", c.AdaptiveCooldownSeconds), fmt.Sprintf("--lua-init=pilot_max_switches=%d", c.AdaptiveMaxSwitches), fmt.Sprintf("--lua-init=pilot_global_max_switches=%d", c.AdaptiveGlobalMaxSwitches), "--lua-init="+domainControlsLua(c), "--lua-init=@"+filepath.Join(filepath.Dir(c.EngineDir), "lua", "pilot-auto.lua"))
+		args = append(args, "--lua-init=@"+filepath.Join(c.EngineDir, "lua", "zapret-auto.lua.gz"), "--lua-init=pilot_runtime="+luaString(c.RuntimeDir), "--lua-init=pilot_network="+luaString(c.WAN), fmt.Sprintf("--lua-init=pilot_reuse=%t", c.AdaptiveReuse), fmt.Sprintf("--lua-init=pilot_adaptive=%t", c.Adaptive && !c.tuning), "--lua-init=pilot_plan_context="+luaString(activeContext(c)), fmt.Sprintf("--lua-init=pilot_active=%t", c.AdaptiveActive && c.Adaptive && !c.tuning), fmt.Sprintf("--lua-init=pilot_fast_start=%t", c.AdaptiveFastStart), fmt.Sprintf("--lua-init=pilot_cooldown=%d", c.AdaptiveCooldownSeconds), fmt.Sprintf("--lua-init=pilot_max_switches=%d", c.AdaptiveMaxSwitches), fmt.Sprintf("--lua-init=pilot_global_max_switches=%d", c.AdaptiveGlobalMaxSwitches), "--lua-init="+domainControlsLua(c), "--lua-init=@"+filepath.Join(filepath.Dir(c.EngineDir), "lua", "pilot-measure.lua"), "--lua-init=@"+filepath.Join(filepath.Dir(c.EngineDir), "lua", "pilot-auto.lua"))
 	}
 	haveProfile := false
 	profile := func(a ...string) {
@@ -108,6 +108,19 @@ func EngineArgs(c Config) []string {
 		}
 		args = append(args, a...)
 		haveProfile = true
+	}
+	if c.Adaptive && c.AdaptiveActive && !c.tuning {
+		profile("--filter-tcp=443,2053,2083,2087,2096,8443", "--filter-mark=0x200000dc/0xffffffff", "--filter-l7=tls")
+		args = append(args, "--out-range=-s34228", "--in-range=-s34228", "--lua-desync=pilot_trial:reqhost", "--payload=tls_client_hello")
+		for i, s := range StrategiesFor(c) {
+			actions := s.Actions
+			if len(actions) == 0 {
+				actions = []string{"pilot_pass"}
+			}
+			for _, action := range actions {
+				args = append(args, fmt.Sprintf("--lua-desync=%s:strategy=%d:pilot_id=%s", action, i+1, s.ID))
+			}
+		}
 	}
 	exclude := []string{}
 	excludedDomains := append(append([]string{}, c.Exclusions...), c.PausedDomains...)
@@ -181,7 +194,7 @@ func appendAdaptive(args []string, c Config, key, preferred string) []string {
 			pool = append(pool, s)
 		}
 	}
-	args = append(args, "--out-range=-s34228", "--in-range=-s34228", "--lua-desync=pilot_auto:key="+key+":reqhost:fails=2:time=60:retrans=1:failure_detector=pilot_failure:success_detector=pilot_success", "--payload=tls_client_hello")
+	args = append(args, "--out-range=-s34228", "--in-range=-s34228", "--lua-desync=pilot_auto:key="+key+":reqhost:fails=2:time=60:retrans=3:failure_detector=pilot_failure:success_detector=pilot_success", "--payload=tls_client_hello")
 	for i, s := range pool {
 		actions := s.Actions
 		if len(actions) == 0 {

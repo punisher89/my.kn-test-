@@ -12,6 +12,7 @@ import (
 // DiagnosticReport is an explicit export allowlist. Never embed Config, Job,
 // Snapshot, logs, or arbitrary error text: they can contain URLs or credentials.
 type DiagnosticReport struct {
+	ActiveSearch         *DiagnosticActiveSearch `json:"active_search,omitempty"`
 	SchemaVersion        int                     `json:"schema_version"`
 	GeneratedAt          time.Time               `json:"generated_at"`
 	Version              string                  `json:"version"`
@@ -29,6 +30,19 @@ type DiagnosticReport struct {
 	Discovered           []string                `json:"discovered"`
 	Notes                []string                `json:"notes"`
 }
+type DiagnosticActiveSearch struct {
+	Scope     DomainScope `json:"scope"`
+	Stage     string      `json:"stage"`
+	Candidate string      `json:"candidate,omitempty"`
+	Selected  string      `json:"selected,omitempty"`
+	Started   time.Time   `json:"started"`
+	Finished  *time.Time  `json:"finished,omitempty"`
+	NextAt    *time.Time  `json:"next_at,omitempty"`
+	Trials    int         `json:"trials"`
+	Queue     int         `json:"queue"`
+	Saved     int         `json:"saved_confirmations"`
+	HasError  bool        `json:"has_error"`
+}
 type DiagnosticService struct {
 	Mode     string `json:"mode"`
 	Enabled  bool   `json:"enabled"`
@@ -37,6 +51,7 @@ type DiagnosticService struct {
 	HasError bool   `json:"has_error"`
 }
 type DiagnosticSettings struct {
+	Active            bool   `json:"active_measurements"`
 	FastStart         bool   `json:"fast_start"`
 	WAN               string `json:"wan"`
 	IPv6              bool   `json:"ipv6"`
@@ -80,6 +95,8 @@ type DiagnosticSlot struct {
 	Events     int    `json:"events"`
 }
 type DiagnosticObservation struct {
+	Applied       string `json:"applied_strategy,omitempty"`
+	Measured      bool   `json:"https_measured,omitempty"`
 	EventCount    int64  `json:"event_count"`
 	FirstUpdated  int64  `json:"first_updated"`
 	Group         string `json:"group"`
@@ -110,7 +127,7 @@ func diagnosticObservation(r AdaptiveHost, s Snapshot, now int64, history bool) 
 	_, known := strategyFor(s.Config, r.Strategy)
 	d := DiagnosticObservation{
 		EventCount: r.EventCount, FirstUpdated: r.FirstUpdated, Group: r.Group, Box: b.ID, Host: r.Host, TLS: b.TLS, Family: b.Family, Network: r.Network, Port: r.Port,
-		Strategy: r.Strategy, StrategyKnown: known, Status: r.Status, Reason: r.Status,
+		Applied: r.Applied, Measured: r.Measured, Strategy: r.Strategy, StrategyKnown: known, Status: r.Status, Reason: r.Status,
 		Symptom: r.Symptom, Origin: r.Origin, Updated: r.Updated,
 		LastSwitch: r.LastSwitch, WindowStart: r.WindowStart, Switches: r.Switches,
 		HoldUntil: r.HoldUntil, HoldReason: r.HoldReason,
@@ -133,7 +150,11 @@ func diagnosticObservation(r AdaptiveHost, s Snapshot, now int64, history bool) 
 		d.Reason = "pinned"
 	case !s.Config.Adaptive:
 		d.Reason = "adaptive_disabled"
-	case r.HoldUntil > now && (r.HoldReason == "cooldown" || r.HoldReason == "limit"):
+	case r.Applied != "" && r.Applied != r.Strategy:
+		d.Reason = "awaiting_new_connections"
+	case r.Measured:
+		d.Reason = "https_confirmed"
+	case r.Applied == "" && r.HoldUntil > now && (r.HoldReason == "cooldown" || r.HoldReason == "limit"):
 		d.Reason = r.HoldReason
 	}
 	return d
@@ -146,7 +167,7 @@ func (m *Manager) Diagnostics() DiagnosticReport {
 	d := DiagnosticReport{
 		SchemaVersion: 1, GeneratedAt: now, Version: s.Version, Platform: runtime.GOOS + "/" + runtime.GOARCH,
 		Service:  DiagnosticService{Mode: s.Mode, Enabled: s.Config.Enabled, Running: s.Running, Busy: s.Busy, HasError: s.Error != ""},
-		Settings: DiagnosticSettings{FastStart: s.Config.AdaptiveFastStart, GlobalMaxSwitches: s.Config.AdaptiveGlobalMaxSwitches, ProbeLoadGuard: s.Config.ProbeLoadGuard, WAN: s.Config.WAN, IPv6: s.Config.IPv6, PPE: s.Config.PPE, QUIC: s.Config.QUIC, DiscordVoice: s.Config.DiscordVoice, Adaptive: s.Config.Adaptive, Reuse: s.Config.AdaptiveReuse, CooldownSeconds: s.Config.AdaptiveCooldownSeconds, MaxSwitches: s.Config.AdaptiveMaxSwitches, CatalogRevision: s.Config.CatalogRevision},
+		Settings: DiagnosticSettings{Active: s.Config.AdaptiveActive, FastStart: s.Config.AdaptiveFastStart, GlobalMaxSwitches: s.Config.AdaptiveGlobalMaxSwitches, ProbeLoadGuard: s.Config.ProbeLoadGuard, WAN: s.Config.WAN, IPv6: s.Config.IPv6, PPE: s.Config.PPE, QUIC: s.Config.QUIC, DiscordVoice: s.Config.DiscordVoice, Adaptive: s.Config.Adaptive, Reuse: s.Config.AdaptiveReuse, CooldownSeconds: s.Config.AdaptiveCooldownSeconds, MaxSwitches: s.Config.AdaptiveMaxSwitches, CatalogRevision: s.Config.CatalogRevision},
 		Profiles: []DiagnosticProfile{}, Methods: []DiagnosticMethod{},
 		Rules:      DiagnosticRules{Pins: []DiagnosticPin{}, Paused: append([]string{}, s.Config.PausedDomains...), Exclusions: append([]string{}, s.Config.Exclusions...)},
 		Generation: a.Generation, ObservationReadError: a.Error != "", Storage: []DiagnosticSlot{},
@@ -158,6 +179,22 @@ func (m *Manager) Diagnostics() DiagnosticReport {
 			"connected означает наблюдаемую передачу данных, без проверки содержимого HTTPS, видео и голоса. Окончание паузы разрешает смену после новых сбоев; таймер сам подбор не запускает.",
 			"reason описывает действующее правило или сохранённый результат. Причины в history относятся к прошлым событиям; recorded_hold_until может быть в прошлом. Пустые новые файлы имеют статус invalid_or_incomplete.",
 		},
+	}
+	if j := s.DomainJob; j != nil && j.Scope.valid() {
+		stage := "unknown"
+		for _, known := range []string{"direct", "search", "confirm", "applied", "unmeasured", "exhausted", "waiting", "cancelled", "error"} {
+			if j.Stage == known {
+				stage = known
+			}
+		}
+		candidate, selected := "", ""
+		if _, ok := strategyFor(s.Config, j.Candidate); ok {
+			candidate = j.Candidate
+		}
+		if _, ok := strategyFor(s.Config, j.Selected); ok {
+			selected = j.Selected
+		}
+		d.ActiveSearch = &DiagnosticActiveSearch{Scope: j.Scope, Stage: stage, Candidate: candidate, Selected: selected, Started: j.Started, Finished: j.Finished, NextAt: j.NextAt, Trials: len(j.Trials), Queue: s.DomainQueue, Saved: s.VerifiedDomains, HasError: j.Error != ""}
 	}
 	for _, p := range s.Config.Profiles {
 		d.Profiles = append(d.Profiles, DiagnosticProfile{ID: p.ID, Domains: append([]string{}, p.Domains...), Strategy: p.Strategy})

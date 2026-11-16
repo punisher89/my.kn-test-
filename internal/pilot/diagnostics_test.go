@@ -16,6 +16,7 @@ func TestDiagnosticsAllowlistAndReadOnlyExport(t *testing.T) {
 	dir := t.TempDir()
 	c := DefaultConfig()
 	c.Adaptive = true
+	c.AdaptiveActive = false // This fixture specifically exercises passive recorded holds.
 	c.Enabled = true
 	c.WAN = "ppp0"
 	c.RuntimeDir = filepath.Join(dir, "private-path-secret")

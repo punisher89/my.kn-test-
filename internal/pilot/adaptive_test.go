@@ -80,12 +80,14 @@ func adaptiveFixture(t *testing.T) Config {
 	if err := exec.Command("cp", "-R", source, engine).Run(); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile("../../lua/pilot-auto.lua")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = os.WriteFile(filepath.Join(base, "lua/pilot-auto.lua"), data, 0644); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{"pilot-auto.lua", "pilot-measure.lua"} {
+		data, err := os.ReadFile("../../lua/" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = os.WriteFile(filepath.Join(base, "lua", name), data, 0644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	c := DefaultConfig()
 	c.Adaptive = true

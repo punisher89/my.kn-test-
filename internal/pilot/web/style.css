@@ -1450,3 +1450,5 @@ meter::-moz-meter-bar { background:var(--accent); }
 .page-hidden .matrix-rain span {animation-play-state:paused;}
 @media(max-width:730px){.matrix-rain {width:8px;opacity:.25;}.matrix-rain span:nth-child(even){display:none;}}
 @media(prefers-reduced-motion:reduce){.matrix-rain {display:none;}}
+
+.domain-search-mini {display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 18px;}.domain-search-mini strong {font-size:13px;color:var(--accent);}.domain-search-mini p {font-size:12px;}.domain-search-mini a {font-size:12px;color:var(--accent);white-space:normal;}.domain-search-report>p {margin-bottom:8px;}@media(max-width:730px){.domain-search-mini{align-items:flex-start;flex-direction:column;}}
