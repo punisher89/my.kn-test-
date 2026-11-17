@@ -242,7 +242,7 @@ function youtubeVideoCheckPanel(){
   <input id="youtube-video-url" type="password" autocomplete="off" spellcheck="false" maxlength="8192" placeholder="https://rr…googlevideo.com/videoplayback?…" />
   <small>Проверка из роутера: HTTP 206, MIME video/*, Content-Range, первые 64 КиБ и время загрузки. Работа телевизора и плавность воспроизведения проверяются отдельно.</small></div>
   <div class="form-actions"><button type="button" id="youtube-restore" class="primary" ${state.busy?"disabled":""}>Вернуть fake-host-md5 и закрепить YouTube</button></div>
-  <p class="subtle">Восстановление применяет ранее работавший метод ко всему профилю YouTube и запрещает автоподбору автоматически менять его по ответу страницы. Настройки других сервисов сохраняются. Изменение кратко перезапустит движок.</p>
+  <p class="subtle">Восстановление дополняет охват YouTube/CDN из каталога (с учётом исключений), включает ранее работавший метод и запрещает автоподбору автоматически менять его по ответу страницы. Настройки других сервисов сохраняются. Изменение кратко перезапустит движок.</p>
   <div class="form-actions"><button type="button" id="youtube-video-check" ${videoProbeBusy||state.busy?"disabled":""}>Проверить видеофрагмент</button></div>
   <div id="youtube-video-report" aria-live="polite">${videoProbeMarkup()}</div></section>`;
 }
@@ -256,11 +256,13 @@ function bindYoutubeRestore(){
     if(!c.youtube_stable || youtube.strategy!=="fake-host-md5"){
       if(!window.confirm("Включить стабильный метод fake-host-md5 для YouTube? Другие сервисы останутся без изменений, движок кратко перезапустится."))return;
     }
+    const preset=(state.service_presets||[]).find(s=>s.profile.id==="youtube");
+    if(preset)youtube.domains=expandedProfileDomains(youtube,preset,c.profiles);
     youtube.strategy="fake-host-md5";
     c.youtube_stable=true;
     await api("config","PUT",c);
     profileDrafts.delete("youtube");
-    notify("YouTube закреплён на fake-host-md5. Проверь воспроизведение видео.");
+    notify("YouTube: fake-host-md5 закреплён; домены из каталога дополнены. Проверь видео.");
   }));
 }
 function bindYoutubeVideoCheck(){
