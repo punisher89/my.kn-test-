@@ -1,6 +1,6 @@
 # Каталог популярных сервисов
 
-В каталоге девять сервисов, включая Telegram Web. Это готовые
+В каталоге девять сервисов, включая Telegram Web/API. Это готовые
 профили доменов и HTTPS-проверок, а не список гарантированно заблокированных
 или гарантированно работающих ресурсов. Доступность зависит от сети и сервиса.
 
@@ -14,7 +14,7 @@
 | ChatGPT | chatgpt.com, openai.com, oaistatic.com, oaiusercontent.com | chatgpt.com/robots.txt |
 | WhatsApp Web | whatsapp.com, whatsapp.net, wa.me | www.whatsapp.com/robots.txt |
 | Signal | signal.org, signal.art, signal.group, signal.link | signal.org/ |
-| Telegram Web | telegram.org, t.me, telegram.me, telegra.ph, telesco.pe | telegram.org/ |
+| Telegram · Web / API | telegram.org, t.me, telegram.me, telegram.dog, tdesktop.com и связанные | telegram.org/ |
 
 Полный набор находится в `internal/pilot/service-presets.json` и доступен
 в раскрываемых подробностях каталога панели. У существующих профилей адреса,
@@ -124,8 +124,21 @@ IP без второго DNS-разрешения. GitHub-токен не отп
 домены продолжают работать. Старые профили при обновлении приложения сохраняют
 ручной режим; источник и автоматизацию можно включить отдельно.
 
-Telegram Web не включает MTProto и звонки приложения. Загрузка доменов не
-превращает HTTPS-стратегии в обработчик MTProto и не доказывает работу Telegram.
+Telegram Web/API охватывает только HTTP(S)-домены. Для нативных
+Telegram Desktop и мобильного клиента можно **отдельно** включить
+**Настройки → Подключение → Telegram · MTProto TCP (экспериментально)**.
+
+Когда переключатель включён, Pilot добавляет изолированный профиль
+nfqws2 для `--filter-l7=mtproto --payload=mtproto_initial` на
+TCP-портах 80, 443 и 5222, а порт 5222 — в собственные правила
+NFQUEUE/PPE. Это обработка только распознанного начала MTProto, а не
+захват любого TCP-трафика по этим портам. Она не включает обработку
+UDP/звонков Telegram, не меняет профили YouTube/Discord и **не
+означает подтверждённой доставки сообщений или звонков**. По умолчанию
+выключена. MTProto не содержит hostname, поэтому один лишь список
+доменов Telegram не способен обработать его нативные соединения.
+Метод и протокол требуют проверки на реальном роутере.
+
 
 Дополнительные API: `POST /api/services/custom` принимает профиль с контрольным
 фрагментом; `POST /api/services/{id}/domains` импортирует домены из сохранённого

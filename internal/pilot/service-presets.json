@@ -397,14 +397,16 @@
   {
     "profile": {
       "id": "telegram-web",
-      "name": "Telegram Web",
+      "name": "Telegram · Web / API",
       "strategy": "none",
       "domains": [
         "telegram.org",
         "t.me",
         "telegram.me",
         "telegra.ph",
-        "telesco.pe"
+        "telesco.pe",
+        "telegram.dog",
+        "tdesktop.com"
       ],
       "targets": [
         {
@@ -417,10 +419,15 @@
       "auto_domains": true
     },
     "category": "Общение",
-    "note": "Только Telegram Web и HTTPS-ссылки. MTProto и звонки приложения отдельно не обрабатываются.",
+    "note": "Сайты Telegram, Web и HTTPS API. Для приложения MTProto TCP включается отдельно в настройках; звонки и доставка сообщений не проверяются HTTPS.",
     "aliases": [
       "телеграм",
-      "телеграм веб"
+      "телеграм веб",
+      "telegram",
+      "telegram desktop",
+      "mtproto",
+      "телега",
+      "телеграм десктоп"
     ]
   }
 ]

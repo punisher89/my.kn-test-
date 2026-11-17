@@ -85,8 +85,9 @@ func domainFingerprint(c Config, s DomainScope) string {
 		Catalog                []Strategy
 		Revision               uint64
 		IPv6, PPE, QUIC        bool
+		YouTubeStable          bool
 		Pin, Excluded          string
-	}{s, c.WAN, p.ID, p.Strategy, append([]Strategy{}, c.Catalog...), c.CatalogRevision, c.IPv6, c.PPE, c.QUIC, c.pinFor(s.Host, s.TLS, s.Family, s.Port), c.excludedBy(s.Host)})
+	}{s, c.WAN, p.ID, p.Strategy, append([]Strategy{}, c.Catalog...), c.CatalogRevision, c.IPv6, c.PPE, c.QUIC, stableYouTubeHost(c, s.Host), c.pinFor(s.Host, s.TLS, s.Family, s.Port), c.excludedBy(s.Host)})
 	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:])
 }
@@ -146,7 +147,7 @@ func domainPlansText(c Config, plans []DomainPlan) string {
 	text.WriteString("PILOT_VERIFIED1\t" + activeContext(c) + "\n")
 	now := time.Now()
 	for _, p := range plans {
-		if p.Expires.After(now) && !p.Verified.After(now.Add(time.Minute)) && p.Fingerprint == domainFingerprint(c, p.Scope) && c.excludedBy(p.Scope.Host) == "" {
+		if !stableYouTubeHost(c, p.Scope.Host) && p.Expires.After(now) && !p.Verified.After(now.Add(time.Minute)) && p.Fingerprint == domainFingerprint(c, p.Scope) && c.excludedBy(p.Scope.Host) == "" {
 			if _, ok := strategyFor(c, p.Strategy); ok {
 				fmt.Fprintf(&text, "%s\t%s\t%s\t%d\t%s\t%d\n", p.Scope.Host, p.Scope.TLS, p.Scope.Family, p.Scope.Port, p.Strategy, p.Expires.Unix())
 			}
@@ -175,7 +176,7 @@ func (m *Manager) planFor(c Config, s DomainScope) (DomainPlan, bool) {
 	defer m.mu.Unlock()
 	now := time.Now()
 	for _, p := range m.domainPlans.Plans {
-		if p.Scope == s && p.Expires.After(now) && p.Fingerprint == domainFingerprint(c, s) {
+		if !stableYouTubeHost(c, p.Scope.Host) && p.Scope == s && p.Expires.After(now) && p.Fingerprint == domainFingerprint(c, s) {
 			return p, true
 		}
 	}
@@ -207,6 +208,7 @@ func (m *Manager) commitDomain(c Config, s DomainScope, id string) error {
 	if !s.valid() {
 		return errors.New("неверный контекст домена")
 	}
+	if stableYouTubeHost(c, s.Host) { return errors.New("YouTube закреплён: автоматическая смена метода запрещена") }
 	if _, ok := strategyFor(c, id); !ok {
 		return errors.New("неизвестный метод")
 	}
@@ -332,7 +334,7 @@ func runtimeDomainPlans(c Config) map[DomainScope]string {
 		if err != nil || !scope.valid() || expires <= time.Now().Unix() {
 			continue
 		}
-		if _, ok := strategyFor(c, fields[4]); ok {
+		if _, ok := strategyFor(c, fields[4]); ok && !stableYouTubeHost(c, scope.Host) {
 			result[scope] = fields[4]
 		}
 	}

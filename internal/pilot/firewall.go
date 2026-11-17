@@ -47,6 +47,7 @@ func FirewallRules(c Config) []Rule {
 	for _, tool := range tools {
 		add := func(table, chain string, a ...string) { rules = append(rules, Rule{tool, table, chain, a}) }
 		ports := "80,443,2053,2083,2087,2096,8443"
+		if c.TelegramMTProto { ports += ",5222" }
 		window := "1:20"
 		ppeWindow := "30"
 		if c.Adaptive {

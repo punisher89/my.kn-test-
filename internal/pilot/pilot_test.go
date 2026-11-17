@@ -173,6 +173,7 @@ func TestGeneratedStrategiesWithRealNfqws(t *testing.T) {
 			c.EngineDir = dir
 			c.Profiles[0].Strategy = strategy.ID
 			c.DiscordVoice = true
+			c.TelegramMTProto = true // Native engine must parse the opt-in MTProto profile.
 			c.IPv6 = true
 			args := append([]string{"--dry-run"}, EngineArgs(c)...)
 			cmd := exec.Command(filepath.Join(dir, "nfqws2"), args...)

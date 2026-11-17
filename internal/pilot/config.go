@@ -66,6 +66,8 @@ type Config struct {
 	IPv6            bool      `json:"ipv6"`
 	PPE             bool      `json:"ppe"`
 	QUIC            bool      `json:"quic"`
+	YouTubeStable   bool      `json:"youtube_stable"`
+	TelegramMTProto bool     `json:"telegram_mtproto"`
 	DiscordVoice    bool      `json:"discord_voice"`
 	Auto            bool      `json:"auto"`
 	IntervalMinutes int       `json:"interval_minutes"`
@@ -216,6 +218,19 @@ func (c Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+// This only protects explicitly configured YouTube profile domains. It never
+// changes the global TLS or MTProto policies of unrelated services.
+func stableYouTubeHost(c Config, host string) bool {
+	if !c.YouTubeStable { return false }
+	for _, p := range c.Profiles {
+		if p.ID != "youtube" { continue }
+		for _, d := range p.Domains {
+			if hostMatches(host, d) { return true }
+		}
+	}
+	return false
 }
 
 func hostMatches(host, domain string) bool {

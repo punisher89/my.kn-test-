@@ -85,6 +85,7 @@ func (c Config) validateDomainControls() error {
 }
 
 func profileControlReason(c Config, p Profile) string {
+	if c.YouTubeStable && p.ID == "youtube" { return "YouTube закреплён: выключите стабильный режим перед общим подбором" }
 	for _, pin := range c.DomainPins {
 		for _, d := range p.Domains {
 			if hostMatches(pin.Host, d) {

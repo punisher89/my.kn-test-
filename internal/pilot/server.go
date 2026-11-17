@@ -220,6 +220,13 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 		m.CancelTune()
 		jsonReply(w, 202, map[string]string{"status": "cancelling"})
 	})
+	api("POST /api/youtube/video-test", func(w http.ResponseWriter, r *http.Request) {
+		var input struct { URL string `json:"url"` }
+		if !read(w, r, &input) { return }
+		result, err := m.CheckYouTubeVideo(r.Context(), input.URL)
+		if err != nil { replyError(w, err); return }
+		jsonReply(w, 200, result)
+	})
 	api("POST /api/check", func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			Profile string `json:"profile"`

@@ -42,7 +42,7 @@ type domainTask struct {
 // can contain private URLs and must stay in the authenticated local report.
 func activeReasonCode(reason string) string {
 	switch reason {
-	case "resources", "execution_unconfirmed", "http_response", "dns", "certificate", "client_hello", "probe_unmeasured", "client_hello_missing", "mixed_direct", "time_slice", "switch_budget":
+	case "resources", "execution_unconfirmed", "http_response", "dns", "certificate", "client_hello", "probe_unmeasured", "video_url_required", "client_hello_missing", "mixed_direct", "time_slice", "switch_budget":
 		return reason
 	}
 	return ""
@@ -242,6 +242,13 @@ func (m *Manager) searchDomain(ctx context.Context, c Config, s DomainScope) (st
 		m.domainReason("switch_budget")
 		next := time.Unix(until, 0)
 		return finish("waiting", "", "Достигнут лимит применения; пробные подключения не запускаются", next)
+	}
+	// A generic HTTPS reply from googlevideo.com is not proof of video.
+	// Until a signed fragment participates in candidate confirmation, keep
+	// the working per-domain method instead of auto-selecting direct/none.
+	if isYouTubeCDNHost(s.Host) || stableYouTubeHost(c, s.Host) {
+		m.domainReason("video_url_required")
+		return finish("unmeasured", "", "Для YouTube нужен подтверждённый видеозапрос; прежний метод сохранён", time.Now().Add(15*time.Minute))
 	}
 	if m.activeProbeHook == nil {
 		sample, err := readHelloSample(c, s)
@@ -456,7 +463,7 @@ func (m *Manager) activeTick(parent context.Context) {
 	for _, r := range data.History {
 		b := boxContext(r)
 		s := DomainScope{r.Host, b.TLS, b.Family, r.Port}
-		if r.Status != "failed" || !s.valid() || r.Network != c.WAN || r.Updated > now.Unix() || now.Unix()-r.Updated > 600 || c.excludedBy(s.Host) != "" || c.pinFor(s.Host, s.TLS, s.Family, s.Port) != "" || s.Family == "ipv6" && !c.IPv6 {
+		if stableYouTubeHost(c, s.Host) || r.Status != "failed" || !s.valid() || r.Network != c.WAN || r.Updated > now.Unix() || now.Unix()-r.Updated > 600 || c.excludedBy(s.Host) != "" || c.pinFor(s.Host, s.TLS, s.Family, s.Port) != "" || s.Family == "ipv6" && !c.IPv6 {
 			continue
 		}
 		live := profileForDomain(c, s.Host).Strategy
@@ -523,7 +530,7 @@ func (m *Manager) activeTick(parent context.Context) {
 			delete(m.domainTasks, s)
 			continue
 		}
-		if task.Signal > task.Handled && c.excludedBy(s.Host) == "" && c.pinFor(s.Host, s.TLS, s.Family, s.Port) == "" {
+		if task.Signal > task.Handled && !stableYouTubeHost(c, s.Host) && c.excludedBy(s.Host) == "" && c.pinFor(s.Host, s.TLS, s.Family, s.Port) == "" {
 			pending = append(pending, task)
 		}
 	}
@@ -587,6 +594,7 @@ func (m *Manager) QueueDomain(s DomainScope) error {
 	if m.backend.Kind() != "router" || !c.Enabled || !c.Adaptive || !c.AdaptiveActive {
 		return errors.New("включите полный автоподбор на роутере")
 	}
+	if stableYouTubeHost(c, s.Host) { return errors.New("YouTube закреплён в стабильном режиме; отключите режим для автоподбора") }
 	if c.excludedBy(s.Host) != "" || c.pinFor(s.Host, s.TLS, s.Family, s.Port) != "" {
 		return errors.New("домен приостановлен или метод закреплён")
 	}

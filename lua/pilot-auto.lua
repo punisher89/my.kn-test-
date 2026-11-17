@@ -266,6 +266,7 @@ function pilot_auto(ctx,d)
     local host=d.track.hostname
     if not valid_host(host) or excluded(host) then return VERDICT_PASS end
     local group=d.arg.key or 'unknown';local newsite=group=='discovered'
+    local stable_youtube=pilot_youtube_stable==true and group:sub(1,8)=='youtube_'
     d.track.lua_state=d.track.lua_state or {}
     local variant=d.track.lua_state.pilot_tls_variant
     if not variant then variant=tls_variant(d.reasm_data or (d.dis and d.dis.payload));if variant then d.track.lua_state.pilot_tls_variant=variant end end
@@ -305,14 +306,20 @@ function pilot_auto(ctx,d)
             old=cache[h.pilot_legacy]
         end
         h.pilot_port=port
-        if pilot_adaptive~=false and not pilot_active and old and indices[old.id] then
+        if not stable_youtube and pilot_adaptive~=false and not pilot_active and old and indices[old.id] then
             h.nstrategy=indices[old.id];h.pilot_origin=old.origin
             h.pilot_switched=old.switched;h.pilot_window=old.window;h.pilot_switches=old.switches;h.pilot_hold=old.hold;h.pilot_hold_reason=old.hold_reason
             if old.network==network() and old.port==h.pilot_port then h.pilot_reason=old.reason end
         end
         h.pilot_reason=h.pilot_reason or 'unknown';h.pilot_origin=h.pilot_origin or 'initial'
         h.on_strategy_changed=function(record)
-            if pilot_active then
+            if stable_youtube then
+                -- Keep the selected profile method on every connection.
+                -- HTTPS page responses and retransmits must not rotate it.
+                record.nstrategy=record.pilot_before
+                record.pilot_hold=0;record.pilot_hold_reason='none'
+                circular_sync_generation(record)
+            elseif pilot_active then
                 -- A suspicion queues controller measurements; it must not
                 -- experiment on unrelated live connections while measuring.
                 record.nstrategy=record.pilot_before;record.pilot_hold=0;record.pilot_hold_reason='none';circular_sync_generation(record)
@@ -321,11 +328,16 @@ function pilot_auto(ctx,d)
         h.pilot_loaded=true
     end
     local active_changed=false
-    if pilot_active and pilot_adaptive~=false then
+    if pilot_active and pilot_adaptive~=false and not stable_youtube then
         local measured=pilot_verified and pilot_verified(host,variant or 'unknown',d.dis.ip6 and 'ipv6' or 'ipv4',port)
         local selected=measured and indices[measured] or 1
         active_changed=h.pilot_active_id and h.pilot_active_id~=ids[selected] or false
         h.nstrategy=selected;h.pilot_active_id=ids[selected];h.pilot_origin=measured and 'learned' or 'initial'
+        h.pilot_hold=0;h.pilot_hold_reason='none'
+        circular_sync_generation(h)
+    end
+    if stable_youtube then
+        h.nstrategy=1;h.pilot_active_id=nil;h.pilot_origin='stable'
         h.pilot_hold=0;h.pilot_hold_reason='none'
         circular_sync_generation(h)
     end

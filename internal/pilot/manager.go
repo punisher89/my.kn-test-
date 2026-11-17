@@ -55,6 +55,7 @@ type Manager struct {
 	activeProbeHook  activeProbeFunc
 	activeHello      *helloSample
 	checks           map[string]ServiceCheck
+	lastVideoProbeAt time.Time
 	backgroundHold   string
 	guardDevice      deviceReader
 	domainCacheError error
