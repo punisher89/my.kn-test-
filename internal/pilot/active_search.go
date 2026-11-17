@@ -42,7 +42,7 @@ type domainTask struct {
 // can contain private URLs and must stay in the authenticated local report.
 func activeReasonCode(reason string) string {
 	switch reason {
-	case "resources", "execution_unconfirmed", "http_response", "dns", "certificate", "client_hello", "probe_unmeasured", "client_hello_missing", "mixed_direct", "time_slice", "switch_budget":
+	case "resources", "execution_unconfirmed", "http_response", "dns", "certificate", "client_hello", "probe_unmeasured", "video_url_required", "client_hello_missing", "mixed_direct", "time_slice", "switch_budget":
 		return reason
 	}
 	return ""
@@ -251,6 +251,13 @@ func (m *Manager) searchDomain(ctx context.Context, c Config, s DomainScope) (st
 		}
 		m.activeHello = &sample
 		defer func() { m.activeHello = nil }()
+	}
+	// A generic HTTPS reply from googlevideo.com is not proof of video.
+	// Until a signed fragment participates in candidate confirmation, keep
+	// the working per-domain method instead of auto-selecting direct/none.
+	if isYouTubeCDNHost(s.Host) {
+		m.domainReason("video_url_required")
+		return finish("unmeasured", "", "Для CDN нужен подтверждённый видеозапрос; прежний метод сохранён", time.Now().Add(15*time.Minute))
 	}
 	target := domainTarget(c, s)
 	check := func(id, phase string, attempts int) (bool, bool, string) {
