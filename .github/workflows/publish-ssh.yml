@@ -4,7 +4,7 @@ name: Publish independent ChatGPT / Codex SSH release
 on:
   push:
     branches:
-      - feature/youtube-video-range-check
+      - feature/telegram-native-diagnostics
     paths:
       - .github/workflows/publish-ssh.yml
       - scripts/publish-ssh-release.py
@@ -28,7 +28,7 @@ concurrency:
 
 jobs:
   independent-ssh-release:
-    if: github.repository == 'punisher89/my.kn-test-' && github.ref == 'refs/heads/feature/youtube-video-range-check'
+    if: github.repository == 'punisher89/my.kn-test-' && github.ref == 'refs/heads/feature/telegram-native-diagnostics'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
