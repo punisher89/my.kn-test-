@@ -48,6 +48,9 @@ func TestYouTubeStableProtectsExistingMethodAndBypassesBadMediaPlans(t *testing.
     if err:=m.QueueDomain(s);err==nil || !strings.Contains(err.Error(),"стабильном") {
         t.Fatal("manual queue bypassed stable lock",err)
     }
+    if err:=m.BeginTune("youtube");err==nil || !strings.Contains(err.Error(),"закреплён") {
+        t.Fatal("scheduled/manual HTTPS-only tune could overwrite recovery method",err)
+    }
 }
 
 func TestYouTubeStableConfigSurvivesDiskRoundTrip(t *testing.T) {
