@@ -17,7 +17,7 @@ func TestRouterPreflightReadOnlyAndD2KConflict(t *testing.T) {
     os.WriteFile(filepath.Join(proc,"17","comm"),[]byte("nfqws2\n"),0600)
     os.WriteFile(filepath.Join(proc,"18","comm"),[]byte("nfqws2\n"),0600)
     os.WriteFile(filepath.Join(proc,"19","comm"),[]byte("my-app\n"),0600)
-    os.WriteFile(filepath.Join(proc,"mounts"),[]byte("ubi0:rootfs /opt ubifs rw,relatime 0 0\n"),0600)
+    os.WriteFile(filepath.Join(proc,"mounts"),[]byte("ubi0:rootfs "+opt+" ubifs rw,relatime 0 0\n"),0600)
     os.WriteFile(filepath.Join(opt,"etc/init.d/S99d2k"),[]byte(""),0600)
     got:=passivePreflight(proc,opt,17)
     if !got.Checked || !got.ProcessListAvailable || got.StorageKind!="possibly_internal_nand" { t.Fatal(got)}
