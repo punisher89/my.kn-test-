@@ -147,7 +147,8 @@ func (r *OpenWrtRouter) Start(c Config) error {
  if err=r.cmd.Start();err!=nil{r.cmd=nil;return err}
  cmd:=r.cmd
  r.done=make(chan error,1)
- go func(){r.done<-cmd.Wait();close(r.done)}()
+ done:=r.done
+ go func(){done<-cmd.Wait();close(done)}()
  select {
  case err=<-r.done:
     r.cmd=nil
