@@ -140,6 +140,7 @@
     say("Песня закончилась.");
   });
   audio.addEventListener("error", () => {
+    if (!trackName) return;
     cancelTimer();
     say("Браузер не смог открыть аудио. Проверь файл, ссылку или формат.", true);
   });
