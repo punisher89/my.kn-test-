@@ -33,7 +33,7 @@ class SSHInstallerTests(unittest.TestCase):
         self.assertEqual(info["channel"], "ssh")
         self.assertTrue(info["engine_version"])
         self.assertEqual(len(info["engine_sha256"]), 64)
-        self.assertEqual(files["SOURCE.txt"], b"ChatGPT\\n")
+        self.assertEqual(files["SOURCE.txt"], b"ChatGPT\n")
         self.assertEqual(info["manifest_sha256"], hashlib.sha256(files["SHA256SUMS"]).hexdigest())
         self.assertIn(f"install-chatgpt.sh", files)
         self.assertEqual(info["installer_sha256"], hashlib.sha256(files["install-chatgpt.sh"]).hexdigest())
