@@ -160,7 +160,11 @@ func run() error {
 		}
 		if *engine != "" {
 			c.EngineDir = *engine
-			c.RuntimeDir = filepath.Join(filepath.Dir(filepath.Dir(*engine)), "keenetic-pilot-state")
+			if *mode == "openwrt" {
+				c.RuntimeDir = "/tmp/keenetic-pilot-state"
+			} else {
+				c.RuntimeDir = filepath.Join(filepath.Dir(filepath.Dir(*engine)), "keenetic-pilot-state")
+			}
 		}
 		if err := c.Validate(); err != nil {
 			return err
