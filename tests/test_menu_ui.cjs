@@ -4,6 +4,7 @@ const {chromium}=require('playwright');const root=path.resolve(__dirname,'..');
 const read=p=>fs.readFileSync(path.join(root,p));
 const demo=JSON.parse(read('design/demo-state.json'));demo.service_presets=JSON.parse(read('internal/pilot/service-presets.json'));
 let update={supported:true,current:'0.2.0-alpha.10',engine:'v1.0.7-z2k-r0',stage:'idle',running:false,available:false};let installs=0,deviceReads=0,syncs=0,creates=0,deviceNull=true,checkRequests=0,checkGate=null;
+let sourceUpdate={current:'0.2.0-alpha.10',supported:true,running:false,stage:'idle',sources:[{source:'ChatGPT',verification:'github-https-sha256',available:false,checked:false},{source:'Codex',verification:'github-https-sha256',available:false,checked:false}]};let sourceInstalls=0;
 demo.checks={};
 (async()=>{const browser=await chromium.launch({headless:true,executablePath:process.env.PILOT_CHROMIUM});try{
  const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
@@ -14,6 +15,18 @@ demo.checks={};
   if(url.pathname==='/api/device'){deviceReads++;return json({model:'KN-1811 · пример',platform:'linux/arm64',kernel:'test',cpu_cores:4,cpu_sample_available:true,cpu_percent:deviceNull?null:12.5,load:[0.2,0.1,0.1],memory_total:268435456,memory_available:134217728,uptime_seconds:90000,temperatures:[],wan:'ppp0',rx_bytes:1000,tx_bytes:500,rx_bytes_per_second:null,tx_bytes_per_second:null});}
   if(url.pathname==='/api/adaptive')return json(JSON.parse(read('design/demo-adaptive.json')));
   if(url.pathname==='/api/check'){checkRequests++;const id=req.postDataJSON().profile,p=demo.config.profiles.find(p=>p.id===id);if(checkGate)await new Promise(resolve=>{checkGate.resolve=resolve;});const results=[{url:p.targets[0].url,tls:'1.2',family:'tcp4',ok:true,status:200,duration_ms:145,attempt:1},{url:p.targets[0].url,tls:'1.3',family:'tcp4',ok:false,status:451,duration_ms:160,error:'HTTP 451 <img src=x onerror=alert(1)>',attempt:1}];demo.checks[id]={profile:id,started:new Date().toISOString(),finished:new Date().toISOString(),strategy:p.strategy,adaptive:false,running:true,complete:true,passed:false,stale:false,results};return json(results);}
+  if(url.pathname==='/api/preflight')return json({checked:true,opt_free_bytes:100000000,storage_kind:'possibly_internal_nand',other_engines:['d2k'],installed_services:['S99d2k'],process_list_available:true,notes:['read-only only']});
+  if(url.pathname==='/api/updates/sources')return json(sourceUpdate);
+  if(url.pathname==='/api/updates/sources/check'){
+    const arg=req.postDataJSON();assert.deepEqual(Object.keys(arg),['source']);
+    if(arg.source==='ChatGPT')sourceUpdate.sources[0]={...sourceUpdate.sources[0],latest:'0.2.0-alpha.12',available:true,checked:true,commit:'b'.repeat(40)};
+    else throw new Error('Unexpected Codex metadata request');
+    return json(sourceUpdate);
+  }
+  if(url.pathname==='/api/updates/sources/install'){
+    assert.deepEqual(req.postDataJSON(),{source:'ChatGPT',version:'0.2.0-alpha.12'});
+    sourceInstalls++;sourceUpdate={...sourceUpdate,running:true,stage:'downloading'};return json(sourceUpdate,202);
+  }
   if(url.pathname==='/api/updates')return json(update);
   if(url.pathname==='/api/updates/check'){update={...update,latest:'0.2.0-alpha.11',latest_engine:'v-next',available:true};return json(update);}
   if(url.pathname==='/api/updates/install'){assert.deepEqual(req.postDataJSON(),{version:'0.2.0-alpha.11'});installs++;update={...update,running:true,stage:'downloading'};return json(update,202);}
@@ -26,6 +39,7 @@ demo.checks={};
  });
  await page.goto('http://pilot.test/#device');await page.locator('#device-data h3').first().waitFor();
  assert.match(await page.locator('#device-data').innerText(),/ожидается второй замер/);
+ await page.locator('#preflight-data').getByText(/Другие запущенные обработчики/).waitFor();assert.match(await page.locator('#preflight-data').innerText(),/d2k/);
  assert.match(await page.locator('#device-data').innerText(),/Недоступно: прошивка/);
  deviceNull=false;await page.evaluate(()=>loadDevice());assert.match(await page.locator('#device-data').innerText(),/12.5 %/);
  assert.doesNotMatch(await page.locator('#device-data').innerText(),/0.0 °C/);
@@ -38,6 +52,18 @@ demo.checks={};
  update={...update,stage:'waiting'};await page.evaluate(()=>loadUpdates());assert.match(await page.locator('#update-info').innerText(),/Ожидание завершения текущего подбора/);assert.equal(await page.locator('#update-check').isDisabled(),true);demo.busy=false;
  update={...update,current:'0.2.0-alpha.11',running:false,stage:'completed',available:false};await page.evaluate(()=>loadUpdates());assert.match(await page.locator('#update-info').innerText(),/Обновление завершено/);
  update={...update,stage:'failed',phase:'install',exit_code:23};await page.evaluate(()=>loadUpdates());assert.match(await page.locator('#update-info').innerText(),/установка приложения и движка/);assert.match(await page.locator('#update-info').innerText(),/код завершения: 23/);assert.match(await page.locator('#update-info').innerText(),/\/opt\/etc\/keenetic-pilot\/update.log/);
+ await page.locator('[data-source-update-check="ChatGPT"]').waitFor();
+ assert.match(await page.locator('#source-update-info').innerText(),/ChatGPT/);
+ await page.locator('[data-source-update-check="ChatGPT"]').click();
+ await page.waitForFunction(()=>sourceUpdatesData?.sources?.[0]?.available===true);
+ assert.match(await page.locator('#source-update-info').innerText(),/0.2.0-alpha.12/);
+ assert.match(await page.locator('#content').innerText(),/SHA-256/);
+ page.on('dialog',dialog=>dialog.accept());
+ await page.locator('[data-source-update-install="ChatGPT"]').click();
+ await page.waitForFunction(()=>sourceUpdatesData?.running===true);
+ assert.equal(sourceInstalls,1);
+ sourceUpdate.running=false;
+
  // The approved Matrix overview uses real-shaped telemetry, explicit checks,
  // escaped errors, a bounded chart and mobile layout rather than fake successes.
  await page.evaluate(()=>{location.hash='overview';});await page.locator('#network-telemetry .telemetry-cell').first().waitFor();
