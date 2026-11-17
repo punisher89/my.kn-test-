@@ -10,6 +10,7 @@ import (
   "encoding/json"
   "errors"
   "fmt"
+  "io"
   "os"
   "os/exec"
   "path/filepath"
@@ -87,6 +88,9 @@ func (m *Manager) CheckSourceUpdate(ctx context.Context, source string) error {
     if !validUpdateSource(source) {return errors.New("неизвестный источник обновления")}
     if !m.updateChecking.CompareAndSwap(false,true){return ErrBusy}
     defer m.updateChecking.Store(false)
+    m.mu.Lock()
+    delete(m.sourceReleases,source) // a failed recheck cannot leave stale install permission
+    m.mu.Unlock()
     token,err:=githubReadToken(m.path)
     if err!=nil{return err}
     path:="/latest-"+strings.ToLower(source)+".json"
@@ -96,6 +100,7 @@ func (m *Manager) CheckSourceUpdate(ctx context.Context, source string) error {
     dec:=json.NewDecoder(bytes.NewReader(raw))
     dec.DisallowUnknownFields()
     if err=dec.Decode(&doc);err!=nil{return err}
+    if err=dec.Decode(new(any));err!=io.EOF {return errors.New("лишние данные о выпуске")}
     if err=validSourceRelease(doc,source);err!=nil{return err}
     // The mutable discovery pointer must refer to an existing immutable
     // release folder. Both bytewise-equal metadata copies are HTTPS-fetched
