@@ -94,6 +94,24 @@ func TestTelegramMTProtoOptInDoesNotLeakToOtherServices(t *testing.T) {
     }
 }
 
+func TestLuaYouTubeStableKeepsPreferredMethodWithoutRotation(t *testing.T) {
+    c:=adaptiveFixture(t)
+    if err:=PrepareAdaptive(c);err!=nil {t.Fatal(err)}
+    runAdaptiveLua(t,c,luaPacketHarness+`
+pilot_youtube_stable=true
+local cfg={key='youtube_fake-host-md5',first='fake-host-md5'}
+local host='rr1---sn-x.googlevideo.com'
+for i=1,6 do
+ assert(packet(host,true,false,nil,cfg)=='fake-host-md5','YouTube changed strategy after failure')
+end
+assert(packet(host,false,true,nil,cfg)=='fake-host-md5','YouTube changed strategy after success')
+pilot_active=true
+for i=1,4 do
+ assert(packet(host,true,false,nil,cfg)=='fake-host-md5','active lookup overrode locked method')
+end
+`)
+}
+
 func TestTelegramPresetProvidesWebAndAPIWithoutOverlappingOthers(t *testing.T) {
     found:=false
     for _,p:=range ServicePresets() {
