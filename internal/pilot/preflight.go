@@ -55,19 +55,19 @@ func passivePreflight(proc, opt string, ownPID int) RouterPreflight {
     if err:=syscall.Statfs(opt,&stat);err==nil {
         free:=stat.Bavail*uint64(stat.Bsize)
         report.SpaceFreeBytes=&free
-        if free<32<<20 {report.Notes=append(report.Notes,"На /opt менее 32 МиБ свободного места")}
-    } else {report.Notes=append(report.Notes,"Свободное место /opt определить не удалось")}
+        if free<32<<20 {report.Notes=append(report.Notes,"На "+opt+" менее 32 МиБ свободного места")}
+    } else {report.Notes=append(report.Notes,"Свободное место "+opt+" определить не удалось")}
     if b,err:=os.ReadFile(filepath.Join(proc,"mounts"));err==nil {
         for _,line:=range strings.Split(string(b),"\n") {
             f:=strings.Fields(line)
-            if len(f)<4 || f[1]!="/opt" {continue}
+            if len(f)<4 || f[1]!=opt {continue}
             switch f[2] {
             case "ubifs":report.StorageKind="possibly_internal_nand"
             case "ext4","ext3","ext2","f2fs":report.StorageKind="block_device_verify"
             case "tmpfs","overlay":report.StorageKind="virtual_or_overlay"
             default:report.StorageKind="unverified"
             }
-            if strings.Contains(","+f[3]+",",",ro,") {report.Notes=append(report.Notes,"/opt смонтирован только для чтения")}
+            if strings.Contains(","+f[3]+",",",ro,") {report.Notes=append(report.Notes,opt+" смонтирован только для чтения")}
             break
         }
     }
@@ -79,7 +79,7 @@ func passivePreflight(proc, opt string, ownPID int) RouterPreflight {
     if len(report.OtherEngines)>0 {report.Notes=append(report.Notes,"Обнаружены другие процессы обработчиков пакетов; проверьте, не перехватывают ли они тот же трафик")}
     if len(report.InstalledServices)>0 {report.Notes=append(report.Notes,"Обнаружены установленные службы других обходов; наличие файла не означает, что служба запущена")}
     if !report.ProcessListAvailable {report.Notes=append(report.Notes,"Список процессов прочитан не полностью; отсутствие конфликтов не подтверждено")}
-    report.Notes=append(report.Notes,"Тип /opt — ориентир, а не подтверждение выбора встроенной памяти или USB. Файлы и сетевые правила не изменены.")
+    report.Notes=append(report.Notes,"Тип накопителя — ориентир, а не подтверждение выбора внутренней памяти или USB. Файлы и сетевые правила не изменены.")
     return report
 }
 
@@ -89,6 +89,12 @@ func (m *Manager) Preflight() RouterPreflight {
         router.mu.Lock()
         if router.cmd!=nil && router.cmd.Process!=nil {own=router.cmd.Process.Pid}
         router.mu.Unlock()
+    }
+    if router,ok:=m.backend.(*OpenWrtRouter);ok {
+        router.mu.Lock()
+        if router.cmd!=nil && router.cmd.Process!=nil {own=router.cmd.Process.Pid}
+        router.mu.Unlock()
+        return passivePreflight("/proc","/overlay",own)
     }
     return passivePreflight("/proc","/opt",own)
 }
