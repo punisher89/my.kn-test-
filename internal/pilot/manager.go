@@ -63,6 +63,7 @@ type Manager struct {
 	updateRequested  atomic.Bool
 	updateChecking   atomic.Bool
 	release          *releaseDocument
+	sourceReleases   map[string]sourceReleaseDocument
 	domainCache      *domainRegistry
 	domainCacheAt    time.Time
 	device           deviceReader
