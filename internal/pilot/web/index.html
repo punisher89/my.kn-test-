@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="/style.css" />
     <link rel="stylesheet" href="/setup.css" />
     <script src="/app.js" defer></script>
+    <script src="/music.js" defer></script>
   </head>
   <body>
     <div class="matrix-rain rain-left" aria-hidden="true"><span>ﾊﾐﾋｰｳｼﾅﾓﾆｻﾜﾂｵﾘｱﾎﾃﾏｹﾒｴｶｷﾑﾕﾗｾﾈｽﾀﾇﾍ01</span><span>101ｱﾆﾒｳｴｵｶｷｸｹｺ101ｻｼｽｾｿﾀﾁﾂﾃﾄ01</span><span>ﾗﾘﾙﾚﾛﾜｦﾝ001ｱｲｳｴｵｶｷｸｹｺﾅﾆﾇﾈﾉ01</span><span>01ﾐﾑﾒﾓﾔﾕﾖﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓ010ｻｼｽｾｿ01</span></div>
@@ -97,6 +98,38 @@
             ><span class="slash">/</span><strong id="breadcrumb">Обзор</strong>
           </div>
           <span class="local-indicator"><i></i> Локальное подключение</span>
+          <details id="pilot-music" class="music-widget">
+            <summary id="music-summary-label" aria-label="Открыть музыкальный плеер">♫ Музыка</summary>
+            <div class="music-popover">
+              <div class="music-heading">
+                <strong>Музыка в браузере</strong>
+                <span class="subtle">Без нагрузки на роутер</span>
+              </div>
+              <p id="music-title" class="music-title">Нет выбранной песни</p>
+              <label for="music-file">Выбрать песню на устройстве</label>
+              <input id="music-file" type="file" accept="audio/*,.mp3,.m4a,.aac,.ogg,.oga,.wav,.flac,.webm" />
+              <label for="music-url">Или прямая HTTPS-ссылка на аудио</label>
+              <div class="music-url-row">
+                <input id="music-url" type="url" autocomplete="off" placeholder="https://example.com/song.mp3" />
+                <button id="music-load-url" type="button">Открыть</button>
+              </div>
+              <audio id="music-audio" controls preload="none" aria-label="Аудиоплеер"></audio>
+              <div class="music-options">
+                <label class="music-repeat"><input id="music-repeat" type="checkbox" /> Повторять</label>
+                <label for="music-sleep">Таймер
+                  <select id="music-sleep" aria-label="Таймер отключения музыки">
+                    <option value="0">Выкл.</option>
+                    <option value="15">15 минут</option>
+                    <option value="30">30 минут</option>
+                    <option value="60">60 минут</option>
+                  </select>
+                </label>
+                <button id="music-reset" type="button" class="text-button">Убрать песню</button>
+              </div>
+              <p id="music-message" class="music-message" aria-live="polite">Выбери песню с устройства или укажи прямую HTTPS-ссылку.</p>
+              <small>Ничего не загружается на Keenetic. Звук воспроизводит этот браузер. Автозапуска нет; файл нужно выбрать снова после перезагрузки страницы.</small>
+            </div>
+          </details>
         </header>
         <main>
           <div id="dev-banner" class="notice hidden">
