@@ -287,13 +287,13 @@ function bindYoutubeVideoCheck(){
 
 function telegramNativePanel(){
   const enabled=Boolean(state.config.telegram_mtproto);
-  return \`<section class="panel" id="telegram-native-panel">
+  return `<section class="panel" id="telegram-native-panel">
     <div class="panel-head"><h2>Telegram · приложение (MTProto TCP)</h2></div>
-    <p>\${badge(enabled?"MTProto TCP включён":"MTProto TCP выключен",enabled?"neutral":"warn")}</p>
+    <p>${badge(enabled?"MTProto TCP включён":"MTProto TCP выключен",enabled?"neutral":"warn")}</p>
     <p class="subtle">Отдельный режим для Telegram Desktop и мобильного приложения. Не требует добавления Telegram Web в каталог. Обрабатывается только распознанное начало MTProto TCP на портах 80, 443 и 5222.</p>
-    <div class="form-actions"><button type="button" id="telegram-native-toggle" \${state.busy||serviceMutationPending?"disabled":""}>\${enabled?"Выключить MTProto TCP":"Включить MTProto TCP"}</button></div>
+    <div class="form-actions"><button type="button" id="telegram-native-toggle" ${state.busy||serviceMutationPending?"disabled":""}>${enabled?"Выключить MTProto TCP":"Включить MTProto TCP"}</button></div>
     <small>Экспериментально: реальная отправка сообщений не проверена. Звонки/UDP не поддерживаются. Сохранение кратко перезапускает движок; YouTube и другие профили сохраняются.</small>
-  </section>\`;
+  </section>`;
 }
 function bindTelegramNative(){
   const button=$("#telegram-native-toggle");
