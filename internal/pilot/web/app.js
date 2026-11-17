@@ -304,11 +304,11 @@ async function applyConfigAfterActiveSearch(change){
   throw new Error("Контроллер занят больше 10 секунд. Попробуйте снова после завершения поиска.");
 }
 function performanceRescuePanel(){
-  const c=state.config, active=!c.adaptive&&!c.adaptive_active&&!c.auto&&!c.quic&&c.youtube_stable;
+  const c=state.config, active=!c.adaptive&&!c.adaptive_active&&!c.auto&&!c.quic&&c.youtube_stable&&c.profiles.some(p=>p.id==="youtube"&&p.strategy==="fake-host-md5");
   return `<section class="panel" id="performance-rescue">
     <div class="panel-head"><h2>Быстрый режим · снизить нагрузку</h2></div>
     <p>${badge(active?"Режим включён":"Готов к включению",active?"neutral":"warn")}</p>
-    <p class="subtle">Диагностика показала высокий load и очередь 64 контекста. Выключить фоновые подборы и обработку QUIC/UDP 443, закрепить для YouTube ранее работавший fake-host-md5. Это сократит загрузку, но не доказывает работоспособность видео. Остальные профили и MTProto не меняются.</p>
+    <p class="subtle">Высокая нагрузка часто сопровождается длинной очередью автоподбора (сейчас: ${state.domain_queue??"—"}). Выключить фоновые подборы и обработку QUIC/UDP 443, закрепить для YouTube ранее работавший fake-host-md5. Это сократит загрузку, но не доказывает работоспособность видео. Остальные профили и MTProto не меняются.</p>
     <div class="form-actions"><button id="performance-rescue-apply" class="primary" ${active||serviceMutationPending?"disabled":""}>Применить быстрый режим</button></div>
     <small>Изменятся только adaptive, adaptive_active, auto, quic, youtube_stable и стратегия YouTube. Вернуть каждый переключатель можно в «Настройках». Служба кратко перезапустится.</small>
   </section>`;
