@@ -1,0 +1,84 @@
+name: Publish signed Keenetic Pilot alpha.18
+
+# Push trigger lets an existing non-default release branch start the workflow.
+# A failed run can be re-run after the signing secret has been configured.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/youtube-video-range-check
+    paths:
+      - .github/workflows/publish-alpha18.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pilot-alpha18-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'punisher89/my.kn-test-' && github.ref == 'refs/heads/feature/youtube-video-range-check'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Check out release candidate
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 1
+      - name: Verify release version
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(cat VERSION)" = "0.2.0-alpha.18"
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Install Lua test runtimes
+        run: sudo apt-get update && sudo apt-get install -y liblua5.4-0 libluajit-5.1-2
+      - name: Test, verify pinned engine and build all architectures
+        run: sh scripts/check.sh
+      - name: Publish to the immutable packages channel with original signing key
+        shell: bash
+        env:
+          PILOT_SIGNING_KEY_PEM: ${{ secrets.PILOT_UPDATES_SIGNING_PEM }}
+        run: |
+          set -euo pipefail
+          if [ -z "$PILOT_SIGNING_KEY_PEM" ]; then
+            echo "::error::No PILOT_UPDATES_SIGNING_PEM secret. Restore the ORIGINAL updates-signing.pem in Settings > Secrets and variables > Actions, then re-run this job."
+            exit 1
+          fi
+          umask 077
+          mkdir -p local
+          trap 'rm -f local/updates-signing.pem' EXIT
+          printf '%s\n' "$PILOT_SIGNING_KEY_PEM" > local/updates-signing.pem
+          unset PILOT_SIGNING_KEY_PEM
+          # Verifies this is the same public trust anchor already used on routers.
+          expected="$(tr -d '\r\n' < internal/pilot/updates-public.key)"
+          actual="$(openssl pkey -in local/updates-signing.pem -pubout -outform DER | tail -c 32 | base64 -w0)"
+          if [ "$expected" != "$actual" ]; then
+            echo "::error::The secret does not match the existing updater public key. Refusing to rotate trust implicitly."
+            exit 1
+          fi
+          python3 scripts/publish-packages.py --push
+      - name: Verify published version and artifact manifest over HTTPS
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://raw.githubusercontent.com/punisher89/my.kn-test-/refs/heads/packages"
+          for try in 1 2 3 4 5; do
+            if curl -fsSL --connect-timeout 10 --max-time 30 "$base/latest.json" -o /tmp/pilot-latest.json && \
+               python3 -c 'import json; d=json.load(open("/tmp/pilot-latest.json")); assert d["version"]=="0.2.0-alpha.18" and d["kind"]=="pilot-release"' && \
+               curl -fsSL --connect-timeout 10 --max-time 30 "$base/latest.json.sig" -o /tmp/pilot-latest.json.sig && \
+               curl -fsSL --connect-timeout 10 --max-time 30 "$base/v0.2.0-alpha.18/SHA256SUMS" -o /tmp/pilot-SHA256SUMS; then
+              echo "Signed alpha.18 release metadata and manifest are reachable."
+              exit 0
+            fi
+            sleep 4
+          done
+          echo "::error::Published release metadata not yet consistent over HTTPS."
+          exit 1
