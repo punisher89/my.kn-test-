@@ -44,6 +44,7 @@ func TestYouTubeStableProtectsExistingMethodAndBypassesBadMediaPlans(t *testing.
     if got:=profileForDomain(c,"rr3---sn-x.googlevideo.com").Strategy;got!="fake-host-md5" {
         t.Fatal("profile fallback changed",got)
     }
+    m.mu.Lock();m.c=c;m.mu.Unlock()
     if err:=m.QueueDomain(s);err==nil || !strings.Contains(err.Error(),"стабильном") {
         t.Fatal("manual queue bypassed stable lock",err)
     }
