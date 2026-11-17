@@ -61,6 +61,7 @@ async function logout() {
   profileDrafts.clear();
   profileOpen.clear();
   checkOpen.clear();cpuSamples.length=0;deviceData=null;
+  videoProbeReport=null; videoProbeBusy=false;
   serviceCatalogQuery = ""; serviceCatalogOpen = false; selectedTuneProfile = "";
   token = "";
   sessionStorage.removeItem("pilot-token");
@@ -222,8 +223,48 @@ function domainSourceEditor(p){
  return `<details class="domain-source-editor"><summary>Домены из интернета</summary><label>Источник<select id="source-mode-${esc(p.id)}"><option value="">Вручную</option>${preset||fromPilot?`<option value="pilot" ${mode==="pilot"?"selected":""}>Подписанный каталог Pilot</option>`:""}<option value="url" ${mode==="url"?"selected":""}>HTTPS-ссылка на список</option></select></label><label>Ссылка<input id="source-url-${esc(p.id)}" type="url" value="${esc(mode==="url"?source:"")}" placeholder="https://example.com/domains.txt"></label><label class="check-label"><input type="checkbox" id="source-auto-${esc(p.id)}" ${p.auto_domains?"checked":""}>Обновлять раз в сутки</label><details><summary>Контрольная сумма и исключения</summary><label>SHA-256 файла, необязательно<input id="source-sha-${esc(p.id)}" value="${esc(p.domain_sha256||"")}" maxlength="64"></label><label>Не добавлять из источника<textarea id="source-exclusions-${esc(p.id)}" rows="3">${esc((p.source_exclusions||[]).join("\n"))}</textarea></label></details><p class="subtle">Загружаются новые домены; охват ваших доменов сохраняется. Вложенные домены объединяются с родительским. Для удаления домена вручную добавьте его в исключения источника или отключите автообновление. Применение новых доменов кратко перезапустит работающий движок.</p><small>Последнее обновление: ${Date.parse(p.domains_updated)>0?esc(new Date(p.domains_updated).toLocaleString("ru-RU")):"ещё не выполнялось"}</small><button data-domain-sync="${esc(p.id)}">Сохранить и загрузить домены</button></details>`;
 }
 function customServiceForm(){return `<details class="panel custom-service"><summary>Добавить свой сервис</summary><form id="custom-service-form"><div class="two-fields"><label>Название<input name="name" maxlength="80" required></label><label>Контрольный HTTPS-адрес<input name="url" type="url" required placeholder="https://example.com/"></label></div><label>Домены, по одному на строку<textarea name="domains" rows="3" placeholder="example.com"></textarea></label><label>Ожидаемый фрагмент ответа<input name="contains" required maxlength="512" placeholder="Текст, подтверждающий нужный ответ"></label><details><summary>Домены из интернета</summary><label>HTTPS-ссылка на список<input name="source" type="url" placeholder="https://example.com/domains.txt"></label><label class="check-label"><input type="checkbox" name="auto" checked>Обновлять раз в сутки, если задан источник</label></details><p class="subtle">Нужен список доменов, по одному на строку. Если домены не введены, начальный домен берётся из контрольного адреса. Новый профиль начинает без вмешательства.</p><button class="primary" type="submit">Добавить сервис</button></form></details>`;}
+
+let videoProbeBusy=false, videoProbeReport=null;
+function videoProbeMarkup(){
+  const r=videoProbeReport;
+  if(!r)return '<small>Видео ещё не проверялось. Успех HTTPS-страницы не подтверждает загрузку видеопотока.</small>';
+  return `<p>${badge(r.ok?"Фрагмент видео получен":"Видео не подтверждено",r.ok?"neutral":"warn")}</p>
+  <p>${r.error?esc(r.error):"Ответ содержит полный видеофрагмент с проверенным диапазоном."}</p>
+  <small>HTTP: ${r.status||"—"} · MIME: ${esc(r.media_type||"—")} · диапазон: ${esc(r.content_range||"—")}<br>
+  Получено: ${Number(r.bytes||0)} Б · заголовки: ${Number(r.headers_ms||0)} мс · первый блок: ${r.first_byte_ms==null?"—":Number(r.first_byte_ms)+" мс"} · всего: ${Number(r.duration_ms||0)} мс</small>`;
+}
+function youtubeVideoCheckPanel(){
+  if(!state.config.profiles.some(p=>p.id==="youtube"))return "";
+  return `<section class="panel video-check-panel"><div class="panel-head"><h2>YouTube · проверить реальные байты видео</h2></div>
+  <p class="subtle">Вставьте временную HTTPS-ссылку <code>videoplayback</code> с <code>*.googlevideo.com</code>, полученную при запуске видео. Адрес с подписью используется только в оперативной памяти при проверке и не добавляется в настройки, журнал или диагностику.</p>
+  <div class="field"><label for="youtube-video-url">Временная ссылка на видео</label>
+  <input id="youtube-video-url" type="password" autocomplete="off" spellcheck="false" maxlength="8192" placeholder="https://rr…googlevideo.com/videoplayback?…" />
+  <small>Проверка из роутера: HTTP 206, MIME video/*, Content-Range, первые 64 КиБ и время загрузки. Работа телевизора и плавность воспроизведения проверяются отдельно.</small></div>
+  <div class="form-actions"><button type="button" id="youtube-video-check" ${videoProbeBusy||state.busy?"disabled":""}>Проверить видеофрагмент</button></div>
+  <div id="youtube-video-report" aria-live="polite">${videoProbeMarkup()}</div></section>`;
+}
+function bindYoutubeVideoCheck(){
+  const button=$("#youtube-video-check"),input=$("#youtube-video-url"),report=$("#youtube-video-report");
+  if(!button||!input||!report)return;
+  button.addEventListener("click",async()=>{
+    if(videoProbeBusy)return;
+    const url=input.value.trim();
+    input.value="";
+    if(!url){notify("Вставьте временный адрес видеопотока",true);return;}
+    videoProbeBusy=true;button.disabled=true;button.textContent="Проверяется…";
+    try {
+      videoProbeReport=await api("youtube/video-test","POST",{url});
+    }catch(e){
+      videoProbeReport={ok:false,error:e.message};
+    }finally {
+      videoProbeBusy=false;button.disabled=state.busy;button.textContent="Проверить видеофрагмент";
+      if(report.isConnected)report.innerHTML=videoProbeMarkup();
+    }
+  });
+}
+
 function profiles() {
-  return heading("Сервисы и домены", "Выберите сервис из каталога. Раскройте профиль для стратегии, доменов и проверок.") + serviceCatalog() + customServiceForm() + `<div class="service-profile-list">${state.config.profiles.map(profileCard).join("")}</div>`;
+  return heading("Сервисы и домены", "Выберите сервис из каталога. Раскройте профиль для стратегии, доменов и проверок.") + youtubeVideoCheckPanel() + serviceCatalog() + customServiceForm() + `<div class="service-profile-list">${state.config.profiles.map(profileCard).join("")}</div>`;
 }
 function readProfileDraft(id) {
   const p = structuredClone(state.config.profiles.find((p) => p.id === id));
@@ -400,7 +441,7 @@ async function action(fn) {
 }
 function bindDomainRetry(){const button=$("#domain-retry");if(!button||button.dataset.bound)return;button.dataset.bound="true";button.addEventListener("click",()=>action(async()=>{await api("domain-search","POST",state.domain_job.scope);notify("Домен поставлен в очередь полного автоподбора");}));}
 function bindActions() {
-  bindDomainRetry();bindMethodViews();bindTrials();bindCheckActions();
+  bindDomainRetry();bindMethodViews();bindTrials();bindCheckActions();bindYoutubeVideoCheck();
   $("#method-search")?.addEventListener("input",e=>{methodQuery=e.target.value;$("#method-results").innerHTML=methodResults();bindMethodViews();});
   $("#method-family")?.addEventListener("change",e=>{methodFamily=e.target.value;$("#method-results").innerHTML=methodResults();bindMethodViews();});
   $("#update-check")?.addEventListener("click",async e=>{const button=e.currentTarget;button.disabled=true;try{await api("updates/check","POST",{});await loadUpdates(true);}catch(error){notify(error.message,true);button.disabled=false;}});
