@@ -417,10 +417,16 @@ func (m *Manager) watchActive(ctx context.Context) {
 	}
 }
 func (m *Manager) activeTick(parent context.Context) {
+	if m.updateRequested.Load() {
+		return
+	}
 	if !m.op.TryLock() {
 		return
 	}
 	defer m.op.Unlock()
+	if m.updateRequested.Load() {
+		return
+	}
 	c := m.Config()
 	if m.backend.Kind() != "router" || !c.Enabled || !c.Adaptive || !c.AdaptiveActive || !m.backend.Running() {
 		return

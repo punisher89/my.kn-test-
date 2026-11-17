@@ -59,6 +59,8 @@ type Manager struct {
 	guardDevice      deviceReader
 	domainCacheError error
 	updating         atomic.Bool
+	updateRequested  atomic.Bool
+	updateChecking   atomic.Bool
 	release          *releaseDocument
 	domainCache      *domainRegistry
 	domainCacheAt    time.Time
@@ -446,7 +448,14 @@ func (m *Manager) Watch(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if m.updateRequested.Load() {
+				continue
+			}
 			if !m.op.TryLock() {
+				continue
+			}
+			if m.updateRequested.Load() {
+				m.op.Unlock()
 				continue
 			}
 			c := m.Config()

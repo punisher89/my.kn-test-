@@ -4,12 +4,14 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -139,8 +141,11 @@ func TestSignedMenuUpdateWorkerLifecycleAndChecksumFailure(t *testing.T) {
 		}
 		return &http.Response{StatusCode: status, Body: io.NopCloser(bytes.NewReader(body)), Header: make(http.Header)}, nil
 	})
-	if e := m.CheckUpdate(t.Context()); e != nil {
-		t.Fatal(e)
+	m.op.Lock()
+	checkErr := m.CheckUpdate(t.Context())
+	m.op.Unlock()
+	if checkErr != nil {
+		t.Fatal("version check was blocked by active search", checkErr)
 	}
 	if !m.Updates().Available || !m.Updates().Supported {
 		t.Fatal("verified release not offered")
@@ -155,14 +160,51 @@ func TestSignedMenuUpdateWorkerLifecycleAndChecksumFailure(t *testing.T) {
 	}
 	original, _ := os.ReadFile(m.path)
 	os.WriteFile(filepath.Join(filepath.Dir(m.path), "password.json"), []byte("private-password-fixture"), 0600)
+	// Model an active search holding the operation lock. Installation must
+	// request its cancellation and wait for cleanup before running the worker.
+	m.op.Lock()
+	searchCtx, cancelSearch := context.WithCancel(context.Background())
+	m.mu.Lock()
+	m.cancel = cancelSearch
+	m.mu.Unlock()
+	cleanupReady := make(chan struct{})
+	cleanupDone := make(chan struct{})
+	go func() {
+		<-searchCtx.Done()
+		close(cleanupReady)
+		<-cleanupDone
+		m.mu.Lock()
+		m.cancel = nil
+		m.mu.Unlock()
+		m.op.Unlock()
+	}()
 	if e := m.StartUpdate(doc.Version); e != nil {
 		t.Fatal(e)
 	}
+	select {
+	case <-cleanupReady:
+	case <-time.After(time.Second):
+		close(cleanupDone)
+		t.Fatal("active search was not cancelled for update")
+	}
+	if status := m.Updates(); !status.Running || status.Stage != "waiting" {
+		close(cleanupDone)
+		t.Fatal("waiting for cleanup not shown", status)
+	}
+	if _, err := os.Stat(filepath.Join(prefix, "update-worker-complete")); !os.IsNotExist(err) {
+		close(cleanupDone)
+		t.Fatal("installer ran before search cleanup")
+	}
+	if err := m.StartUpdate(doc.Version); !errors.Is(err, ErrBusy) {
+		close(cleanupDone)
+		t.Fatal("duplicate update was accepted", err)
+	}
+	close(cleanupDone)
 	deadline := time.Now().Add(5 * time.Second)
-	for m.updating.Load() && time.Now().Before(deadline) {
+	for m.updateRequested.Load() && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if m.updating.Load() {
+	if m.updateRequested.Load() {
 		t.Fatal("detached update worker did not complete")
 	}
 	status := m.Updates()
@@ -240,10 +282,10 @@ func TestUpdatePreparationFailureIsWrittenToDurableLog(t *testing.T) {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(5 * time.Second)
-	for m.updating.Load() && time.Now().Before(deadline) {
+	for m.updateRequested.Load() && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if m.updating.Load() {
+	if m.updateRequested.Load() {
 		t.Fatal("failed download did not release update lock")
 	}
 	status := m.Updates()

@@ -40,6 +40,7 @@ type UpdateStatus struct {
 	Latest       string `json:"latest,omitempty"`
 	Available    bool   `json:"available"`
 	Running      bool   `json:"running"`
+	Checking     bool   `json:"checking"`
 	Stage        string `json:"stage"`
 	Target       string `json:"target,omitempty"`
 	PID          int    `json:"pid,omitempty"`
@@ -110,6 +111,7 @@ func (m *Manager) updatePrefix() (string, error) {
 func (m *Manager) Updates() UpdateStatus {
 	_, err := m.updatePrefix()
 	s := UpdateStatus{Supported: err == nil, Current: Version, Stage: "idle"}
+	s.Checking = m.updateChecking.Load()
 	if b, e := os.ReadFile(filepath.Join(m.Config().EngineDir, "VERSION")); e == nil && len(b) < 100 {
 		v := strings.TrimSpace(string(b))
 		if regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`).MatchString(v) {
@@ -133,7 +135,7 @@ func (m *Manager) Updates() UpdateStatus {
 			s.PID = saved.PID
 			s.Job = saved.Job
 			switch saved.Phase {
-			case "log-open", "prepare", "worker-start", "install", "version-check":
+			case "log-open", "waiting", "prepare", "worker-start", "install", "version-check":
 				s.Phase = saved.Phase
 			}
 			if saved.ExitCode > 0 && saved.ExitCode <= 255 {
@@ -148,16 +150,22 @@ func (m *Manager) Updates() UpdateStatus {
 			s.Stage = "interrupted"
 		}
 	}
+	if m.updateRequested.Load() && !m.updating.Load() {
+		s.Running = true
+		s.Stage = "waiting"
+	}
 	// Paths and process identifiers remain private; only control logic uses them.
 	s.PID = 0
 	s.Job = ""
 	return s
 }
 func (m *Manager) CheckUpdate(ctx context.Context) error {
-	if !m.op.TryLock() {
+	// Fetching signed metadata neither changes the running engine nor needs
+	// the operation lock held by a potentially six-minute domain search.
+	if !m.updateChecking.CompareAndSwap(false, true) {
 		return ErrBusy
 	}
-	defer m.op.Unlock()
+	defer m.updateChecking.Store(false)
 	token, e := githubReadToken(m.path)
 	if e != nil {
 		return e
@@ -190,9 +198,6 @@ func (m *Manager) StartUpdate(version string) error {
 	if m.Updates().Running {
 		return ErrBusy
 	}
-	if !m.op.TryLock() {
-		return ErrBusy
-	}
 	m.mu.Lock()
 	var doc releaseDocument
 	if m.release != nil {
@@ -200,19 +205,18 @@ func (m *Manager) StartUpdate(version string) error {
 	}
 	m.mu.Unlock()
 	if doc.Version != version || !newerVersion(doc.Version, Version) {
-		m.op.Unlock()
 		return errors.New("сначала проверьте и выберите доступное обновление")
 	}
-	m.updating.Store(true)
+	if !m.updateRequested.CompareAndSwap(false, true) {
+		return ErrBusy
+	}
 	path := filepath.Join(filepath.Dir(m.path), "update-status.json")
-	if e = WriteJSON(path, UpdateStatus{Running: true, Stage: "downloading", Target: version}); e != nil {
-		m.updating.Store(false)
-		m.op.Unlock()
+	if e = WriteJSON(path, UpdateStatus{Running: true, Stage: "waiting", Target: version}); e != nil {
+		m.updateRequested.Store(false)
 		return e
 	}
 	go func() {
-		defer m.op.Unlock()
-		defer m.updating.Store(false)
+		defer m.updateRequested.Store(false)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 		log, e := os.OpenFile(filepath.Join(filepath.Dir(m.path), "update.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC|os.O_APPEND, 0600)
@@ -226,6 +230,29 @@ func (m *Manager) StartUpdate(version string) error {
 		fail := func(phase string, err error) {
 			fmt.Fprintf(log, "Update failed during %s: %v\n", phase, err)
 			_ = WriteJSON(path, UpdateStatus{Stage: "failed", Target: version, Phase: phase})
+		}
+		// A user-requested update gets the next free operation slot. Stop
+		// tuning through its context and wait for its normal cleanup, without
+		// unlocking another goroutine's mutex or stopping live traffic here.
+		if e = m.waitUpdateOperation(ctx); e != nil {
+			fail("waiting", e)
+			return
+		}
+		defer m.op.Unlock()
+		// Serialize this handover with Close setting closed, so shutdown
+		// either waits for this short abort or sees an active updater.
+		m.mu.Lock()
+		if m.closed {
+			m.mu.Unlock()
+			fail("waiting", errors.New("контроллер завершает работу"))
+			return
+		}
+		m.updating.Store(true)
+		m.mu.Unlock()
+		defer m.updating.Store(false)
+		if e = WriteJSON(path, UpdateStatus{Running: true, Stage: "downloading", Target: version}); e != nil {
+			fail("prepare", e)
+			return
 		}
 		job, e := os.MkdirTemp(filepath.Dir(m.path), "update-job-")
 		if e != nil {
@@ -265,6 +292,35 @@ func (m *Manager) StartUpdate(version string) error {
 		_ = cmd.Wait()
 	}()
 	return nil
+}
+
+func (m *Manager) waitUpdateOperation(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		m.mu.Lock()
+		closed := m.closed
+		if m.cancel != nil {
+			m.cancel()
+		}
+		m.mu.Unlock()
+		if closed {
+			return errors.New("контроллер завершает работу")
+		}
+		if ctx.Err() != nil {
+			return fmt.Errorf("ожидание завершения текущей операции: %w", ctx.Err())
+		}
+		if m.op.TryLock() {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("ожидание завершения текущей операции: %w", ctx.Err())
+		case <-ticker.C:
+		}
+	}
 }
 func (m *Manager) prepareUpdate(ctx context.Context, job string, doc releaseDocument) error {
 	token, e := githubReadToken(m.path)

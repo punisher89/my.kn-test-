@@ -402,6 +402,29 @@ func TestActiveSchedulerRunsFromFailureHistoryWithoutClientRetry(t *testing.T) {
 	}
 }
 
+func TestActiveSchedulerYieldsToRequestedUpdate(t *testing.T) {
+	m, c, _, s := activeFixture(t)
+	if err := os.WriteFile(filepath.Join(c.RuntimeDir, "state1.tsv"), adaptiveFrame(3, nil, nil), 0600); err != nil {
+		t.Fatal(err)
+	}
+	m.domainTasks = map[DomainScope]*domainTask{s: {Scope: s, Signal: time.Now().Unix()}}
+	probes := 0
+	m.activeProbeHook = func(_ context.Context, _ Config, _ DomainScope, _ Target, _ string) activeEvidence {
+		probes++
+		return evidence(true, true)
+	}
+	m.updateRequested.Store(true)
+	m.activeTick(context.Background())
+	if probes != 0 {
+		t.Fatal("background search started ahead of requested update")
+	}
+	m.updateRequested.Store(false)
+	m.activeTick(context.Background())
+	if probes == 0 {
+		t.Fatal("background search did not resume after request cleared")
+	}
+}
+
 func TestActiveDomainEndpointAuthAndDiagnosticAllowlist(t *testing.T) {
 	m, _, _, s := activeFixture(t)
 	token := strings.Repeat("a", 40)

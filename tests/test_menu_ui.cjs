@@ -30,8 +30,12 @@ demo.checks={};
  deviceNull=false;await page.evaluate(()=>loadDevice());assert.match(await page.locator('#device-data').innerText(),/12.5 %/);
  assert.doesNotMatch(await page.locator('#device-data').innerText(),/0.0 °C/);
  await page.evaluate(()=>{location.hash='updates';});await page.locator('#update-check').waitFor();await page.waitForFunction(()=>updatesData!==null);
+ demo.busy=true;await page.evaluate(()=>refresh());await page.evaluate(()=>loadUpdates());assert.equal(await page.locator('#update-check').isEnabled(),true,'Background search must not block version checks');
  await page.locator('#update-check').click();await page.waitForFunction(()=>updatesData.available);assert.equal(installs,0);
+ assert.equal(await page.locator('#update-install').isEnabled(),true,'Verified update must be installable during background search');
+ update={...update,checking:true};await page.evaluate(()=>loadUpdates());assert.equal(await page.locator('#update-check').isDisabled(),true,'Duplicate metadata check is blocked');update={...update,checking:false};
  await page.locator('#update-install').click();await page.waitForFunction(()=>updatesData.running);assert.equal(installs,1);assert.equal(await page.locator('#update-install').isDisabled(),true);
+ update={...update,stage:'waiting'};await page.evaluate(()=>loadUpdates());assert.match(await page.locator('#update-info').innerText(),/Ожидание завершения текущего подбора/);assert.equal(await page.locator('#update-check').isDisabled(),true);demo.busy=false;
  update={...update,current:'0.2.0-alpha.11',running:false,stage:'completed',available:false};await page.evaluate(()=>loadUpdates());assert.match(await page.locator('#update-info').innerText(),/Обновление завершено/);
  update={...update,stage:'failed',phase:'install',exit_code:23};await page.evaluate(()=>loadUpdates());assert.match(await page.locator('#update-info').innerText(),/установка приложения и движка/);assert.match(await page.locator('#update-info').innerText(),/код завершения: 23/);assert.match(await page.locator('#update-info').innerText(),/\/opt\/etc\/keenetic-pilot\/update.log/);
  // The approved Matrix overview uses real-shaped telemetry, explicit checks,
