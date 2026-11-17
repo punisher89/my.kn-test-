@@ -134,8 +134,12 @@ func (r *OpenWrtRouter) Start(c Config) error {
  // Check syntax and netlink prerequisites without changing firewall.
  if _,err=nftCommand(rules,"-c","-f","-");err!=nil{return err}
  // Never modify a pre-existing table of the same name (even after crash).
- if _,err=nftCommand("","list","table","inet",openwrtNftTable);err==nil {
-   return errors.New("OpenWrt: таблица keenetic_pilot уже существует — сначала проверьте, не запущен ли другой экземпляр; правила не изменены")
+ tables,err:=nftCommand("","list","tables")
+ if err!=nil{return fmt.Errorf("OpenWrt: не удалось безопасно прочитать nftables: %w",err)}
+ for _,line:=range strings.Split(tables,"\n") {
+   if strings.TrimSpace(line)=="table inet "+openwrtNftTable {
+      return errors.New("OpenWrt: таблица keenetic_pilot уже существует — сначала проверьте, не запущен ли другой экземпляр; правила не изменены")
+   }
  }
  r.cmd=exec.Command(filepath.Join(c.EngineDir,"nfqws2"),EngineArgs(c)...)
  r.cmd.Stdout=r.log;r.cmd.Stderr=r.log
@@ -182,4 +186,33 @@ func (r *OpenWrtRouter) stop() error {
     r.cmd=nil
  }
  return errs
+}
+
+
+// DiagnoseOpenWrt checks capability without inserting nft rules, invoking fw4
+// reload, disabling offload, or starting the packet engine.
+func DiagnoseOpenWrt(c Config) []DoctorCheck {
+ checks:=[]DoctorCheck{}
+ add:=func(name string,err error,detail string){
+  if err!=nil {detail=err.Error()}
+  checks=append(checks,DoctorCheck{Name:name,OK:err==nil,Detail:detail})
+ }
+ _,err:=OpenWrtNftRules(c)
+ add("openwrt-config",err,"OpenWrt-compatible configuration; Keenetic PPE disabled")
+ if !IsOpenWrt(){err=errors.New("/etc/openwrt_release и /etc/rc.common не обнаружены")}else{err=nil}
+ add("openwrt-os",err,"OpenWrt with procd detected")
+ if os.Geteuid()!=0 {err=errors.New("нужен root")}else{err=nil}
+ add("root",err,"root")
+ if c.WAN=="" {err=errors.New("WAN не задан")}else{_,err=os.Stat(filepath.Join("/sys/class/net",c.WAN))}
+ add("WAN",err,c.WAN)
+ for _,bin:=range []string{"nft","fw4"} {
+  _,err=exec.LookPath(bin)
+  add(bin,err,"установлено")
+ }
+ if rules,ruleErr:=OpenWrtNftRules(c);ruleErr==nil {
+  _,err=nftCommand(rules,"-c","-f","-")
+  add("nft-syntax",err,"правила проверены без изменения firewall")
+ }
+ if err=CheckEngine(c);err!=nil {add("nfqws2",err,"")}else{add("nfqws2",nil,"проверены бинарник и Lua; трафик не перехватывается")}
+ return checks
 }
