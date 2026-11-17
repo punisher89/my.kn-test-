@@ -108,6 +108,20 @@ let additions=0,tunes=0,failNext=false;
   assert.equal(demo.config.profiles.find(p=>p.id==='youtube').strategy,'fake-host-md5');
   assert.ok(demo.config.profiles.find(p=>p.id==='youtube').domains.includes('googlevideo.com'),'Restore must cover YouTube video CDN');
   assert.deepEqual(demo.config.profiles.filter(p=>p.id!=='youtube').map(p=>({id:p.id,strategy:p.strategy})),otherBefore);
+  // Native Telegram must be available without creating the Telegram Web profile.
+  assert.ok(!demo.config.profiles.some(p=>p.id==="telegram-web"));
+  const nativePanel=page.locator("#telegram-native-panel");
+  await nativePanel.waitFor();
+  assert.match(await nativePanel.innerText(),/приложение \(MTProto TCP\)/);
+  const profilesBefore=JSON.stringify(demo.config.profiles);
+  await page.locator("#telegram-native-toggle").click();
+  await page.waitForFunction(()=>state.config.telegram_mtproto===true);
+  assert.equal(demo.config.telegram_mtproto,true);
+  assert.equal(JSON.stringify(demo.config.profiles),profilesBefore,"MTProto enable must not rewrite YouTube or Web profiles");
+  assert.match(await nativePanel.innerText(),/MTProto TCP включён/);
+  await page.locator("#telegram-native-toggle").click();
+  await page.waitForFunction(()=>state.config.telegram_mtproto===false);
+  assert.equal(JSON.stringify(demo.config.profiles),profilesBefore);
   assert.deepEqual(errors,[]);
   console.log('PASS: service presets, add/remove, error recovery, preserved drafts, compact profiles, tuner selection, explicit tuning, busy recovery, mobile layout');
  }finally{await browser.close();}
