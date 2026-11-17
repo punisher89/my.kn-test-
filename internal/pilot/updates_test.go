@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -194,6 +195,65 @@ func TestSignedMenuUpdateWorkerLifecycleAndChecksumFailure(t *testing.T) {
 	}
 	m.updating.Store(false)
 	m.op.Unlock()
+}
+
+func TestUpdateWorkerRecordsInstallerFailureAndExitCode(t *testing.T) {
+	m, prefix := updateFixture(t)
+	job, err := os.MkdirTemp(filepath.Dir(m.path), "update-job-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	scripts := filepath.Join(job, "keenetic-pilot/scripts")
+	if err := os.MkdirAll(scripts, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(scripts, "install.sh"), []byte("#!/bin/sh\necho 'fixture disk write failed' >&2\nexit 23\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("sh", "../../scripts/update-worker.sh", job, prefix, "0.2.0-alpha.15")
+	if err := cmd.Run(); err == nil {
+		t.Fatal("failed installer reported success")
+	}
+	status := m.Updates()
+	if status.Stage != "failed" || status.Phase != "install" || status.ExitCode != 23 || status.Running {
+		t.Fatalf("failure details missing: %+v", status)
+	}
+	log, err := os.ReadFile(filepath.Join(filepath.Dir(m.path), "update.log"))
+	if err != nil || !bytes.Contains(log, []byte("fixture disk write failed")) || !bytes.Contains(log, []byte("exit 23")) {
+		t.Fatal("durable failure log missing", err, string(log))
+	}
+	if _, err := os.Stat(job); !os.IsNotExist(err) {
+		t.Fatal("worker left extracted update behind", err)
+	}
+}
+
+func TestUpdatePreparationFailureIsWrittenToDurableLog(t *testing.T) {
+	oldVersion, oldTransport := Version, http.DefaultTransport
+	defer func() { Version = oldVersion; http.DefaultTransport = oldTransport }()
+	Version = "0.2.0-alpha.14"
+	m, _ := updateFixture(t)
+	m.release = &releaseDocument{Version: "0.2.0-alpha.15", ManifestSHA256: strings.Repeat("a", 64)}
+	http.DefaultTransport = updateTransport(func(_ *http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("fixture offline")
+	})
+	if err := m.StartUpdate("0.2.0-alpha.15"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for m.updating.Load() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if m.updating.Load() {
+		t.Fatal("failed download did not release update lock")
+	}
+	status := m.Updates()
+	if status.Stage != "failed" || status.Phase != "prepare" || status.Running {
+		t.Fatalf("preparation failure details missing: %+v", status)
+	}
+	log, err := os.ReadFile(filepath.Join(filepath.Dir(m.path), "update.log"))
+	if err != nil || !bytes.Contains(log, []byte("fixture offline")) {
+		t.Fatal("preparation error not recorded", err)
+	}
 }
 
 func TestNewMenuEndpointsRequireAuthorization(t *testing.T) {

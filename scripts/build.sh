@@ -18,6 +18,7 @@ for ARCH in $ARCHES; do
     cp scripts/install.sh scripts/uninstall.sh scripts/fetch-engine.sh scripts/update-worker.sh "$PKG/scripts/"
     cp packaging/S98keenetic-pilot packaging/095-keenetic-pilot.sh "$PKG/packaging/"
     cp dependencies/nfqws2.env "$PKG/dependencies/"
+    cp -R dependencies/nfqws2-files "$PKG/dependencies/"
     cp README.md THIRD_PARTY.md LICENSE VERSION "$PKG/"
     cp -R docs "$PKG/docs"
     cp -R lua "$PKG/lua"

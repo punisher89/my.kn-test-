@@ -15,6 +15,7 @@ if [ -z "${PILOT_ENGINE_ARCHIVE:-}" ]; then
 fi
 export PILOT_ENGINE_ARCHIVE
 printf '%s  %s\n' "$ENGINE_SHA256" "$PILOT_ENGINE_ARCHIVE" | sha256sum -c -
+python3 scripts/engine-file-pins.py "$PILOT_ENGINE_ARCHIVE"
 # Tests use the native amd64 engine; router variants are cross-compiled below.
 NATIVE=$(mktemp -d "$BASE/.cache/native.XXXXXX")
 trap 'rm -rf "$NATIVE"' EXIT HUP INT TERM

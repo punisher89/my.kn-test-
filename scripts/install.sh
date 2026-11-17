@@ -53,12 +53,14 @@ STAGE=$(mktemp -d "$PREFIX/.pilot-install.XXXXXX")
 # not directory listing. Configuration/key files retain their private modes.
 chmod 0711 "$STAGE"
 SWAPPED=0
+INSTALL_STEP=stage-copy
 OLD_STOPPED=0
 HAD_APP=0
 BACKUP=$PREFIX/keenetic-pilot.backup.$(date +%s).$$
 cleanup() {
     RESULT=$?
     trap - EXIT HUP INT TERM
+    if [ "$RESULT" != 0 ]; then echo "Installation failed during $INSTALL_STEP (exit $RESULT)" >&2; fi
     if [ "$RESULT" != 0 ] && [ "$SWAPPED" = 1 ]; then
         if [ -x "$INIT" ]; then "$INIT" stop || true; fi
         rm -rf "$APP"
@@ -80,7 +82,9 @@ chmod 0755 "$STAGE/app"
 # The packet engine reads our Lua after dropping its root privileges.
 chmod 0755 "$STAGE/app/lua"
 chmod 0644 "$STAGE/app/lua/"*
-sh "$STAGE/app/scripts/fetch-engine.sh" "$STAGE/app/engine" "$ARCH"
+INSTALL_STEP=engine-prepare
+sh "$STAGE/app/scripts/fetch-engine.sh" "$STAGE/app/engine" "$ARCH" "$APP/engine"
+INSTALL_STEP=config-check
 "$STAGE/app/bin/pilot" --version
 if [ -f "$CONFIG_DIR/config.json" ]; then
     "$STAGE/app/bin/pilot" --config "$CONFIG_DIR/config.json" --check-config
@@ -95,11 +99,14 @@ else
     "$STAGE/app/bin/pilot" --init --auto-network --config "$STAGE/new-config/config.json" --wan "$WAN" --listen "$LISTEN" --engine-dir "$APP/engine"
     CHECK_CONFIG=$STAGE/new-config/config.json
 fi
+INSTALL_STEP=engine-check
 "$STAGE/app/bin/pilot" --config "$CHECK_CONFIG" --engine-dir "$STAGE/app/engine" --check-engine
 # All network downloads and validation finish before stopping any existing app.
 [ ! -f "$INIT" ] || cp "$INIT" "$STAGE/old-init"
 [ ! -f "$HOOK" ] || cp "$HOOK" "$STAGE/old-hook"
+INSTALL_STEP=service-stop
 if [ -x "$INIT" ] && "$INIT" status >/dev/null 2>&1; then "$INIT" stop; OLD_STOPPED=1; fi
+INSTALL_STEP=application-swap
 if [ -d "$APP" ]; then mv "$APP" "$BACKUP"; HAD_APP=1; SWAPPED=1; fi
 mv "$STAGE/app" "$APP"
 SWAPPED=1
@@ -112,9 +119,25 @@ if [ -d "$STAGE/new-config" ]; then
     [ ! -e "$CONFIG_DIR" ] || { echo "Configuration directory exists without config.json; refusing to overwrite" >&2; exit 1; }
     mv "$STAGE/new-config" "$CONFIG_DIR"
 fi
+INSTALL_STEP=service-start
 if [ "$START" = 1 ]; then "$INIT" start; fi
 echo "Keenetic Pilot установлен."
 "$APP/bin/pilot" --config "$CONFIG_DIR/config.json" --panel-info
 if [ ! -f "$CONFIG_DIR/password.json" ]; then "$APP/bin/pilot" --config "$CONFIG_DIR/config.json" --pair; fi
 echo "Откройте панель, задайте пароль и нажмите «Настроить подключение»."
 if [ "$HAD_APP" = 1 ]; then echo "Previous application retained: $BACKUP"; fi
+# Keep the immediately preceding application after a healthy service start.
+# Failed installs and --no-start preserve every backup for recovery.
+if [ "$HAD_APP" = 1 ] && [ "$START" = 1 ]; then
+    for CANDIDATE in "$PREFIX"/keenetic-pilot.backup.*; do
+        [ "$CANDIDATE" != "$BACKUP" ] || continue
+        [ -d "$CANDIDATE" ] && [ ! -L "$CANDIDATE" ] || continue
+        [ -f "$CANDIDATE/.pilot-managed" ] && [ ! -L "$CANDIDATE/.pilot-managed" ] || continue
+        [ "$(cat "$CANDIDATE/.pilot-managed")" = keenetic-pilot ] || continue
+        if rm -rf "$CANDIDATE"; then
+            echo "Removed older Pilot application backup: $CANDIDATE"
+        else
+            echo "Could not remove older backup: $CANDIDATE" >&2
+        fi
+    done
+fi

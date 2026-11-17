@@ -13,21 +13,29 @@ case "$VERSION" in ''|*[!0-9a-zA-Z.-]*) exit 2;; esac
 STATUS=$PREFIX/etc/keenetic-pilot/update-status.json
 LOG=$PREFIX/etc/keenetic-pilot/update.log
 umask 077
+PHASE=install
 write_status() {
-    printf '{"running":%s,"stage":"%s","target":"%s","pid":%s,"job":"%s"}\n' "$1" "$2" "$VERSION" "$$" "$JOB" > "$STATUS.tmp.$$"
+    printf '{"running":%s,"stage":"%s","target":"%s","pid":%s,"job":"%s","phase":"%s","exit_code":%s}\n' "$1" "$2" "$VERSION" "$$" "$JOB" "$PHASE" "${3:-0}" > "$STATUS.tmp.$$"
     mv "$STATUS.tmp.$$" "$STATUS"
 }
 cleanup() {
     RESULT=$?
     trap - EXIT HUP INT TERM
-    if [ "$RESULT" = 0 ]; then write_status false completed; else write_status false failed; fi
+    if [ "$RESULT" = 0 ]; then write_status false completed; else
+        echo "Update failed during $PHASE (exit $RESULT)" >> "$LOG"
+        write_status false failed "$RESULT"
+    fi
     rm -rf "$JOB"
     exit "$RESULT"
 }
-trap cleanup EXIT HUP INT TERM
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 write_status true installing
 # The verified package's installer validates config/engine before stopping Pilot,
 # keeps credentials/state, and restores the previous application on failure.
 sh "$JOB/keenetic-pilot/scripts/install.sh" --prefix "$PREFIX" >> "$LOG" 2>&1
 
+PHASE=version-check
 [ "$("$PREFIX/keenetic-pilot/bin/pilot" --version)" = "$VERSION" ] || { echo "Installed version does not match requested release" >> "$LOG"; exit 1; }

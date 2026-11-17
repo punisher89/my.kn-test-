@@ -113,6 +113,68 @@ class Installation(unittest.TestCase):
         self.assertEqual(self.health()["mode"], "router")
         self.assertFalse(list(self.prefix.glob("keenetic-pilot.backup.*")))
 
+    def test_verified_engine_is_reused_and_only_previous_managed_backup_remains(self):
+        fake_bin = self.base / "offline-tools"
+        fake_bin.mkdir()
+        curl = fake_bin / "curl"
+        curl.write_text("#!/bin/sh\nexit 91\n")
+        curl.chmod(0o755)
+        env = {**self.env, "PATH": str(fake_bin) + ":" + os.environ["PATH"]}
+        env.pop("PILOT_ENGINE_ARCHIVE", None)
+        older = self.prefix / "keenetic-pilot.backup.100.1"
+        older.mkdir()
+        (older / ".pilot-managed").write_text("keenetic-pilot\n")
+        unowned = self.prefix / "keenetic-pilot.backup.unowned"
+        unowned.mkdir()
+        linked = self.prefix / "keenetic-pilot.backup.linked"
+        linked.symlink_to(older, target_is_directory=True)
+        config, token = self.config.read_bytes(), self.token_path.read_bytes()
+        result = self.install(env=env)
+        self.assertIn("Verified installed engine reused", result.stdout)
+        self.assertIn("download skipped", result.stdout)
+        self.assertFalse(older.exists())
+        self.assertTrue(unowned.is_dir())
+        self.assertTrue(linked.is_symlink())
+        backups = [p for p in self.prefix.glob("keenetic-pilot.backup.*") if p.is_dir() and not p.is_symlink() and (p / ".pilot-managed").is_file()]
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(config, self.config.read_bytes())
+        self.assertEqual(token, self.token_path.read_bytes())
+        self.assertEqual(self.health()["mode"], "router")
+
+    def test_reuse_rejects_tampered_engine_even_with_rewritten_local_manifest(self):
+        import hashlib
+        engine = self.prefix / "keenetic-pilot/engine"
+        with (engine / "nfqws2").open("ab") as output:
+            output.write(b"tampered-engine")
+        manifest = "".join(hashlib.sha256((engine / name).read_bytes()).hexdigest() + "  " + name + "\n"
+                           for name in ["nfqws2", "VERSION", "ORIGIN"])
+        (engine / "SHA256SUMS").write_text(manifest)
+        fake_bin = self.base / "offline-tools"
+        fake_bin.mkdir()
+        curl = fake_bin / "curl"
+        curl.write_text("#!/bin/sh\nexit 91\n")
+        curl.chmod(0o755)
+        env = {**self.env, "PATH": str(fake_bin) + ":" + os.environ["PATH"]}
+        env.pop("PILOT_ENGINE_ARCHIVE", None)
+        before = self.binary.read_bytes()
+        result = self.install(ok=False, env=env)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does not match trusted file pins", result.stdout)
+        self.assertIn("curl exit 91", result.stderr)
+        self.assertIn("engine-prepare", result.stderr)
+        self.assertEqual(before, self.binary.read_bytes())
+        self.assertEqual(self.health()["mode"], "router")
+
+    def test_no_start_preserves_older_backup_until_service_is_verified(self):
+        older = self.prefix / "keenetic-pilot.backup.100.1"
+        older.mkdir()
+        (older / ".pilot-managed").write_text("keenetic-pilot\n")
+        self.run_cmd(["sh", self.package_dir / "scripts/install.sh", "--prefix", self.prefix, "--no-start"])
+        self.assertTrue(older.is_dir())
+        self.assertEqual(len(list(self.prefix.glob("keenetic-pilot.backup.*"))), 2)
+        self.run_cmd([self.init, "start"])
+        self.assertEqual(self.health()["mode"], "router")
+
     def test_service_does_not_require_nohup_and_survives_hangup(self):
         self.run_cmd([self.init,'stop'])
         bindir=self.prefix/'bin'
@@ -261,6 +323,9 @@ class Installation(unittest.TestCase):
             self.assertEqual(response.status, 200)
 
     def test_failure_after_swap_restores_old_application_and_service(self):
+        older = self.prefix / "keenetic-pilot.backup.100.1"
+        older.mkdir()
+        (older / ".pilot-managed").write_text("keenetic-pilot\n")
         fake_bin = self.base / "fault-injection"
         fake_bin.mkdir()
         sed = fake_bin / "sed"
@@ -273,6 +338,7 @@ class Installation(unittest.TestCase):
         self.assertEqual(binary_before, self.binary.read_bytes())
         self.assertEqual(init_before, self.init.read_bytes())
         self.assertEqual(self.health()["mode"], "router")
+        self.assertTrue(older.is_dir(), "failed installation pruned recovery backup")
 
 
 if __name__ == "__main__":

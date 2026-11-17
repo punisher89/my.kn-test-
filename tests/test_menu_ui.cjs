@@ -33,6 +33,7 @@ demo.checks={};
  await page.locator('#update-check').click();await page.waitForFunction(()=>updatesData.available);assert.equal(installs,0);
  await page.locator('#update-install').click();await page.waitForFunction(()=>updatesData.running);assert.equal(installs,1);assert.equal(await page.locator('#update-install').isDisabled(),true);
  update={...update,current:'0.2.0-alpha.11',running:false,stage:'completed',available:false};await page.evaluate(()=>loadUpdates());assert.match(await page.locator('#update-info').innerText(),/Обновление завершено/);
+ update={...update,stage:'failed',phase:'install',exit_code:23};await page.evaluate(()=>loadUpdates());assert.match(await page.locator('#update-info').innerText(),/установка приложения и движка/);assert.match(await page.locator('#update-info').innerText(),/код завершения: 23/);assert.match(await page.locator('#update-info').innerText(),/\/opt\/etc\/keenetic-pilot\/update.log/);
  // The approved Matrix overview uses real-shaped telemetry, explicit checks,
  // escaped errors, a bounded chart and mobile layout rather than fake successes.
  await page.evaluate(()=>{location.hash='overview';});await page.locator('#network-telemetry .telemetry-cell').first().waitFor();

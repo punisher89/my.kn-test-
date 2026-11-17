@@ -44,6 +44,8 @@ type UpdateStatus struct {
 	Target       string `json:"target,omitempty"`
 	PID          int    `json:"pid,omitempty"`
 	Job          string `json:"job,omitempty"`
+	Phase        string `json:"phase,omitempty"`
+	ExitCode     int    `json:"exit_code,omitempty"`
 }
 
 var versionPattern = regexp.MustCompile(`^(\d+)\.(\d+)\.(\d+)-alpha\.(\d+)$`)
@@ -130,6 +132,13 @@ func (m *Manager) Updates() UpdateStatus {
 			s.Target = saved.Target
 			s.PID = saved.PID
 			s.Job = saved.Job
+			switch saved.Phase {
+			case "log-open", "prepare", "worker-start", "install", "version-check":
+				s.Phase = saved.Phase
+			}
+			if saved.ExitCode > 0 && saved.ExitCode <= 255 {
+				s.ExitCode = saved.ExitCode
+			}
 		}
 	}
 	if s.Running && !m.updating.Load() {
@@ -206,9 +215,21 @@ func (m *Manager) StartUpdate(version string) error {
 		defer m.updating.Store(false)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
+		log, e := os.OpenFile(filepath.Join(filepath.Dir(m.path), "update.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC|os.O_APPEND, 0600)
+		if e != nil {
+			m.log.Add("Не удалось открыть журнал обновления: " + e.Error())
+			_ = WriteJSON(path, UpdateStatus{Stage: "failed", Target: version, Phase: "log-open"})
+			return
+		}
+		defer log.Close()
+		fmt.Fprintf(log, "Preparing Pilot update to %s\n", version)
+		fail := func(phase string, err error) {
+			fmt.Fprintf(log, "Update failed during %s: %v\n", phase, err)
+			_ = WriteJSON(path, UpdateStatus{Stage: "failed", Target: version, Phase: phase})
+		}
 		job, e := os.MkdirTemp(filepath.Dir(m.path), "update-job-")
 		if e != nil {
-			_ = WriteJSON(path, UpdateStatus{Stage: "failed", Target: version})
+			fail("prepare", e)
 			return
 		}
 		cleanup := true
@@ -219,31 +240,25 @@ func (m *Manager) StartUpdate(version string) error {
 		}()
 		if e = m.prepareUpdate(ctx, job, doc); e != nil {
 			m.log.Add("Обновление не подготовлено: " + e.Error())
-			_ = WriteJSON(path, UpdateStatus{Stage: "failed", Target: version})
+			fail("prepare", e)
 			return
 		}
 		worker, e := os.ReadFile(filepath.Join(filepath.Dir(m.Config().EngineDir), "scripts/update-worker.sh"))
 		if e != nil {
-			_ = WriteJSON(path, UpdateStatus{Stage: "failed", Target: version})
+			fail("worker-start", e)
 			return
 		}
 		workerPath := filepath.Join(job, "worker.sh")
 		if e = os.WriteFile(workerPath, worker, 0700); e != nil {
-			_ = WriteJSON(path, UpdateStatus{Stage: "failed", Target: version})
+			fail("worker-start", e)
 			return
 		}
-		log, e := os.OpenFile(filepath.Join(filepath.Dir(m.path), "update.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC|os.O_APPEND, 0600)
-		if e != nil {
-			_ = WriteJSON(path, UpdateStatus{Stage: "failed", Target: version})
-			return
-		}
-		defer log.Close()
 		cmd := exec.Command("sh", workerPath, job, prefix, version)
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 		cmd.Stdout = log
 		cmd.Stderr = log
 		if e = cmd.Start(); e != nil {
-			_ = WriteJSON(path, UpdateStatus{Stage: "failed", Target: version})
+			fail("worker-start", e)
 			return
 		}
 		cleanup = false
