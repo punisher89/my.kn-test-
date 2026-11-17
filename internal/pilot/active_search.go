@@ -243,6 +243,13 @@ func (m *Manager) searchDomain(ctx context.Context, c Config, s DomainScope) (st
 		next := time.Unix(until, 0)
 		return finish("waiting", "", "Достигнут лимит применения; пробные подключения не запускаются", next)
 	}
+	// A generic HTTPS reply from googlevideo.com is not proof of video.
+	// Until a signed fragment participates in candidate confirmation, keep
+	// the working per-domain method instead of auto-selecting direct/none.
+	if isYouTubeCDNHost(s.Host) || stableYouTubeHost(c, s.Host) {
+		m.domainReason("video_url_required")
+		return finish("unmeasured", "", "Для YouTube нужен подтверждённый видеозапрос; прежний метод сохранён", time.Now().Add(15*time.Minute))
+	}
 	if m.activeProbeHook == nil {
 		sample, err := readHelloSample(c, s)
 		if err != nil {
@@ -251,13 +258,6 @@ func (m *Manager) searchDomain(ctx context.Context, c Config, s DomainScope) (st
 		}
 		m.activeHello = &sample
 		defer func() { m.activeHello = nil }()
-	}
-	// A generic HTTPS reply from googlevideo.com is not proof of video.
-	// Until a signed fragment participates in candidate confirmation, keep
-	// the working per-domain method instead of auto-selecting direct/none.
-	if isYouTubeCDNHost(s.Host) || stableYouTubeHost(c, s.Host) {
-		m.domainReason("video_url_required")
-		return finish("unmeasured", "", "Для YouTube нужен подтверждённый видеозапрос; прежний метод сохранён", time.Now().Add(15*time.Minute))
 	}
 	target := domainTarget(c, s)
 	check := func(id, phase string, attempts int) (bool, bool, string) {
@@ -530,7 +530,7 @@ func (m *Manager) activeTick(parent context.Context) {
 			delete(m.domainTasks, s)
 			continue
 		}
-		if task.Signal > task.Handled && c.excludedBy(s.Host) == "" && c.pinFor(s.Host, s.TLS, s.Family, s.Port) == "" {
+		if task.Signal > task.Handled && !stableYouTubeHost(c, s.Host) && c.excludedBy(s.Host) == "" && c.pinFor(s.Host, s.TLS, s.Family, s.Port) == "" {
 			pending = append(pending, task)
 		}
 	}
