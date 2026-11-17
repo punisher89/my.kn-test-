@@ -119,6 +119,8 @@ func TestSourceAPIsRequireAuthenticationAndOrigin(t *testing.T) {
   {"GET","/api/updates/sources"},
   {"POST","/api/updates/sources/check"},
   {"POST","/api/updates/sources/install"},
+  {"GET","/api/telegram/relay-draft"},
+  {"PUT","/api/telegram/relay-draft"},
  } {
     r:=httptest.NewRequest(item.method,"http://router.test"+item.path,strings.NewReader("{}"))
     r.Header.Set("Content-Type","application/json")
