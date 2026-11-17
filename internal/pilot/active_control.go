@@ -68,12 +68,12 @@ func activeContext(c Config) string {
 	}
 	data, _ := json.Marshal(struct {
 		WAN              string
-		IPv6, PPE, YouTubeStable bool
+		IPv6, PPE        bool
 		Profiles         []profile
 		Catalog          []Strategy
 		Pins             []DomainPin
 		Paused, Excluded []string
-	}{c.WAN, c.IPv6, c.PPE, c.YouTubeStable, profiles, c.Catalog, c.DomainPins, c.PausedDomains, c.Exclusions})
+	}{c.WAN, c.IPv6, c.PPE, profiles, c.Catalog, c.DomainPins, c.PausedDomains, c.Exclusions})
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }
@@ -87,7 +87,7 @@ func domainFingerprint(c Config, s DomainScope) string {
 		IPv6, PPE, QUIC        bool
 		YouTubeStable          bool
 		Pin, Excluded          string
-	}{s, c.WAN, p.ID, p.Strategy, append([]Strategy{}, c.Catalog...), c.CatalogRevision, c.IPv6, c.PPE, c.QUIC, c.YouTubeStable, c.pinFor(s.Host, s.TLS, s.Family, s.Port), c.excludedBy(s.Host)})
+	}{s, c.WAN, p.ID, p.Strategy, append([]Strategy{}, c.Catalog...), c.CatalogRevision, c.IPv6, c.PPE, c.QUIC, stableYouTubeHost(c, s.Host), c.pinFor(s.Host, s.TLS, s.Family, s.Port), c.excludedBy(s.Host)})
 	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:])
 }
