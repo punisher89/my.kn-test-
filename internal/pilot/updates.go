@@ -323,11 +323,15 @@ func (m *Manager) waitUpdateOperation(ctx context.Context) error {
 	}
 }
 func (m *Manager) prepareUpdate(ctx context.Context, job string, doc releaseDocument) error {
+	return m.prepareUpdateFrom(ctx, job, doc, releaseBase)
+}
+
+func (m *Manager) prepareUpdateFrom(ctx context.Context, job string, doc releaseDocument, base string) error {
 	token, e := githubReadToken(m.path)
 	if e != nil {
 		return e
 	}
-	manifest, e := fetchCatalog(ctx, releaseBase+"/v"+doc.Version+"/SHA256SUMS", token)
+	manifest, e := fetchCatalog(ctx, base+"/v"+doc.Version+"/SHA256SUMS", token)
 	if e != nil {
 		return e
 	}
@@ -354,7 +358,7 @@ func (m *Manager) prepareUpdate(ctx context.Context, job string, doc releaseDocu
 	if matches != 1 || len(expected) != 64 {
 		return errors.New("пакет не найден в манифесте")
 	}
-	raw := releaseBase + "/v" + doc.Version + "/" + name
+	raw := base + "/v" + doc.Version + "/" + name
 	req, e := http.NewRequestWithContext(ctx, "GET", raw, nil)
 	if e != nil {
 		return e
