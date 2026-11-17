@@ -31,6 +31,11 @@ type VideoProbeResult struct {
     Error string `json:"error,omitempty"`
 }
 
+// A generic HTTPS response from a YouTube CDN host does not prove video playback.
+func isYouTubeCDNHost(host string) bool {
+    return strings.HasSuffix(strings.ToLower(host), ".googlevideo.com")
+}
+
 func parseVideoURL(raw string, now time.Time) (*url.URL, error) {
     if len(raw) < 50 || len(raw) > 8192 || strings.ContainsAny(raw, "\r\n") {
         return nil, errors.New("нужна действующая временная ссылка на видеопоток")
@@ -40,7 +45,7 @@ func parseVideoURL(raw string, now time.Time) (*url.URL, error) {
         return nil, errors.New("разрешена только HTTPS-ссылка на YouTube CDN")
     }
     host := strings.ToLower(u.Hostname())
-    if !strings.HasSuffix(host, ".googlevideo.com") || u.Port() != "" && u.Port() != "443" || !strings.HasPrefix(u.EscapedPath(), "/videoplayback") || u.RawQuery == "" {
+    if !isYouTubeCDNHost(host) || u.Port() != "" && u.Port() != "443" || !strings.HasPrefix(u.EscapedPath(), "/videoplayback") || u.RawQuery == "" {
         return nil, errors.New("нужен адрес videoplayback на поддомене googlevideo.com")
     }
     expires := u.Query().Get("expire")
