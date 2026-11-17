@@ -416,6 +416,17 @@ func (m *Manager) watchActive(ctx context.Context) {
 		}
 	}
 }
+
+func servicePriority(c Config, s DomainScope) int {
+	for _, p := range c.Profiles {
+		for _, domain := range p.Domains {
+			if hostMatches(s.Host, domain) {
+				return 0
+			}
+		}
+	}
+	return 1
+}
 func (m *Manager) activeTick(parent context.Context) {
 	if m.updateRequested.Load() {
 		return
@@ -466,16 +477,32 @@ func (m *Manager) activeTick(parent context.Context) {
 	if m.domainTasks == nil {
 		m.domainTasks = map[DomainScope]*domainTask{}
 	}
-	for s, count := range signals {
-		if count < 1 {
-			continue
+	scopes := make([]DomainScope, 0, len(signals))
+	for s := range signals {
+		scopes = append(scopes, s)
+	}
+	sort.Slice(scopes, func(i, j int) bool {
+		if a, b := servicePriority(c, scopes[i]), servicePriority(c, scopes[j]); a != b {
+			return a < b
 		}
+		return scopes[i].key() < scopes[j].key()
+	})
+	for _, s := range scopes {
 		task := m.domainTasks[s]
 		if task == nil && len(m.domainTasks) >= 64 {
 			var oldest *domainTask
 			for _, candidate := range m.domainTasks {
 				if candidate.Handled >= candidate.Signal && (oldest == nil || candidate.Signal < oldest.Signal) {
 					oldest = candidate
+				}
+			}
+			// A full queue of unrelated unresolved sites must not prevent a
+			// configured service from entering the search at all.
+			if oldest == nil && servicePriority(c, s) == 0 {
+				for _, candidate := range m.domainTasks {
+					if servicePriority(c, candidate.Scope) > 0 && (oldest == nil || candidate.Signal < oldest.Signal) {
+						oldest = candidate
+					}
 				}
 			}
 			if oldest != nil {
@@ -501,6 +528,9 @@ func (m *Manager) activeTick(parent context.Context) {
 		}
 	}
 	sort.Slice(pending, func(i, j int) bool {
+		if a, b := servicePriority(c, pending[i].Scope), servicePriority(c, pending[j].Scope); a != b {
+			return a < b
+		}
 		if !pending[i].Attempted.Equal(pending[j].Attempted) {
 			return pending[i].Attempted.Before(pending[j].Attempted)
 		}

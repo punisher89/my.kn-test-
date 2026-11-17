@@ -34,7 +34,7 @@ let cancels=0,retries=0;
  demo.domain_job.reason='client_hello_missing';demo.domain_job.next_at=new Date(Date.now()+60000).toISOString();
  await page.evaluate(()=>refresh());assert.match(await page.locator('.domain-search-help').innerText(),/Открой этот сервис на проблемном устройстве/);assert.match(await page.locator('.domain-search-report').innerText(),/Следующая попытка/);
  demo.domain_job.reason='execution_unconfirmed';await page.evaluate(()=>refresh());assert.match(await page.locator('.domain-search-help').innerText(),/повторит этот кандидат автоматически/);
- demo.domain_job.stage='waiting';demo.domain_job.reason='resources';await page.evaluate(()=>refresh());assert.match(await page.locator('.domain-search-report').innerText(),/Поиск на паузе/);assert.match(await page.locator('.domain-search-help').innerText(),/снижения нагрузки/);
+ demo.domain_job.stage='waiting';demo.domain_job.reason='resources';await page.evaluate(()=>refresh());assert.match(await page.locator('.domain-search-report').innerText(),/Ждём свободные ресурсы/);assert.match(await page.locator('.domain-search-help').innerText(),/снижения нагрузки/);
  demo.domain_job.reason='http_response';await page.evaluate(()=>refresh());assert.match(await page.locator('.domain-search-help').innerText(),/не подтверждает работу сервиса/);
  delete demo.domain_job.reason;delete demo.domain_job.next_at;
  demo.domain_job.stage='applied';demo.domain_job.selected='fake-md5';demo.domain_job.error='';demo.verified_domains=1;demo.domain_queue=0;

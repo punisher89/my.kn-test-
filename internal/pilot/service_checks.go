@@ -114,7 +114,7 @@ func backgroundPressure(d DeviceInfo) string {
 func (m *Manager) backgroundAllowed(c Config) bool {
 	reason := ""
 	if c.ProbeLoadGuard {
-		reason = backgroundPressure(m.guardDevice.Read("", c.WAN, time.Now()))
+		reason = backgroundPressure(m.guardDevice.ReadResources("", time.Now()))
 	}
 	m.mu.Lock()
 	m.backgroundHold = reason

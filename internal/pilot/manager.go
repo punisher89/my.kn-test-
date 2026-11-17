@@ -65,6 +65,7 @@ type Manager struct {
 	domainCache      *domainRegistry
 	domainCacheAt    time.Time
 	device           deviceReader
+	radio            radioReader
 	mu               sync.Mutex
 	op               sync.Mutex
 	c                Config

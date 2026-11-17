@@ -75,3 +75,35 @@ func TestWiFiHwmonNamesAndDuplicatePaths(t *testing.T) {
 		t.Fatalf("radio names or units: %+v", d.Temperatures)
 	}
 }
+
+func TestResourceGuardUsesStableSampleAndSkipsTemperatureScan(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "proc"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	write := func(stat string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(root, "proc/stat"), []byte(stat), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("cpu 600 0 0 400 0 0 0 0\n")
+	r := deviceReader{}
+	now := time.Unix(1000, 0)
+	first := r.ReadResources(root, now)
+	if first.CPUPercent != nil {
+		t.Fatal("invented first CPU sample")
+	}
+	write("cpu 601 0 0 400 0 0 0 0\n")
+	if transient := r.ReadResources(root, now.Add(10*time.Millisecond)); transient.CPUPercent != nil {
+		t.Fatal("guard sampled a one-tick spike", transient)
+	}
+	write("cpu 840 0 0 560 0 0 0 0\n")
+	next := r.ReadResources(root, now.Add(2*time.Second))
+	if next.CPUPercent == nil || *next.CPUPercent < 59.9 || *next.CPUPercent > 60.1 {
+		t.Fatal("stable CPU sample wrong", next)
+	}
+	if next.Kernel != "" || len(next.Temperatures) != 0 || next.RXBytes != nil {
+		t.Fatal("resource guard collected unrelated telemetry")
+	}
+}

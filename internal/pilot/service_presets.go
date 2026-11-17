@@ -38,6 +38,15 @@ func ServicePresets() []ServicePreset {
 	return result
 }
 
+func presetDomains(id string) []string {
+	for _, preset := range servicePresets {
+		if preset.Profile.ID == id {
+			return append([]string{}, preset.Profile.Domains...)
+		}
+	}
+	return nil
+}
+
 func (m *Manager) AddService(id string) error {
 	if !m.op.TryLock() {
 		return ErrBusy

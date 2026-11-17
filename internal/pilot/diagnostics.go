@@ -12,6 +12,7 @@ import (
 // DiagnosticReport is an explicit export allowlist. Never embed Config, Job,
 // Snapshot, logs, or arbitrary error text: they can contain URLs or credentials.
 type DiagnosticReport struct {
+	Resources            DiagnosticResources     `json:"resources"`
 	ActiveSearch         *DiagnosticActiveSearch `json:"active_search,omitempty"`
 	SchemaVersion        int                     `json:"schema_version"`
 	GeneratedAt          time.Time               `json:"generated_at"`
@@ -29,6 +30,16 @@ type DiagnosticReport struct {
 	History              []DiagnosticObservation `json:"history"`
 	Discovered           []string                `json:"discovered"`
 	Notes                []string                `json:"notes"`
+}
+
+type DiagnosticResources struct {
+	CPUPercent      *float64      `json:"cpu_percent"`
+	CPUCores        int           `json:"cpu_cores"`
+	Load            []float64     `json:"load"`
+	MemoryTotal     uint64        `json:"memory_total"`
+	MemoryAvailable *uint64       `json:"memory_available"`
+	Temperatures    []Temperature `json:"temperatures"`
+	BackgroundHold  string        `json:"background_hold,omitempty"`
 }
 type DiagnosticActiveSearch struct {
 	Reason    string      `json:"reason,omitempty"`
@@ -181,6 +192,17 @@ func (m *Manager) Diagnostics() DiagnosticReport {
 			"reason описывает действующее правило или сохранённый результат. Причины в history относятся к прошлым событиям; recorded_hold_until может быть в прошлом. Пустые новые файлы имеют статус invalid_or_incomplete.",
 		},
 	}
+	device := m.Device()
+	hold := ""
+	switch s.BackgroundHold {
+	case "мало доступной памяти":
+		hold = "memory"
+	case "CPU занят на 85% или больше":
+		hold = "cpu"
+	case "высокая очередь задач CPU":
+		hold = "load"
+	}
+	d.Resources = DiagnosticResources{CPUPercent: device.CPUPercent, CPUCores: device.CPUCores, Load: device.Load, MemoryTotal: device.MemoryTotal, MemoryAvailable: device.MemoryAvailable, Temperatures: device.Temperatures, BackgroundHold: hold}
 	if j := s.DomainJob; j != nil && j.Scope.valid() {
 		stage := "unknown"
 		for _, known := range []string{"direct", "search", "confirm", "applied", "unmeasured", "exhausted", "waiting", "cancelled", "error"} {

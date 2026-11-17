@@ -39,6 +39,9 @@ type deviceReader struct {
 	cpuValid, netValid  bool
 	wan                 string
 	at                  time.Time
+	resourceAt          time.Time
+	resourceRoot        string
+	resourceSample      DeviceInfo
 }
 
 func smallRead(root, path string) string {
@@ -51,14 +54,35 @@ func smallRead(root, path string) string {
 func (r *deviceReader) Read(root, wan string, now time.Time) DeviceInfo {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	d := DeviceInfo{Model: smallRead(root, "/proc/device-tree/model"), Platform: runtime.GOOS + "/" + runtime.GOARCH, Kernel: smallRead(root, "/proc/sys/kernel/osrelease"), CPUCores: runtime.NumCPU(), WAN: wan, Load: []float64{}, Temperatures: []Temperature{}}
-	if d.Model == "" {
-		d.Model = smallRead(root, "/sys/firmware/devicetree/base/model")
+	return r.read(root, wan, now, false)
+}
+
+// The guard needs a stable CPU interval and memory/load, not repeated sysfs
+// temperature and network scans between two back-to-back trial connections.
+func (r *deviceReader) ReadResources(root string, now time.Time) DeviceInfo {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if root == r.resourceRoot && !r.resourceAt.IsZero() && !now.Before(r.resourceAt) && now.Sub(r.resourceAt) < 2*time.Second {
+		return r.resourceSample
 	}
-	for _, line := range strings.Split(smallRead(root, "/proc/cpuinfo"), "\n") {
-		parts := strings.SplitN(line, ":", 2)
-		if len(parts) == 2 && d.Model == "" && (strings.TrimSpace(parts[0]) == "Hardware" || strings.TrimSpace(parts[0]) == "system type") {
-			d.Model = strings.TrimSpace(parts[1])
+	d := r.read(root, "", now, true)
+	r.resourceAt, r.resourceRoot, r.resourceSample = now, root, d
+	return d
+}
+
+func (r *deviceReader) read(root, wan string, now time.Time, resourcesOnly bool) DeviceInfo {
+	d := DeviceInfo{Platform: runtime.GOOS + "/" + runtime.GOARCH, CPUCores: runtime.NumCPU(), WAN: wan, Load: []float64{}, Temperatures: []Temperature{}}
+	if !resourcesOnly {
+		d.Model = smallRead(root, "/proc/device-tree/model")
+		d.Kernel = smallRead(root, "/proc/sys/kernel/osrelease")
+		if d.Model == "" {
+			d.Model = smallRead(root, "/sys/firmware/devicetree/base/model")
+		}
+		for _, line := range strings.Split(smallRead(root, "/proc/cpuinfo"), "\n") {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 && d.Model == "" && (strings.TrimSpace(parts[0]) == "Hardware" || strings.TrimSpace(parts[0]) == "system type") {
+				d.Model = strings.TrimSpace(parts[1])
+			}
 		}
 	}
 	cpu := strings.Fields(strings.Split(smallRead(root, "/proc/stat"), "\n")[0])
@@ -121,6 +145,9 @@ func (r *deviceReader) Read(root, wan string, now time.Time) DeviceInfo {
 			v = d.MemoryTotal
 		}
 		d.MemoryAvailable = &v
+	}
+	if resourcesOnly {
+		return d
 	}
 	thermal, _ := filepath.Glob(filepath.Join(root, "sys/class/thermal/thermal_zone*/temp"))
 	hwmon, _ := filepath.Glob(filepath.Join(root, "sys/class/hwmon/hwmon*/temp*_input"))
@@ -211,4 +238,11 @@ func (r *deviceReader) Read(root, wan string, now time.Time) DeviceInfo {
 	r.at = now
 	return d
 }
-func (m *Manager) Device() DeviceInfo { return m.device.Read("", m.Config().WAN, time.Now()) }
+func (m *Manager) Device() DeviceInfo {
+	now := time.Now()
+	d := m.device.Read("", m.Config().WAN, now)
+	if m.backend.Kind() == "router" {
+		d.Temperatures = append(d.Temperatures, m.radio.Read(now, readRadioCommand)...)
+	}
+	return d
+}

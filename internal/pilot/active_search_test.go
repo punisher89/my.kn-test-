@@ -167,7 +167,7 @@ func TestActiveQueueGivesUntriedDomainTurnBeforeReadyRetry(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(c.RuntimeDir, "state1.tsv"), adaptiveFrame(3, nil, nil), 0600); err != nil {
 		t.Fatal(err)
 	}
-	other := DomainScope{"other.example.com", s.TLS, s.Family, s.Port}
+	other := DomainScope{"i.ytimg.com", s.TLS, s.Family, s.Port}
 	now := time.Now()
 	m.domainTasks = map[DomainScope]*domainTask{
 		s:     {Scope: s, Signal: now.Unix() - 20, Attempted: now.Add(-time.Minute)},
@@ -189,6 +189,30 @@ func TestActiveQueueGivesUntriedDomainTurnBeforeReadyRetry(t *testing.T) {
 	m.activeTick(context.Background())
 	if len(seen) != 2 || seen[1] != s {
 		t.Fatal("ready tasks did not alternate", seen)
+	}
+}
+
+func TestConfiguredServiceEntersFullQueueAndGetsPriority(t *testing.T) {
+	m, c, _, s := activeFixture(t)
+	now := time.Now().Unix()
+	m.domainTasks = map[DomainScope]*domainTask{}
+	for i := 0; i < 64; i++ {
+		unknown := DomainScope{fmt.Sprintf("host%d.example.net", i), s.TLS, s.Family, s.Port}
+		m.domainTasks[unknown] = &domainTask{Scope: unknown, Signal: now - 10}
+	}
+	event := AdaptiveHost{EventCount: 1, FirstUpdated: now - 1, Symptom: "retransmission", Group: "youtube_split-sni_p443_tls13_ipv4", Host: s.Host, Strategy: "split-sni", Status: "failed", Updated: now - 1, Network: c.WAN, Port: s.Port, Origin: "initial"}
+	if err := os.WriteFile(filepath.Join(c.RuntimeDir, "state1.tsv"), adaptiveFrame(3, nil, []AdaptiveHost{event}), 0600); err != nil {
+		t.Fatal(err)
+	}
+	m.activeProbeHook = func(_ context.Context, _ Config, scope DomainScope, _ Target, _ string) activeEvidence {
+		if scope != s {
+			t.Fatal("unrelated site ran ahead of configured service", scope)
+		}
+		return evidence(true, true)
+	}
+	m.activeTick(context.Background())
+	if len(m.domainTasks) != 64 || m.domainTasks[s] == nil || m.domainJob.Scope != s || m.domainJob.Stage != "applied" {
+		t.Fatal("configured service excluded from full queue", m.domainJob)
 	}
 }
 

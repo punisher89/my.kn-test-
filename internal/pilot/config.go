@@ -83,7 +83,7 @@ func DefaultConfig() Config {
 		IntervalMinutes: 15, TimeoutSeconds: 8, Attempts: 2,
 		Exclusions: []string{},
 		Profiles: []Profile{
-			{ID: "youtube", Name: "YouTube", Strategy: "split-sni", Domains: []string{"youtube.com", "youtu.be", "googlevideo.com", "ytimg.com", "ggpht.com", "youtubei.googleapis.com", "youtube-nocookie.com"}, Targets: []Target{
+			{ID: "youtube", Name: "YouTube", Strategy: "split-sni", Domains: presetDomains("youtube"), Targets: []Target{
 				{URL: "https://www.youtube.com/", Status: 200, Contains: "ytInitialData"},
 				{URL: "https://i.ytimg.com/vi/jNQXAC9IVRw/default.jpg", Status: 200},
 			}},
