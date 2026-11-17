@@ -454,7 +454,7 @@ async function refresh(render = false) {
     $("#tune-cancel").disabled = !tuneRunning();
     bindDomainRetry();
   } else if (page === "device") { await loadDevice();
-  } else if (page === "updates") { await loadUpdates();
+  } else if (page === "updates") { await loadUpdates();await loadSourceUpdates();
   } else if (page === "adaptive") {
     await loadAdaptive();
   }
@@ -512,7 +512,7 @@ function renderPage() {
   bindActions();
   if(page==="overview"){loadTelemetry();loadOverviewBoxes();}
   if(page==="device")loadDevice();
-  if(page==="updates")loadUpdates();
+  if(page==="updates"){loadUpdates();loadSourceUpdates();}
   if (page === "logs") loadLogs();
   if (page === "adaptive") loadAdaptive();
   if (page === "connect" && !networkInfo)
@@ -538,6 +538,25 @@ function bindActions() {
   $("#method-family")?.addEventListener("change",e=>{methodFamily=e.target.value;$("#method-results").innerHTML=methodResults();bindMethodViews();});
   $("#update-check")?.addEventListener("click",async e=>{const button=e.currentTarget;button.disabled=true;try{await api("updates/check","POST",{});await loadUpdates(true);}catch(error){notify(error.message,true);button.disabled=false;}});
   $("#update-install")?.addEventListener("click",async e=>{const button=e.currentTarget;button.disabled=true;try{await api("updates/install","POST",{version:updatesData.latest});await loadUpdates(true);}catch(error){notify(error.message,true);button.disabled=false;}});
+  document.querySelectorAll("[data-source-update-check]").forEach(button=>button.addEventListener("click",async()=>{
+    button.disabled=true;
+    try{
+      await api("updates/sources/check","POST",{source:button.dataset.sourceUpdateCheck});
+      await loadSourceUpdates(true);
+      notify("Источник "+button.dataset.sourceUpdateCheck+" проверен");
+    }catch(err){notify("Ошибка источника: "+err.message,true);button.disabled=false;}
+  }));
+  document.querySelectorAll("[data-source-update-install]").forEach(button=>button.addEventListener("click",async()=>{
+    const source=button.dataset.sourceUpdateInstall;
+    const item=sourceUpdatesData?.sources?.find(x=>x.source===source);
+    if(!item?.available||!item.latest)return;
+    const confirmed=window.confirm("Установить "+item.latest+" ["+source+"]? Это отдельный канал GitHub HTTPS + SHA-256, БЕЗ независимой подписи. Будут проверены манифест, пакет, версия и конфигурация; служба кратко перезапустится.");
+    if(!confirmed)return;
+    button.disabled=true;
+    try{await api("updates/sources/install","POST",{source,version:item.latest});await loadSourceUpdates(true);await loadUpdates(true);}
+    catch(err){notify(err.message,true);button.disabled=false;}
+  }));
+
   $("#custom-service-form")?.addEventListener("submit",event=>{event.preventDefault();serviceAction(async()=>{
     const f=event.target,bytes=new Uint32Array(2);crypto.getRandomValues(bytes);const id="custom-"+[...bytes].map(v=>v.toString(16).padStart(8,"0")).join("");
     const url=f.elements.url.value.trim(),source=f.elements.source.value.trim(),domains=lines(f.elements.domains.value);
@@ -1067,10 +1086,50 @@ function boxHealthLabel(b,enabled){if(!enabled)return `Автоподбор вы
 function problemFirst(a,b){const av=boxHealth(a),bv=boxHealth(b);return (bv.probing+bv.held)-(av.probing+av.held)||b.updated-a.updated;}
 async function loadOverviewBoxes(){const target=$("#overview-boxes");if(!target||overviewBoxesLoading)return;overviewBoxesLoading=true;try{const d=await api("adaptive");if(!signedIn||target!==$("#overview-boxes"))return;const boxes=d.boxes||[],recent=boxes.filter(boxHasRecentTraffic).sort(problemFirst),saved=boxes.length-recent.length;target.innerHTML=(recent.length?`<div class="table-scroll"><table class="box-overview-table"><thead><tr><th>Группа</th><th>Домены</th><th>Состояния</th></tr></thead><tbody>${recent.map(b=>`<tr><td><a href="#adaptive">${esc(tlsLabels[b.tls]||tlsLabels.unknown)} · ${esc(b.family)}</a></td><td>${new Set(b.hosts.map(r=>r.host)).size}</td><td>${esc(boxHealthLabel(b,d.enabled))}</td></tr>`).join("")}</tbody></table></div>`:'<p>Свежих наблюдений пока нет. При новых подключениях автоподбор продолжится.</p>')+`<small>Сохранённая история: ${saved} коробок. ${!d.enabled?"Автоподбор по трафику выключен.":""}</small>`;}catch(e){if(target===$("#overview-boxes"))target.textContent="Наблюдения недоступны: "+e.message;}finally{overviewBoxesLoading=false;}}
 let deviceData=null,deviceLoading=false,updatesData=null,updatesLoading=false,updatesSerial=0;
+let sourceUpdatesData=null,sourceUpdatesLoading=false,sourceUpdatesSerial=0;
 const prettyBytes=n=>n==null?"недоступно":n>=1048576?(n/1048576).toFixed(1)+" МиБ":n>=1024?(n/1024).toFixed(1)+" КиБ":Math.round(n)+" Б";
 function devicePage(){return heading("Роутер","Данные устройства, на котором запущен Pilot. Недоступные датчики не заменяются примерными значениями.")+`<div id="device-data">Загрузка…</div>`;}
 async function loadDevice(){const target=$("#device-data");if(!target||deviceLoading)return;deviceLoading=true;try{const d=await api("device");if(target!==$("#device-data"))return;deviceData=d;target.innerHTML=`<div class="stats-grid"><div class="panel"><h3>Процессор</h3><strong>${d.cpu_percent==null?(d.cpu_sample_available?"ожидается второй замер":"недоступно"):d.cpu_percent.toFixed(1)+" %"}</strong><p>Ядер: ${d.cpu_cores}</p><small>Load 1/5/15 мин: ${d.load.length?d.load.map(v=>v.toFixed(2)).join(" / "):"недоступно"}</small></div><div class="panel"><h3>Память</h3><strong>${d.memory_available==null?"недоступно":prettyBytes(d.memory_total-d.memory_available)+" занято"}</strong><p>Всего: ${prettyBytes(d.memory_total||null)}</p><small>Доступно: ${prettyBytes(d.memory_available)}</small></div><div class="panel"><h3>Температура</h3>${d.temperatures.length?d.temperatures.map(t=>`<p><strong>${t.celsius.toFixed(1)} °C</strong> · ${esc(t.name)}</p>`).join(""):'<p>Недоступно: прошивка не предоставляет датчик Pilot.</p>'}</div></div><div class="panel"><h3>${esc(d.model||"Модель не предоставлена прошивкой")}</h3><p>${esc(d.platform)} · ядро ${esc(d.kernel||"неизвестно")}</p><p>Время работы: ${d.uptime_seconds==null?"недоступно":Math.floor(d.uptime_seconds/86400)+" д "+Math.floor(d.uptime_seconds%86400/3600)+" ч "+Math.floor(d.uptime_seconds%3600/60)+" мин"}</p><p>WAN ${esc(d.wan||"не задан")}: получено ${prettyBytes(d.rx_bytes)}, передано ${prettyBytes(d.tx_bytes)}</p><p>Сейчас: ↓ ${prettyBytes(d.rx_bytes_per_second)}/с · ↑ ${prettyBytes(d.tx_bytes_per_second)}/с</p></div>`;}catch(e){if(target===$("#device-data"))target.textContent="Не удалось получить данные: "+e.message;}finally{deviceLoading=false;}}
-function updatesPage(){return heading("Обновления","Обновление Pilot, панели и закреплённого nfqws2 с сохранением настроек.")+`<div class="panel"><div id="update-info">Загрузка…</div><div class="form-actions"><button id="update-check">Проверить версию</button><button id="update-install" class="primary" disabled>Установить обновление</button></div><p class="subtle">Выпуск проверяется по подписи и SHA-256. Перед остановкой службы проверяются пакет и конфигурация; установщик сохраняет прежнюю версию для отката при ошибке. Текущий подбор будет отменён перед установкой. Будет краткий перерыв. После перезапуска войдите с прежним паролем.</p></div><div class="panel"><h3>Каталог методов</h3><p>Подписанные стратегии можно загрузить отдельно от приложения.</p><button id="catalog-update">Загрузить стратегии сейчас</button></div>`;}
+function updatesPage(){return heading("Обновления","Обновление Pilot, панели и закреплённого nfqws2 с сохранением настроек.")+`<div class="panel"><div id="update-info">Загрузка…</div><div class="form-actions"><button id="update-check">Проверить версию</button><button id="update-install" class="primary" disabled>Установить обновление</button></div><p class="subtle">Выпуск проверяется по подписи и SHA-256. Перед остановкой службы проверяются пакет и конфигурация; установщик сохраняет прежнюю версию для отката при ошибке. Текущий подбор будет отменён перед установкой. Будет краткий перерыв. После перезапуска войдите с прежним паролем.</p></div><div class="panel"><h3>ChatGPT / Codex · отдельные обновления</h3><p class="subtle">Это дополнительный канал GitHub HTTPS + SHA-256, без независимой подписи Ed25519. Автор указан издателем в GitHub, а не подтверждён криптографически. Старый подписанный канал выше оставлен без изменений.</p><div id="source-update-info">Загрузка сведений об источниках…</div></div><div class="panel"><h3>Каталог методов</h3><p>Подписанные стратегии можно загрузить отдельно от приложения.</p><button id="catalog-update">Загрузить стратегии сейчас</button></div>`;}
+async function loadSourceUpdates(force=false){
+  const target=$("#source-update-info");
+  if(!target||(sourceUpdatesLoading&&!force))return;
+  sourceUpdatesLoading=true;
+  const serial=++sourceUpdatesSerial;
+  try{
+    const d=await api("updates/sources");
+    if(target!==$("#source-update-info")||serial!==sourceUpdatesSerial)return;
+    sourceUpdatesData=d;
+    target.innerHTML=(d.sources||[]).map(item=>{
+      const src=esc(item.source);
+      const latest=item.checked?esc(item.latest):"Не проверено";
+      const status=!item.checked?"Для поиска нажмите «Проверить»":item.available?"Есть новая версия":"Новых выпусков нет";
+      return `<div class="source-update-row" data-source-row="${src}">
+        <div class="panel-head"><strong>${src}</strong><span>${esc(status)}</span></div>
+        <p>Версия: ${latest}${item.checked&&item.commit?" · коммит "+esc(item.commit.slice(0,8)):""}</p>
+        <div class="form-actions">
+          <button data-source-update-check="${src}" ${d.running?"disabled":""}>Проверить ${src}</button>
+          <button data-source-update-install="${src}" ${!d.supported||!item.available||d.running?"disabled":""}>Установить ${latest} [${src}]</button>
+        </div>
+      </div>`;
+    }).join("");
+    target.querySelectorAll("[data-source-update-check]").forEach(button=>button.addEventListener("click",async()=>{
+      button.disabled=true;
+      try{await api("updates/sources/check","POST",{source:button.dataset.sourceUpdateCheck});await loadSourceUpdates(true);}
+      catch(err){notify("Ошибка проверки: "+err.message,true);button.disabled=false;}
+    }));
+    target.querySelectorAll("[data-source-update-install]").forEach(button=>button.addEventListener("click",async()=>{
+      const source=button.dataset.sourceUpdateInstall;
+      const item=sourceUpdatesData?.sources?.find(x=>x.source===source);
+      if(!item?.available||!item.latest)return;
+      if(!window.confirm("Установить "+item.latest+" ["+source+"] из GitHub? Проверка HTTPS + SHA-256; НЕ независимая подпись. Перед перезапуском проверяются пакет и конфигурация."))return;
+      button.disabled=true;
+      try{await api("updates/sources/install","POST",{source,version:item.latest});await loadSourceUpdates(true);await loadUpdates(true);}
+      catch(err){notify(err.message,true);button.disabled=false;}
+    }));
+  }catch(e){if(target===$("#source-update-info"))target.textContent="Не удалось получить сведения об источниках: "+e.message;}
+  finally{if(serial===sourceUpdatesSerial)sourceUpdatesLoading=false;}
+}
 async function loadUpdates(force=false){const target=$("#update-info");if(!target||(updatesLoading&&!force))return;updatesLoading=true;const serial=++updatesSerial;try{const d=await api("updates");if(target!==$("#update-info")||serial!==updatesSerial)return;updatesData=d;const stages={idle:"Готово к проверке",downloading:"Загрузка и проверка пакета",installing:"Установка и перезапуск службы",waiting:"Ожидание завершения текущего подбора перед обновлением",completed:"Обновление завершено",failed:"Обновление не завершено. Подробности — в /opt/etc/keenetic-pilot/update.log; проверьте состояние службы.",interrupted:"Процесс обновления прерван; проверьте состояние службы перед повтором."};target.innerHTML=`<h3>Pilot ${esc(d.current)}</h3><p>nfqws2: ${esc(d.engine||"версия не получена")}</p><p>${esc(stages[d.stage]||d.stage)}</p>${d.stage==="failed"||d.stage==="interrupted"?`<p>${d.phase?"Этап: "+esc(({"log-open":"открытие журнала",prepare:"подготовка пакета",waiting:"завершение текущей операции","worker-start":"запуск установки",install:"установка приложения и движка","version-check":"проверка установленной версии"})[d.phase]||"неизвестен"):""}${d.exit_code?" · код завершения: "+esc(d.exit_code):""}</p>`:""}<p>${d.latest?"Последний проверенный выпуск: "+esc(d.latest)+(d.latest_engine?" · nfqws2 "+esc(d.latest_engine):""):"Проверка новых выпусков ещё не выполнялась"}</p>${!d.supported?'<p class="subtle">Установка из панели доступна для управляемой установки на роутере.</p>':""}`;$("#update-install").disabled=!d.supported||!d.available||d.running;$("#update-install").textContent=d.available?"Установить "+d.latest:"Установить обновление";$("#update-check").disabled=d.running||d.checking;}catch(e){if(target===$("#update-info"))target.textContent="Связь с панелью временно недоступна: "+e.message;}finally{if(serial===updatesSerial)updatesLoading=false;}}
 async function loadLogs() {
   try {
