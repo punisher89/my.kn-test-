@@ -255,9 +255,9 @@ func (m *Manager) searchDomain(ctx context.Context, c Config, s DomainScope) (st
 	// A generic HTTPS reply from googlevideo.com is not proof of video.
 	// Until a signed fragment participates in candidate confirmation, keep
 	// the working per-domain method instead of auto-selecting direct/none.
-	if isYouTubeCDNHost(s.Host) {
+	if isYouTubeCDNHost(s.Host) || stableYouTubeHost(c, s.Host) {
 		m.domainReason("video_url_required")
-		return finish("unmeasured", "", "Для CDN нужен подтверждённый видеозапрос; прежний метод сохранён", time.Now().Add(15*time.Minute))
+		return finish("unmeasured", "", "Для YouTube нужен подтверждённый видеозапрос; прежний метод сохранён", time.Now().Add(15*time.Minute))
 	}
 	target := domainTarget(c, s)
 	check := func(id, phase string, attempts int) (bool, bool, string) {
@@ -463,7 +463,7 @@ func (m *Manager) activeTick(parent context.Context) {
 	for _, r := range data.History {
 		b := boxContext(r)
 		s := DomainScope{r.Host, b.TLS, b.Family, r.Port}
-		if r.Status != "failed" || !s.valid() || r.Network != c.WAN || r.Updated > now.Unix() || now.Unix()-r.Updated > 600 || c.excludedBy(s.Host) != "" || c.pinFor(s.Host, s.TLS, s.Family, s.Port) != "" || s.Family == "ipv6" && !c.IPv6 {
+		if stableYouTubeHost(c, s.Host) || r.Status != "failed" || !s.valid() || r.Network != c.WAN || r.Updated > now.Unix() || now.Unix()-r.Updated > 600 || c.excludedBy(s.Host) != "" || c.pinFor(s.Host, s.TLS, s.Family, s.Port) != "" || s.Family == "ipv6" && !c.IPv6 {
 			continue
 		}
 		live := profileForDomain(c, s.Host).Strategy
@@ -594,6 +594,7 @@ func (m *Manager) QueueDomain(s DomainScope) error {
 	if m.backend.Kind() != "router" || !c.Enabled || !c.Adaptive || !c.AdaptiveActive {
 		return errors.New("включите полный автоподбор на роутере")
 	}
+	if stableYouTubeHost(c, s.Host) { return errors.New("YouTube закреплён в стабильном режиме; отключите режим для автоподбора") }
 	if c.excludedBy(s.Host) != "" || c.pinFor(s.Host, s.TLS, s.Family, s.Port) != "" {
 		return errors.New("домен приостановлен или метод закреплён")
 	}
