@@ -122,6 +122,18 @@ let additions=0,tunes=0,failNext=false;
   await page.locator("#telegram-native-toggle").click();
   await page.waitForFunction(()=>state.config.telegram_mtproto===false);
   assert.equal(JSON.stringify(demo.config.profiles),profilesBefore);
+  // A one-click recovery reduces load but must preserve unrelated profiles and MTProto.
+  const before=JSON.stringify(demo.config.profiles.filter(p=>p.id!=="youtube"));
+  const nativeSetting=demo.config.telegram_mtproto;
+  await page.locator("#performance-rescue-apply").click();
+  await page.waitForFunction(()=>state.config.adaptive===false && state.config.youtube_stable===true);
+  assert.equal(demo.config.adaptive_active,false);
+  assert.equal(demo.config.auto,false);
+  assert.equal(demo.config.quic,false);
+  assert.equal(demo.config.profiles.find(p=>p.id==="youtube").strategy,"fake-host-md5");
+  assert.equal(JSON.stringify(demo.config.profiles.filter(p=>p.id!=="youtube")),before);
+  assert.equal(demo.config.telegram_mtproto,nativeSetting);
+  assert.match(await page.locator("#performance-rescue").innerText(),/Режим включён/);
   assert.deepEqual(errors,[]);
   console.log('PASS: service presets, add/remove, error recovery, preserved drafts, compact profiles, tuner selection, explicit tuning, busy recovery, mobile layout');
  }finally{await browser.close();}
