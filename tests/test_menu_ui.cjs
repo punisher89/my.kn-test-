@@ -38,6 +38,27 @@ demo.checks={};
   return route.fulfill({body:read('internal/pilot/web/'+file),contentType:file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.svg')?'image/svg+xml':'text/html'});
  });
  await page.goto('http://pilot.test/#device');await page.locator('#device-data h3').first().waitFor();
+
+ // Music belongs to the browser, not the router or a service configuration.
+ const musicDetails=page.locator('#pilot-music');
+ await musicDetails.locator('summary').click();
+ await page.locator('#music-audio').waitFor();
+ assert.equal(await page.locator('#music-audio').evaluate(a=>a.autoplay),false);
+ assert.equal(await page.locator('#music-audio').evaluate(a=>a.getAttribute('preload')),'none');
+ assert.equal(await page.locator('#music-audio').evaluate(a=>a.hasAttribute('src')),false);
+ await page.locator('#music-url').fill('http://insecure.test/music.mp3');
+ await page.locator('#music-load-url').click();
+ assert.match(await page.locator('#music-message').innerText(),/HTTPS/);
+ assert.equal(await page.locator('#music-audio').evaluate(a=>a.hasAttribute('src')),false);
+ await page.locator('#music-url').fill('https://media.example.com/song.mp3');
+ await page.locator('#music-load-url').click();
+ assert.equal(await page.locator('#music-audio').evaluate(a=>a.getAttribute('src')),'https://media.example.com/song.mp3');
+ assert.equal(await page.locator('#music-audio').evaluate(a=>a.paused),true);
+ await page.locator('#music-reset').click();
+ assert.equal(await page.locator('#music-audio').evaluate(a=>a.hasAttribute('src')),false);
+ await musicDetails.locator('summary').click();
+ assert.equal(await musicDetails.evaluate(el=>el.open),false);
+
  assert.match(await page.locator('#device-data').innerText(),/ожидается второй замер/);
  await page.locator('#preflight-data').getByText(/Другие запущенные обработчики/).waitFor();assert.match(await page.locator('#preflight-data').innerText(),/d2k/);
  assert.match(await page.locator('#device-data').innerText(),/Недоступно: прошивка/);
