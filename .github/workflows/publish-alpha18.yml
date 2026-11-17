@@ -64,6 +64,8 @@ jobs:
             echo "::error::The secret does not match the existing updater public key. Refusing to rotate trust implicitly."
             exit 1
           fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           python3 scripts/publish-packages.py --push
       - name: Verify published version and artifact manifest over HTTPS
         shell: bash
