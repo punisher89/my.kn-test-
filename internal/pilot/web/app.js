@@ -64,6 +64,7 @@ async function logout() {
   videoProbeReport=null; videoProbeBusy=false;
   serviceCatalogQuery = ""; serviceCatalogOpen = false; selectedTuneProfile = "";
   preflightCached="";preflightUpdated=0;
+  telegramRelayDraftData=null;telegramRelayLoading=false;
   token = "";
   sessionStorage.removeItem("pilot-token");
   $("#shell").classList.add("hidden");
@@ -336,6 +337,56 @@ function bindPerformanceRescue(){
     notify("Быстрый режим применён. Проверь загрузку CPU и реальное видео YouTube.");
   }));
 }
+let telegramRelayDraftData=null,telegramRelayLoading=false;
+function telegramRelayPanel(){
+  const d=telegramRelayDraftData;
+  return `<section class="panel" id="telegram-relay-panel">
+    <div class="panel-head"><h2>Telegram · собственный WSS Worker (заготовка)</h2></div>
+    <p>${badge("Не активен · только настройки","warn")}</p>
+    <p class="subtle">У d2o Telegram использует локальный MTProto-прокси и может ретранслировать соединения через Cloudflare Worker. Здесь можно заранее указать адрес ВАШЕГО Worker. Сам прокси ещё не перенесён: сохранение адреса не меняет маршрутизацию, MTProto TCP, YouTube или firewall.</p>
+    <form id="telegram-relay-draft-form"><div class="field">
+      <label for="telegram-relay-host">Домен вашего Cloudflare Worker</label>
+      <input id="telegram-relay-host" autocomplete="off" spellcheck="false" value="${esc(d?.worker_host||"")}" placeholder="telegram-example.username.workers.dev">
+      <small>Только домен без https://, порта и /пути. Чужие публичные прокси не подключаются автоматически.</small>
+    </div>
+    <div class="form-actions"><button type="submit" ${telegramRelayLoading?"disabled":""}>Сохранить заготовку</button></div>
+    </form>
+    <p id="telegram-relay-status" class="subtle">${d?.worker_host?"Домен сохранён. Прокси и перенаправление выключены.":"Собственный Worker не задан; никакие внешние серверы не используются."}</p>
+    <p class="subtle">Исходный пример Worker: <a href="https://github.com/t0fox/d2o/blob/main/telegram/cloudflare/worker.js" target="_blank" rel="noopener noreferrer">t0fox/d2o / Cloudflare Worker</a>. До разработки совместимого sidecar этот блок не обеспечивает работу Telegram.</p>
+  </section>`;
+}
+async function loadTelegramRelayDraft(){
+  const el=$("#telegram-relay-panel");
+  if(!el||telegramRelayLoading)return;
+  telegramRelayLoading=true;
+  try{
+    const d=await api("telegram/relay-draft");
+    telegramRelayDraftData=d;
+    if(el!==$("#telegram-relay-panel"))return;
+    const input=el.querySelector("#telegram-relay-host");
+    if(input&&document.activeElement!==input)input.value=d.worker_host||"";
+    const status=el.querySelector("#telegram-relay-status");
+    if(status)status.textContent=d.worker_host?"Домен сохранён. Прокси и перенаправление выключены.":"Собственный Worker не задан; никакие внешние серверы не используются.";
+  }catch(err){const status=el.querySelector("#telegram-relay-status");if(status)status.textContent="Не удалось загрузить шаблон: "+err.message;}
+  finally{telegramRelayLoading=false;}
+}
+function bindTelegramRelayDraft(){
+  const form=$("#telegram-relay-draft-form");
+  if(!form)return;
+  form.addEventListener("submit",async event=>{
+    event.preventDefault();
+    const button=form.querySelector("button");
+    button.disabled=true;
+    try{
+      const input=form.querySelector("#telegram-relay-host");
+      const d=await api("telegram/relay-draft","PUT",{worker_host:input.value.trim().toLowerCase()});
+      telegramRelayDraftData=d;
+      $("#telegram-relay-status").textContent=d.worker_host?"Домен сохранён; прокси НЕ запущен.":"Заготовка очищена; прокси НЕ запущен.";
+      notify("Настройки собственного Telegram Worker сохранены без перезапуска обхода.");
+    }catch(err){notify(err.message,true);}
+    finally{button.disabled=false;}
+  });
+}
 function telegramNativePanel(){
   const enabled=Boolean(state.config.telegram_mtproto);
   return `<section class="panel" id="telegram-native-panel">
@@ -357,7 +408,7 @@ function bindTelegramNative(){
 }
 
 function profiles() {
-  return heading("Сервисы и домены", "Выберите сервис из каталога. Раскройте профиль для стратегии, доменов и проверок.") + youtubeVideoCheckPanel() + performanceRescuePanel() + telegramNativePanel() + serviceCatalog() + customServiceForm() + `<div class="service-profile-list">${state.config.profiles.map(profileCard).join("")}</div>`;
+  return heading("Сервисы и домены", "Выберите сервис из каталога. Раскройте профиль для стратегии, доменов и проверок.") + youtubeVideoCheckPanel() + performanceRescuePanel() + telegramNativePanel() + telegramRelayPanel() + serviceCatalog() + customServiceForm() + `<div class="service-profile-list">${state.config.profiles.map(profileCard).join("")}</div>`;
 }
 function readProfileDraft(id) {
   const p = structuredClone(state.config.profiles.find((p) => p.id === id));
@@ -511,6 +562,7 @@ function renderPage() {
                     ) +
                     '<div class="panel"><pre id="log-view" class="log-view">Загрузка…</pre></div>';
   bindActions();
+  if(page==="profiles")loadTelegramRelayDraft();
   if(page==="overview"){loadTelemetry();loadOverviewBoxes();}
   if(page==="device")loadDevice();
   if(page==="updates"){loadUpdates();loadSourceUpdates();}
@@ -534,7 +586,7 @@ async function action(fn) {
 }
 function bindDomainRetry(){const button=$("#domain-retry");if(!button||button.dataset.bound)return;button.dataset.bound="true";button.addEventListener("click",()=>action(async()=>{await api("domain-search","POST",state.domain_job.scope);notify("Домен поставлен в очередь полного автоподбора");}));}
 function bindActions() {
-  bindDomainRetry();bindMethodViews();bindTrials();bindCheckActions();bindYoutubeVideoCheck();bindYoutubeRestore();bindTelegramNative();bindPerformanceRescue();
+  bindDomainRetry();bindMethodViews();bindTrials();bindCheckActions();bindYoutubeVideoCheck();bindYoutubeRestore();bindTelegramNative();bindPerformanceRescue();bindTelegramRelayDraft();
   $("#method-search")?.addEventListener("input",e=>{methodQuery=e.target.value;$("#method-results").innerHTML=methodResults();bindMethodViews();});
   $("#method-family")?.addEventListener("change",e=>{methodFamily=e.target.value;$("#method-results").innerHTML=methodResults();bindMethodViews();});
   $("#update-check")?.addEventListener("click",async e=>{const button=e.currentTarget;button.disabled=true;try{await api("updates/check","POST",{});await loadUpdates(true);}catch(error){notify(error.message,true);button.disabled=false;}});
