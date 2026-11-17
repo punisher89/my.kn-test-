@@ -48,6 +48,7 @@ BASE_URL='{remote}'
 PREFIX=/opt
 printf '%s\\n' 'Installing {label} over SSH (existing panel updater unchanged)'
 [ "$(id -u)" -eq 0 ] || {{ echo "Connect to Entware SSH as root" >&2; exit 1; }}
+[ ! -f /etc/openwrt_release ] || {{ echo "Use install-openwrt-{source.lower()}.sh on OpenWrt, not the Entware installer" >&2; exit 1; }}
 command -v opkg >/dev/null || {{ echo "Entware opkg is required" >&2; exit 1; }}
 for tool in curl sha256sum tar awk mktemp; do
     command -v "$tool" >/dev/null || {{ echo "Missing required executable: $tool" >&2; exit 1; }}
@@ -82,6 +83,50 @@ printf '%s\\n' 'Installed {label}. Original signed panel updater is unchanged.'
 """
 
 
+def make_openwrt_installer(version, source, manifest_hash):
+    """Independent OpenWrt first-install wrapper; never invokes Entware."""
+    remote = f"https://raw.githubusercontent.com/{REPO}/refs/heads/{CHANNEL}/v{version}"
+    template = r"""#!/bin/sh
+# Keenetic Pilot _VERSION_ [ _SOURCE_ / OpenWrt experimental ]
+# This is the OpenWrt/fwch4 port, NOT the Entware or signed panel updater.
+set -eu
+VERSION='_VERSION_'
+MANIFEST_SHA256='_MANIFEST_'
+BASE_URL='_REMOTE_'
+[ "$(id -u)" = 0 ] || { echo "Root required on OpenWrt" >&2;exit 1; }
+[ -f /etc/openwrt_release ] && [ -f /etc/rc.common ] || { echo "NOT OpenWrt" >&2;exit 1; }
+for tool in curl sha256sum tar awk mktemp; do
+    command -v "$tool" >/dev/null || { echo "Missing $tool" >&2;exit 1; }
+done
+case "$(uname -m)" in
+    aarch64|arm64) ARCH=arm64;;
+    armv7*|armv8l) ARCH=arm;;
+    x86_64) ARCH=amd64;;
+    mipsel*) ARCH=mipsle;;
+    mips*) if grep -qi mipsel /etc/openwrt_release;then ARCH=mipsle;else ARCH=mips;fi;;
+    *) echo "Unsupported CPU architecture" >&2;exit 1;;
+esac
+FILE="keenetic-pilot-$VERSION-linux-$ARCH.tar.gz"
+STAGE=$(mktemp -d /tmp/.pilot-ow.XXXXXX)
+chmod 0700 "$STAGE"
+cleanup() { rm -rf "$STAGE"; }
+trap cleanup EXIT HUP INT TERM
+download() { curl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --show-error --location --retry 2 --connect-timeout 15 --max-time 180 "$1" -o "$2"; }
+download "$BASE_URL/SHA256SUMS" "$STAGE/SHA256SUMS"
+printf '%s  %s\n' "$MANIFEST_SHA256" "$STAGE/SHA256SUMS" | sha256sum -c -
+awk -v name="$FILE" '$2==name || $2=="./"name { print; count++ } END { if(count!=1)exit 1 }' "$STAGE/SHA256SUMS" > "$STAGE/selected.sha256"
+download "$BASE_URL/$FILE" "$STAGE/$FILE"
+(cd "$STAGE" && sha256sum -c selected.sha256)
+tar -xzf "$STAGE/$FILE" -C "$STAGE"
+[ -f "$STAGE/keenetic-pilot/scripts/install-openwrt.sh" ] || { echo "OpenWrt package installer missing" >&2;exit 1; }
+sh "$STAGE/keenetic-pilot/scripts/install-openwrt.sh" "$@"
+"""
+    return (template.replace("_VERSION_", version)
+                    .replace("_SOURCE_", source)
+                    .replace("_MANIFEST_", manifest_hash)
+                    .replace("_REMOTE_", remote))
+
+
 def package_files(source):
     version = (ROOT / "VERSION").read_text().strip()
     if not re.fullmatch(r"\d+\.\d+\.\d+-alpha\.\d+", version):
@@ -96,6 +141,7 @@ def package_files(source):
         f"{sha256(raw)}  {name}\n" for name, raw in sorted(archives.items())
     ).encode()
     installer = make_installer(version, source, sha256(manifest)).encode()
+    openwrt_installer = make_openwrt_installer(version, source, sha256(manifest)).encode()
     engine = {}
     for line in (ROOT / "dependencies" / "nfqws2.env").read_text().splitlines():
         if "=" in line:
@@ -121,6 +167,7 @@ def package_files(source):
         **archives,
         "SHA256SUMS": manifest,
         f"install-{source.lower()}.sh": installer,
+        f"install-openwrt-{source.lower()}.sh": openwrt_installer,
         "release-info.json": (json.dumps(info, indent=2, ensure_ascii=False) + "\n").encode(),
         "SOURCE.txt": (source + "\n").encode(),
     }
@@ -169,5 +216,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     v, payload, meta = package_files(args.source)
     print(json.dumps(meta, indent=2, ensure_ascii=False))
+    print("OPENWRT_INSTALLER_SHA256:", sha256(payload[f"install-openwrt-{args.source.lower()}.sh"]))
     if args.push:
         publish(v, payload)

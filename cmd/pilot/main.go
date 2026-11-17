@@ -30,7 +30,7 @@ func main() {
 }
 func run() error {
 	configPath := flag.String("config", "/opt/etc/keenetic-pilot/config.json", "конфигурация")
-	mode := flag.String("mode", "router", "router или development")
+	mode := flag.String("mode", "router", "router, openwrt или development")
 	initOnly := flag.Bool("init", false, "создать конфигурацию и ключ доступа; не запускать")
 	listen := flag.String("listen", "", "адрес панели при --init")
 	wan := flag.String("wan", "", "WAN-интерфейс при --init")
@@ -118,7 +118,7 @@ func run() error {
 		}
 		return err
 	}
-	if *mode != "router" && *mode != "development" {
+	if *mode != "router" && *mode != "openwrt" && *mode != "development" {
 		return fmt.Errorf("неизвестный режим %q", *mode)
 	}
 	tokenPath := filepath.Join(filepath.Dir(*configPath), "access-token")
@@ -130,6 +130,18 @@ func run() error {
 			return fmt.Errorf("ключ уже существует либо недоступен: %s", tokenPath)
 		}
 		c := pilot.DefaultConfig()
+		if *mode == "openwrt" {
+			// Start in safe monitor-only mode. Never enable NFQUEUE as a side
+			// effect of installing the OpenWrt edition.
+			c.PPE = false
+			c.QUIC = false
+			c.Auto = false
+			c.Adaptive = false
+			c.AdaptiveActive = false
+			c.Enabled = false
+			c.EngineDir = "/usr/lib/keenetic-pilot/engine"
+			c.RuntimeDir = "/tmp/keenetic-pilot-state"
+		}
 		if *autoNetwork {
 			info := pilot.DetectNetwork()
 			c.WAN = info.WAN
@@ -148,7 +160,11 @@ func run() error {
 		}
 		if *engine != "" {
 			c.EngineDir = *engine
-			c.RuntimeDir = filepath.Join(filepath.Dir(filepath.Dir(*engine)), "keenetic-pilot-state")
+			if *mode == "openwrt" {
+				c.RuntimeDir = "/tmp/keenetic-pilot-state"
+			} else {
+				c.RuntimeDir = filepath.Join(filepath.Dir(filepath.Dir(*engine)), "keenetic-pilot-state")
+			}
 		}
 		if err := c.Validate(); err != nil {
 			return err
@@ -230,6 +246,7 @@ func run() error {
 	}
 	if *doctor {
 		checks := pilot.Diagnose(c)
+		if *mode == "openwrt" { checks = pilot.DiagnoseOpenWrt(c) }
 		if err := json.NewEncoder(os.Stdout).Encode(checks); err != nil {
 			return err
 		}
@@ -255,9 +272,14 @@ func run() error {
 	buffer := &pilot.LogBuffer{}
 	var backend pilot.Backend = pilot.Development{}
 	if *mode == "router" {
+		if pilot.IsOpenWrt() {return fmt.Errorf("OpenWrt обнаружен: режим router использует Keenetic iptables/PPE; используйте --mode openwrt")}
 		backend = pilot.NewRouter(filepath.Dir(*configPath), buffer)
 	}
-	m := pilot.NewManager(c, *configPath, backend, pilot.HTTPProber{MarkDirect: *mode == "router"}, buffer)
+	if *mode == "openwrt" {
+		if !pilot.IsOpenWrt() {return fmt.Errorf("--mode openwrt доступен только на OpenWrt с procd")}
+		backend = pilot.NewOpenWrtRouter(buffer)
+	}
+	m := pilot.NewManager(c, *configPath, backend, pilot.HTTPProber{MarkDirect: *mode != "development"}, buffer)
 	listener, err := net.Listen("tcp", c.Listen)
 	if err != nil {
 		return err
