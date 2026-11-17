@@ -275,7 +275,7 @@ func run() error {
 		if !pilot.IsOpenWrt() {return fmt.Errorf("--mode openwrt доступен только на OpenWrt с procd")}
 		backend = pilot.NewOpenWrtRouter(buffer)
 	}
-	m := pilot.NewManager(c, *configPath, backend, pilot.HTTPProber{MarkDirect: *mode == "router"}, buffer)
+	m := pilot.NewManager(c, *configPath, backend, pilot.HTTPProber{MarkDirect: *mode != "development"}, buffer)
 	listener, err := net.Listen("tcp", c.Listen)
 	if err != nil {
 		return err
