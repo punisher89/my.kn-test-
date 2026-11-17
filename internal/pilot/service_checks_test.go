@@ -115,3 +115,18 @@ assert(packet('three.example.com',false,false,h13,base)=='fake-md5','global budg
 		t.Fatal("shared budget pause missing from history")
 	}
 }
+
+func TestBackgroundGuardThrottlesSnapshotLikeHighLoad(t *testing.T) {
+    highCPU := 68.94273127753303
+    underCPU := 40.0
+    mem := uint64(185233408)
+    d:=DeviceInfo{
+        CPUPercent: &highCPU, CPUCores: 2, Load: []float64{2.46,2.46,2.21},
+        MemoryTotal: 512946176, MemoryAvailable: &mem,
+    }
+    if got:=backgroundPressure(d);got=="" {t.Fatal("router load 2.46 on 2 cores was not throttled")}
+    d.CPUPercent=&underCPU
+    if got:=backgroundPressure(d);got=="" {t.Fatal("2-core 2.46 load escaped guard")}
+    d.Load=[]float64{0.4}
+    if got:=backgroundPressure(d);got!="" {t.Fatalf("healthy router unnecessarily held: %s",got)}
+}
