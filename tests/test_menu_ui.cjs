@@ -34,7 +34,7 @@ demo.checks={};
   if(url.pathname.endsWith('/domains')){syncs++;const id=url.pathname.split('/')[3],p=demo.config.profiles.find(p=>p.id===id);if(!p.domains.includes('static.customcdn.test'))p.domains.push('static.customcdn.test');p.domains_updated=new Date().toISOString();return json(demo);}
   if(url.pathname==='/api/config'){demo.config=req.postDataJSON();return json(demo);}
   if(url.pathname==='/api/services'){const s=demo.service_presets.find(s=>s.profile.id===req.postDataJSON().id);demo.config.profiles.push(structuredClone(s.profile));return json(demo);}
-  const file=url.pathname==='/'?'index.html':url.pathname.slice(1);if(!['index.html','app.js','style.css','setup.css','favicon.svg'].includes(file))return route.abort();
+  const file=url.pathname==='/'?'index.html':url.pathname.slice(1);if(!['index.html','app.js','music.js','style.css','setup.css','favicon.svg'].includes(file))return route.abort();
   return route.fulfill({body:read('internal/pilot/web/'+file),contentType:file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.svg')?'image/svg+xml':'text/html'});
  });
  await page.goto('http://pilot.test/#device');await page.locator('#device-data h3').first().waitFor();
