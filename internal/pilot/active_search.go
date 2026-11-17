@@ -449,6 +449,12 @@ func (m *Manager) activeTick(parent context.Context) {
 	if m.backend.Kind() != "router" || !c.Enabled || !c.Adaptive || !c.AdaptiveActive || !m.backend.Running() {
 		return
 	}
+	// Avoid scanning hundreds of captured connections, and do not launch
+	// more full HTTPS probes while the router is already CPU-bound.
+	// A manual check remains available; the running nfqws2 is unaffected.
+	if !m.backgroundAllowed(c) {
+		return
+	}
 	if err := m.syncDomainPlans(c); err != nil {
 		m.log.Add("Подтверждённые методы: " + err.Error())
 		return
