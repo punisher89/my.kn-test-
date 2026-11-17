@@ -103,10 +103,10 @@ func backgroundPressure(d DeviceInfo) string {
 	if d.MemoryAvailable != nil && (*d.MemoryAvailable < 16<<20 || (d.MemoryTotal > 0 && float64(*d.MemoryAvailable)/float64(d.MemoryTotal) < 0.08)) {
 		return "мало доступной памяти"
 	}
-	if d.CPUPercent != nil && *d.CPUPercent >= 85 {
-		return "CPU занят на 85% или больше"
+	if d.CPUPercent != nil && *d.CPUPercent >= 65 {
+		return "CPU занят на 65% или больше; фоновые проверки временно отложены"
 	}
-	if len(d.Load) > 0 && d.CPUCores > 0 && d.Load[0] >= float64(d.CPUCores)*1.5 {
+	if len(d.Load) > 0 && d.CPUCores > 0 && d.Load[0] >= float64(d.CPUCores) {
 		return "высокая очередь задач CPU"
 	}
 	return ""
