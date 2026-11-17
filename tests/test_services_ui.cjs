@@ -98,6 +98,15 @@ let additions=0,tunes=0,failNext=false;
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Profile page fits mobile width');
   await page.evaluate(()=>{location.hash='tune';});await page.locator('#tune-profile').waitFor();
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Tuner fits mobile width');
+  // Restore YouTube from the same panel without altering unrelated profiles.
+  await page.evaluate(()=>{location.hash='profiles';});
+  await page.locator('#youtube-restore').waitFor();
+  page.on('dialog',async dialog=>dialog.accept());
+  const otherBefore=demo.config.profiles.filter(p=>p.id!=='youtube').map(p=>({id:p.id,strategy:p.strategy}));
+  await page.locator('#youtube-restore').click();
+  await page.waitForFunction(()=>state.config.youtube_stable===true);
+  assert.equal(demo.config.profiles.find(p=>p.id==='youtube').strategy,'fake-host-md5');
+  assert.deepEqual(demo.config.profiles.filter(p=>p.id!=='youtube').map(p=>({id:p.id,strategy:p.strategy})),otherBefore);
   assert.deepEqual(errors,[]);
   console.log('PASS: service presets, add/remove, error recovery, preserved drafts, compact profiles, tuner selection, explicit tuning, busy recovery, mobile layout');
  }finally{await browser.close();}
