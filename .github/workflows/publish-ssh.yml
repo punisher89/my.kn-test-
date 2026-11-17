@@ -1,10 +1,10 @@
 name: Publish independent ChatGPT / Codex SSH release
 
-# The existing Ed25519-signed panel updater and 'packages' branch are untouched.
+# The existing Ed25519-signed panel updater and 'packages' branch are untouched.\n# Source release publishes alpha.20 [ChatGPT] only after complete unit/lifecycle checks.
 on:
   push:
     branches:
-      - feature/telegram-native-diagnostics
+      - feature/panel-source-updates
     paths:
       - .github/workflows/publish-ssh.yml
       - scripts/publish-ssh-release.py
@@ -28,7 +28,7 @@ concurrency:
 
 jobs:
   independent-ssh-release:
-    if: github.repository == 'punisher89/my.kn-test-' && github.ref == 'refs/heads/feature/telegram-native-diagnostics'
+    if: github.repository == 'punisher89/my.kn-test-' && github.ref == 'refs/heads/feature/panel-source-updates'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:

@@ -103,6 +103,32 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 		}
 		jsonReply(w, 202, m.Updates())
 	})
+	api("GET /api/updates/sources", func(w http.ResponseWriter, r *http.Request) {
+		jsonReply(w, 200, m.SourceUpdates())
+	})
+	api("POST /api/updates/sources/check", func(w http.ResponseWriter, r *http.Request) {
+		var input struct{ Source string `json:"source"` }
+		if !read(w,r,&input) {return}
+		if err:=m.CheckSourceUpdate(r.Context(),input.Source);err!=nil {replyError(w,err);return}
+		jsonReply(w,200,m.SourceUpdates())
+	})
+	api("POST /api/updates/sources/install", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {Source string `json:"source"`; Version string `json:"version"`}
+		if !read(w,r,&input){return}
+		if err:=m.StartSourceUpdate(input.Source,input.Version);err!=nil {replyError(w,err);return}
+		jsonReply(w,202,m.SourceUpdates())
+	})
+	api("GET /api/telegram/relay-draft", func(w http.ResponseWriter, r *http.Request) {
+		jsonReply(w, 200, m.TelegramRelayDraft())
+	})
+	api("PUT /api/telegram/relay-draft", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {WorkerHost string `json:"worker_host"`}
+		if !read(w,r,&input){return}
+		result,err:=m.SaveTelegramRelayDraft(input.WorkerHost)
+		if err!=nil {replyError(w,err);return}
+		jsonReply(w,200,result)
+	})
+	api("GET /api/preflight", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, m.Preflight()) })
 	api("GET /api/device", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, m.Device()) })
 	api("GET /api/status", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, m.Snapshot()) })
 	api("POST /api/catalog/update", func(w http.ResponseWriter, r *http.Request) {

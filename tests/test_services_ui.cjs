@@ -6,6 +6,7 @@ const read=(p)=>fs.readFileSync(path.join(root,p));
 const demo=JSON.parse(read('design/demo-state.json'));
 demo.service_presets=JSON.parse(read('internal/pilot/service-presets.json'));
 let additions=0,tunes=0,failNext=false;
+let relay={worker_host:'',status:'draft_only',can_route:false,source:'t0fox/d2o design reference',uses_external_worker:false,notes:[]};let relayWrites=0;
 (async()=>{
  const browser=await chromium.launch({headless:true,executablePath:process.env.PILOT_CHROMIUM});
  try{
@@ -16,6 +17,15 @@ let additions=0,tunes=0,failNext=false;
    const json=(body,status=200)=>route.fulfill({status,json:body});
    if(url.pathname==='/auth/status')return json({configured:true,authenticated:true});
    if(url.pathname==='/api/status')return json(demo);
+   if(url.pathname==='/api/telegram/relay-draft'){
+     if(method==='PUT'){
+       assert.deepEqual(Object.keys(route.request().postDataJSON()),['worker_host']);
+       const host=route.request().postDataJSON().worker_host;
+       relay={...relay,worker_host:host,uses_external_worker:Boolean(host)};
+       relayWrites++;return json(relay);
+     }
+     return json(relay);
+   }
    if(url.pathname==='/api/services'&&method==='POST'){
     if(failNext){failNext=false;return json({error:'Тестовая ошибка добавления'},500);}
     const body=route.request().postDataJSON();assert.deepEqual(Object.keys(body),['id']);
@@ -122,6 +132,17 @@ let additions=0,tunes=0,failNext=false;
   await page.locator("#telegram-native-toggle").click();
   await page.waitForFunction(()=>state.config.telegram_mtproto===false);
   assert.equal(JSON.stringify(demo.config.profiles),profilesBefore);
+  const relayPanel=page.locator("#telegram-relay-panel");
+  await relayPanel.waitFor();
+  assert.match(await relayPanel.innerText(),/Не активен/);
+  assert.equal(await page.locator("#telegram-relay-host").inputValue(),"");
+  await page.locator("#telegram-relay-host").fill("my-telegram.example.workers.dev");
+  await page.locator("#telegram-relay-draft-form button[type=submit]").click();
+  await page.waitForFunction(()=>telegramRelayDraftData?.worker_host==="my-telegram.example.workers.dev");
+  assert.equal(relayWrites,1,"expected only a draft save");
+  assert.equal(JSON.stringify(demo.config.profiles),profilesBefore,"Relay template must not modify native routing");
+  assert.match(await relayPanel.innerText(),/Прокси НЕ запущен|Прокси и перенаправление выключены/);
+
   // A one-click recovery reduces load but must preserve unrelated profiles and MTProto.
   const before=JSON.stringify(demo.config.profiles.filter(p=>p.id!=="youtube"));
   const nativeSetting=demo.config.telegram_mtproto;

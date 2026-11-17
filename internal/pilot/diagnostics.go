@@ -13,6 +13,7 @@ import (
 // Snapshot, logs, or arbitrary error text: they can contain URLs or credentials.
 type DiagnosticReport struct {
 	Resources            DiagnosticResources     `json:"resources"`
+	Preflight            RouterPreflight         `json:"preflight"`
 	ActiveSearch         *DiagnosticActiveSearch `json:"active_search,omitempty"`
 	SchemaVersion        int                     `json:"schema_version"`
 	GeneratedAt          time.Time               `json:"generated_at"`
@@ -180,6 +181,7 @@ func (m *Manager) Diagnostics() DiagnosticReport {
 	a := ReadAdaptive(s.Config)
 	d := DiagnosticReport{
 		SchemaVersion: 1, GeneratedAt: now, Version: s.Version, Platform: runtime.GOOS + "/" + runtime.GOARCH,
+		Preflight: m.Preflight(),
 		Service:  DiagnosticService{Mode: s.Mode, Enabled: s.Config.Enabled, Running: s.Running, Busy: s.Busy, HasError: s.Error != ""},
 		Settings: DiagnosticSettings{Active: s.Config.AdaptiveActive, FastStart: s.Config.AdaptiveFastStart, GlobalMaxSwitches: s.Config.AdaptiveGlobalMaxSwitches, ProbeLoadGuard: s.Config.ProbeLoadGuard, WAN: s.Config.WAN, IPv6: s.Config.IPv6, PPE: s.Config.PPE, QUIC: s.Config.QUIC, DiscordVoice: s.Config.DiscordVoice, TelegramMTProto: s.Config.TelegramMTProto, YouTubeStable: s.Config.YouTubeStable, Adaptive: s.Config.Adaptive, Reuse: s.Config.AdaptiveReuse, CooldownSeconds: s.Config.AdaptiveCooldownSeconds, MaxSwitches: s.Config.AdaptiveMaxSwitches, CatalogRevision: s.Config.CatalogRevision},
 		Profiles: []DiagnosticProfile{}, Methods: []DiagnosticMethod{},

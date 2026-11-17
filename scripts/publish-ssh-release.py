@@ -96,11 +96,20 @@ def package_files(source):
         f"{sha256(raw)}  {name}\n" for name, raw in sorted(archives.items())
     ).encode()
     installer = make_installer(version, source, sha256(manifest)).encode()
+    engine = {}
+    for line in (ROOT / "dependencies" / "nfqws2.env").read_text().splitlines():
+        if "=" in line:
+            key, value = line.split("=", 1)
+            engine[key] = value.strip().strip("'\\\"")
+    if not engine.get("ENGINE_VERSION") or not re.fullmatch(r"[a-f0-9]{64}", engine.get("ENGINE_SHA256", "")):
+        raise RuntimeError("Missing pinned nfqws2 engine in release metadata")
     info = {
         "kind": "pilot-ssh-release",
         "version": version,
         "source": source,
         "channel": "ssh",
+        "engine_version": engine["ENGINE_VERSION"],
+        "engine_sha256": engine["ENGINE_SHA256"],
         "git_sha": git("rev-parse", "HEAD"),
         "published_at": datetime.now(timezone.utc).isoformat(),
         "manifest_sha256": sha256(manifest),
@@ -119,6 +128,11 @@ def package_files(source):
 
 
 def publish(version, files):
+    files = dict(files)
+    info = json.loads(files["release-info.json"])
+    # A small per-source discovery pointer is independent of signed packages/latest.json.
+    # This lives exclusively in the separate ssh-releases branch.
+    files[f"latest-{info['source'].lower()}.json"] = files["release-info.json"]
     remote = git("ls-remote", "origin", f"refs/heads/{CHANNEL}")
     parent = None
     if remote:
@@ -135,8 +149,9 @@ def publish(version, files):
         git("read-tree", parent or "--empty", env=env)
         for name, data in files.items():
             sha = git("hash-object", "-w", "--stdin", data=data)
+            path = name if name.startswith("latest-") and name.endswith(".json") else f"v{version}/{name}"
             git("update-index", "--add", "--cacheinfo",
-                f"100644,{sha},v{version}/{name}", env=env)
+                f"100644,{sha},{path}", env=env)
         tree = git("write-tree", env=env)
         commit = git(
             *(["commit-tree", tree] + (["-p", parent] if parent else [])),
