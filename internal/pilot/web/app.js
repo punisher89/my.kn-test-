@@ -63,6 +63,7 @@ async function logout() {
   checkOpen.clear();cpuSamples.length=0;deviceData=null;
   videoProbeReport=null; videoProbeBusy=false;
   serviceCatalogQuery = ""; serviceCatalogOpen = false; selectedTuneProfile = "";
+  preflightCached="";preflightUpdated=0;
   token = "";
   sessionStorage.removeItem("pilot-token");
   $("#shell").classList.add("hidden");
@@ -1090,9 +1091,11 @@ let sourceUpdatesData=null,sourceUpdatesLoading=false,sourceUpdatesSerial=0;
 const prettyBytes=n=>n==null?"недоступно":n>=1048576?(n/1048576).toFixed(1)+" МиБ":n>=1024?(n/1024).toFixed(1)+" КиБ":Math.round(n)+" Б";
 function devicePage(){return heading("Роутер","Данные устройства, на котором запущен Pilot. Недоступные датчики не заменяются примерными значениями.")+`<div id="device-data">Загрузка…</div><section class="panel"><h2>Проверка среды Keenetic / Entware</h2><p class="subtle">Пассивная проверка по идеям MY.KN. Никакие службы, правила NFQUEUE и подключённые носители не изменяются.</p><div id="preflight-data">Загрузка…</div></section>`;}
 async function loadDevice(){const target=$("#device-data");if(!target||deviceLoading)return;deviceLoading=true;try{const d=await api("device");if(target!==$("#device-data"))return;deviceData=d;target.innerHTML=`<div class="stats-grid"><div class="panel"><h3>Процессор</h3><strong>${d.cpu_percent==null?(d.cpu_sample_available?"ожидается второй замер":"недоступно"):d.cpu_percent.toFixed(1)+" %"}</strong><p>Ядер: ${d.cpu_cores}</p><small>Load 1/5/15 мин: ${d.load.length?d.load.map(v=>v.toFixed(2)).join(" / "):"недоступно"}</small></div><div class="panel"><h3>Память</h3><strong>${d.memory_available==null?"недоступно":prettyBytes(d.memory_total-d.memory_available)+" занято"}</strong><p>Всего: ${prettyBytes(d.memory_total||null)}</p><small>Доступно: ${prettyBytes(d.memory_available)}</small></div><div class="panel"><h3>Температура</h3>${d.temperatures.length?d.temperatures.map(t=>`<p><strong>${t.celsius.toFixed(1)} °C</strong> · ${esc(t.name)}</p>`).join(""):'<p>Недоступно: прошивка не предоставляет датчик Pilot.</p>'}</div></div><div class="panel"><h3>${esc(d.model||"Модель не предоставлена прошивкой")}</h3><p>${esc(d.platform)} · ядро ${esc(d.kernel||"неизвестно")}</p><p>Время работы: ${d.uptime_seconds==null?"недоступно":Math.floor(d.uptime_seconds/86400)+" д "+Math.floor(d.uptime_seconds%86400/3600)+" ч "+Math.floor(d.uptime_seconds%3600/60)+" мин"}</p><p>WAN ${esc(d.wan||"не задан")}: получено ${prettyBytes(d.rx_bytes)}, передано ${prettyBytes(d.tx_bytes)}</p><p>Сейчас: ↓ ${prettyBytes(d.rx_bytes_per_second)}/с · ↑ ${prettyBytes(d.tx_bytes_per_second)}/с</p></div>`;}catch(e){if(target===$("#device-data"))target.textContent="Не удалось получить данные: "+e.message;}finally{deviceLoading=false;loadPreflight();}}
+let preflightCached="",preflightUpdated=0;
 async function loadPreflight(){
   const el=$("#preflight-data");
   if(!el)return;
+  if(preflightCached&&Date.now()-preflightUpdated<60000){el.innerHTML=preflightCached;return;}
   try{
     const d=await api("preflight");
     if(el!==$("#preflight-data"))return;
@@ -1107,6 +1110,8 @@ async function loadPreflight(){
       <p>Обнаружены установленные службы: ${installed.length?installed.map(esc).join(", "):"не обнаружены"}</p>
       ${(d.notes||[]).map(n=>`<p class="subtle">${esc(n)}</p>`).join("")}
       <small>Наличие файла службы не означает её запуск. Тип накопителя не доказывает, что это внутренняя память.</small>`;
+    preflightCached=el.innerHTML;
+    preflightUpdated=Date.now();
   }catch(err){if(el===$("#preflight-data"))el.textContent="Проверка среды недоступна: "+err.message;}
 }
 function updatesPage(){return heading("Обновления","Обновление Pilot, панели и закреплённого nfqws2 с сохранением настроек.")+`<div class="panel"><div id="update-info">Загрузка…</div><div class="form-actions"><button id="update-check">Проверить версию</button><button id="update-install" class="primary" disabled>Установить обновление</button></div><p class="subtle">Выпуск проверяется по подписи и SHA-256. Перед остановкой службы проверяются пакет и конфигурация; установщик сохраняет прежнюю версию для отката при ошибке. Текущий подбор будет отменён перед установкой. Будет краткий перерыв. После перезапуска войдите с прежним паролем.</p></div><div class="panel"><h3>ChatGPT / Codex · отдельные обновления</h3><p class="subtle">Это дополнительный канал GitHub HTTPS + SHA-256, без независимой подписи Ed25519. Автор указан издателем в GitHub, а не подтверждён криптографически. Старый подписанный канал выше оставлен без изменений.</p><div id="source-update-info">Загрузка сведений об источниках…</div></div><div class="panel"><h3>Каталог методов</h3><p>Подписанные стратегии можно загрузить отдельно от приложения.</p><button id="catalog-update">Загрузить стратегии сейчас</button></div>`;}
