@@ -54,6 +54,7 @@ function notify(message, error = false) {
   toastTimer = setTimeout(() => toast.classList.add("hidden"), 6000);
 }
 async function logout() {
+  document.dispatchEvent(new Event("pilot-logout"));
   signedIn = false;
   adaptiveData = null;
   adaptiveDrafts.clear();
