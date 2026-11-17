@@ -285,6 +285,38 @@ function bindYoutubeVideoCheck(){
   });
 }
 
+function performanceRescuePanel(){
+  const c=state.config, active=!c.adaptive&&!c.adaptive_active&&!c.auto&&!c.quic&&c.youtube_stable;
+  return `<section class="panel" id="performance-rescue">
+    <div class="panel-head"><h2>Быстрый режим · снизить нагрузку</h2></div>
+    <p>${badge(active?"Режим включён":"Готов к включению",active?"neutral":"warn")}</p>
+    <p class="subtle">Диагностика показала высокий load и очередь 64 контекста. Выключить фоновые подборы и обработку QUIC/UDP 443, закрепить для YouTube ранее работавший fake-host-md5. Это сократит загрузку, но не доказывает работоспособность видео. Остальные профили и MTProto не меняются.</p>
+    <div class="form-actions"><button id="performance-rescue-apply" class="primary" ${active||state.busy||serviceMutationPending?"disabled":""}>Применить быстрый режим</button></div>
+    <small>Изменятся только adaptive, adaptive_active, auto, quic, youtube_stable и стратегия YouTube. Вернуть каждый переключатель можно в «Настройках». Служба кратко перезапустится.</small>
+  </section>`;
+}
+function bindPerformanceRescue(){
+  const button=$("#performance-rescue-apply");
+  if(!button)return;
+  button.addEventListener("click",()=>serviceAction(async()=>{
+    if(!window.confirm("Уменьшить нагрузку: выключить автоподбор и QUIC, закрепить fake-host-md5 для YouTube? Другие сервисы и MTProto не изменятся."))return;
+    const c=structuredClone(state.config);
+    c.adaptive=false;
+    c.adaptive_active=false;
+    c.auto=false;
+    c.quic=false;
+    c.youtube_stable=true;
+    const p=c.profiles.find(p=>p.id==="youtube");
+    if(p){
+      const preset=(state.service_presets||[]).find(s=>s.profile.id==="youtube");
+      if(preset)p.domains=expandedProfileDomains(p,preset,c.profiles);
+      p.strategy="fake-host-md5";
+    }
+    await api("config","PUT",c);
+    profileDrafts.delete("youtube");
+    notify("Быстрый режим применён. Проверь загрузку CPU и реальное видео YouTube.");
+  }));
+}
 function telegramNativePanel(){
   const enabled=Boolean(state.config.telegram_mtproto);
   return `<section class="panel" id="telegram-native-panel">
@@ -308,7 +340,7 @@ function bindTelegramNative(){
 }
 
 function profiles() {
-  return heading("Сервисы и домены", "Выберите сервис из каталога. Раскройте профиль для стратегии, доменов и проверок.") + youtubeVideoCheckPanel() + telegramNativePanel() + serviceCatalog() + customServiceForm() + `<div class="service-profile-list">${state.config.profiles.map(profileCard).join("")}</div>`;
+  return heading("Сервисы и домены", "Выберите сервис из каталога. Раскройте профиль для стратегии, доменов и проверок.") + youtubeVideoCheckPanel() + performanceRescuePanel() + telegramNativePanel() + serviceCatalog() + customServiceForm() + `<div class="service-profile-list">${state.config.profiles.map(profileCard).join("")}</div>`;
 }
 function readProfileDraft(id) {
   const p = structuredClone(state.config.profiles.find((p) => p.id === id));
@@ -485,7 +517,7 @@ async function action(fn) {
 }
 function bindDomainRetry(){const button=$("#domain-retry");if(!button||button.dataset.bound)return;button.dataset.bound="true";button.addEventListener("click",()=>action(async()=>{await api("domain-search","POST",state.domain_job.scope);notify("Домен поставлен в очередь полного автоподбора");}));}
 function bindActions() {
-  bindDomainRetry();bindMethodViews();bindTrials();bindCheckActions();bindYoutubeVideoCheck();bindYoutubeRestore();bindTelegramNative();
+  bindDomainRetry();bindMethodViews();bindTrials();bindCheckActions();bindYoutubeVideoCheck();bindYoutubeRestore();bindTelegramNative();bindPerformanceRescue();
   $("#method-search")?.addEventListener("input",e=>{methodQuery=e.target.value;$("#method-results").innerHTML=methodResults();bindMethodViews();});
   $("#method-family")?.addEventListener("change",e=>{methodFamily=e.target.value;$("#method-results").innerHTML=methodResults();bindMethodViews();});
   $("#update-check")?.addEventListener("click",async e=>{const button=e.currentTarget;button.disabled=true;try{await api("updates/check","POST",{});await loadUpdates(true);}catch(error){notify(error.message,true);button.disabled=false;}});
