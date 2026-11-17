@@ -28,6 +28,8 @@ func TestOpenWrtNftRulesIsolatedFailOpenAndBounded(t *testing.T) {
   "meta nfproto ipv4",
   "ct direction original ct original packets <= 20",
   "ct direction reply ct reply packets <= 20",
+  "tcp dport { 80, 443",
+  "tcp sport { 80, 443",
   "queue num 220 bypass",
   `comment "keenetic-pilot:openwrt"`,
  }{
@@ -43,7 +45,7 @@ func TestOpenWrtRuleOptionalProtoAndWANValidation(t *testing.T) {
  c.TelegramMTProto=true;c.DiscordVoice=true;c.QUIC=true;c.IPv6=true
  got,err:=OpenWrtNftRules(c)
  if err!=nil{t.Fatal(err)}
- for _,required:=range []string{"5222","udp dport { 443, 50000-50099 }","queue num 220 bypass","ct direction reply"} {
+ for _,required:=range []string{"5222","udp dport { 443, 50000-50099 }", "udp sport { 443, 50000-50099 }","queue num 220 bypass","ct direction reply"} {
   if !strings.Contains(got,required) {t.Fatalf("missing %q",required)}
  }
  if strings.Contains(got,"meta nfproto ipv4"){t.Fatal("IPv6 enabled but nft explicitly filters it")}
