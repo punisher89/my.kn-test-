@@ -38,7 +38,6 @@ class SSHInstallerTests(unittest.TestCase):
             self.assertNotIn("--skip-packages", script)
             self.assertNotIn("S98keenetic-pilot", script)
             self.assertNotIn("PREFIX=/opt", script)
-            self.assertIn("ROOT", str(ROOT))
 
     def test_publisher_metadata_contains_pinned_engine_and_source(self):
         version, files, info = mod.package_files("ChatGPT")
