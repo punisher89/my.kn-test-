@@ -70,6 +70,8 @@ type DiagnosticSettings struct {
 	PPE               bool   `json:"ppe"`
 	QUIC              bool   `json:"quic"`
 	DiscordVoice      bool   `json:"discord_voice"`
+	TelegramMTProto  bool   `json:"telegram_mtproto"`
+	YouTubeStable    bool   `json:"youtube_stable"`
 	Adaptive          bool   `json:"adaptive"`
 	Reuse             bool   `json:"reuse"`
 	CooldownSeconds   int    `json:"cooldown_seconds"`
@@ -179,7 +181,7 @@ func (m *Manager) Diagnostics() DiagnosticReport {
 	d := DiagnosticReport{
 		SchemaVersion: 1, GeneratedAt: now, Version: s.Version, Platform: runtime.GOOS + "/" + runtime.GOARCH,
 		Service:  DiagnosticService{Mode: s.Mode, Enabled: s.Config.Enabled, Running: s.Running, Busy: s.Busy, HasError: s.Error != ""},
-		Settings: DiagnosticSettings{Active: s.Config.AdaptiveActive, FastStart: s.Config.AdaptiveFastStart, GlobalMaxSwitches: s.Config.AdaptiveGlobalMaxSwitches, ProbeLoadGuard: s.Config.ProbeLoadGuard, WAN: s.Config.WAN, IPv6: s.Config.IPv6, PPE: s.Config.PPE, QUIC: s.Config.QUIC, DiscordVoice: s.Config.DiscordVoice, Adaptive: s.Config.Adaptive, Reuse: s.Config.AdaptiveReuse, CooldownSeconds: s.Config.AdaptiveCooldownSeconds, MaxSwitches: s.Config.AdaptiveMaxSwitches, CatalogRevision: s.Config.CatalogRevision},
+		Settings: DiagnosticSettings{Active: s.Config.AdaptiveActive, FastStart: s.Config.AdaptiveFastStart, GlobalMaxSwitches: s.Config.AdaptiveGlobalMaxSwitches, ProbeLoadGuard: s.Config.ProbeLoadGuard, WAN: s.Config.WAN, IPv6: s.Config.IPv6, PPE: s.Config.PPE, QUIC: s.Config.QUIC, DiscordVoice: s.Config.DiscordVoice, TelegramMTProto: s.Config.TelegramMTProto, YouTubeStable: s.Config.YouTubeStable, Adaptive: s.Config.Adaptive, Reuse: s.Config.AdaptiveReuse, CooldownSeconds: s.Config.AdaptiveCooldownSeconds, MaxSwitches: s.Config.AdaptiveMaxSwitches, CatalogRevision: s.Config.CatalogRevision},
 		Profiles: []DiagnosticProfile{}, Methods: []DiagnosticMethod{},
 		Rules:      DiagnosticRules{Pins: []DiagnosticPin{}, Paused: append([]string{}, s.Config.PausedDomains...), Exclusions: append([]string{}, s.Config.Exclusions...)},
 		Generation: a.Generation, ObservationReadError: a.Error != "", Storage: []DiagnosticSlot{},
