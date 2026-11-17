@@ -95,3 +95,22 @@ func TestVideoProbeAPIAuthAndNeverEchoesSignedURL(t *testing.T) {
     }
     if m.Snapshot().Checks["youtube"].Passed { t.Fatal("URL validation incorrectly marked video as verified") }
 }
+
+func TestCDNWithoutSignedVideoEvidenceRetainsWorkingStrategy(t *testing.T) {
+    m, cfg, _, scope := activeFixture(t)
+    scope.Host = "rr1---sn-ab.googlevideo.com"
+    m.domainJob.Scope = scope
+    calls := 0
+    m.activeProbeHook = func(_ context.Context, _ Config, _ DomainScope, _ Target, _ string) activeEvidence {
+        calls++
+        return evidence(true, true)
+    }
+    original := cfg.Profiles[0].Strategy
+    stage, _ := m.searchDomain(context.Background(),cfg,scope)
+    if stage != "unmeasured" || m.domainJob.Reason != "video_url_required" {
+        t.Fatalf("CDN generic HTTP was mistaken for a video: %+v", m.domainJob)
+    }
+    if calls != 0 || len(m.domainPlans.Plans) != 0 || cfg.Profiles[0].Strategy != original {
+        t.Fatal("unverified CDN response changed the working method")
+    }
+}
