@@ -285,8 +285,30 @@ function bindYoutubeVideoCheck(){
   });
 }
 
+function telegramNativePanel(){
+  const enabled=Boolean(state.config.telegram_mtproto);
+  return \`<section class="panel" id="telegram-native-panel">
+    <div class="panel-head"><h2>Telegram · приложение (MTProto TCP)</h2></div>
+    <p>\${badge(enabled?"MTProto TCP включён":"MTProto TCP выключен",enabled?"neutral":"warn")}</p>
+    <p class="subtle">Отдельный режим для Telegram Desktop и мобильного приложения. Не требует добавления Telegram Web в каталог. Обрабатывается только распознанное начало MTProto TCP на портах 80, 443 и 5222.</p>
+    <div class="form-actions"><button type="button" id="telegram-native-toggle" \${state.busy||serviceMutationPending?"disabled":""}>\${enabled?"Выключить MTProto TCP":"Включить MTProto TCP"}</button></div>
+    <small>Экспериментально: реальная отправка сообщений не проверена. Звонки/UDP не поддерживаются. Сохранение кратко перезапускает движок; YouTube и другие профили сохраняются.</small>
+  </section>\`;
+}
+function bindTelegramNative(){
+  const button=$("#telegram-native-toggle");
+  if(!button)return;
+  button.addEventListener("click",()=>serviceAction(async()=>{
+    const next=!Boolean(state.config.telegram_mtproto);
+    const c=structuredClone(state.config);
+    c.telegram_mtproto=next;
+    await api("config","PUT",c);
+    notify(next?"MTProto TCP включён. Проверь сообщения в приложении Telegram.":"MTProto TCP выключен. Остальные сервисы не изменены.");
+  }));
+}
+
 function profiles() {
-  return heading("Сервисы и домены", "Выберите сервис из каталога. Раскройте профиль для стратегии, доменов и проверок.") + youtubeVideoCheckPanel() + serviceCatalog() + customServiceForm() + `<div class="service-profile-list">${state.config.profiles.map(profileCard).join("")}</div>`;
+  return heading("Сервисы и домены", "Выберите сервис из каталога. Раскройте профиль для стратегии, доменов и проверок.") + youtubeVideoCheckPanel() + telegramNativePanel() + serviceCatalog() + customServiceForm() + `<div class="service-profile-list">${state.config.profiles.map(profileCard).join("")}</div>`;
 }
 function readProfileDraft(id) {
   const p = structuredClone(state.config.profiles.find((p) => p.id === id));
@@ -463,7 +485,7 @@ async function action(fn) {
 }
 function bindDomainRetry(){const button=$("#domain-retry");if(!button||button.dataset.bound)return;button.dataset.bound="true";button.addEventListener("click",()=>action(async()=>{await api("domain-search","POST",state.domain_job.scope);notify("Домен поставлен в очередь полного автоподбора");}));}
 function bindActions() {
-  bindDomainRetry();bindMethodViews();bindTrials();bindCheckActions();bindYoutubeVideoCheck();bindYoutubeRestore();
+  bindDomainRetry();bindMethodViews();bindTrials();bindCheckActions();bindYoutubeVideoCheck();bindYoutubeRestore();bindTelegramNative();
   $("#method-search")?.addEventListener("input",e=>{methodQuery=e.target.value;$("#method-results").innerHTML=methodResults();bindMethodViews();});
   $("#method-family")?.addEventListener("change",e=>{methodFamily=e.target.value;$("#method-results").innerHTML=methodResults();bindMethodViews();});
   $("#update-check")?.addEventListener("click",async e=>{const button=e.currentTarget;button.disabled=true;try{await api("updates/check","POST",{});await loadUpdates(true);}catch(error){notify(error.message,true);button.disabled=false;}});
