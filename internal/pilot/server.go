@@ -118,6 +118,7 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 		if err:=m.StartSourceUpdate(input.Source,input.Version);err!=nil {replyError(w,err);return}
 		jsonReply(w,202,m.SourceUpdates())
 	})
+	api("GET /api/preflight", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, m.Preflight()) })
 	api("GET /api/device", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, m.Device()) })
 	api("GET /api/status", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, m.Snapshot()) })
 	api("POST /api/catalog/update", func(w http.ResponseWriter, r *http.Request) {
