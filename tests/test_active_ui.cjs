@@ -18,7 +18,7 @@ let cancels=0,retries=0;
   if(url.pathname==='/api/domain-search'){assert.deepEqual(req.postDataJSON(),scope);retries++;demo.busy=true;demo.domain_job.stage='direct';delete demo.domain_job.finished;return json(demo,202);}
   if(url.pathname==='/api/adaptive')return json(adaptive);
   if(url.pathname==='/api/device')return json({cpu_cores:4,cpu_percent:null,cpu_sample_available:true,load:[],memory_total:0,memory_available:null,temperatures:[],wan:'ppp0'});
-  const file=url.pathname==='/'?'index.html':url.pathname.slice(1);if(!['index.html','app.js','style.css','setup.css','favicon.svg'].includes(file))return route.abort();
+  const file=url.pathname==='/'?'index.html':url.pathname.slice(1);if(!['index.html','app.js','music.js','style.css','setup.css','favicon.svg'].includes(file))return route.abort();
   return route.fulfill({body:read('internal/pilot/web/'+file),contentType:file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.svg')?'image/svg+xml':'text/html'});
  });
  await page.goto('http://pilot.test/#tune');await page.locator('.domain-search-report').waitFor();

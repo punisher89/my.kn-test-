@@ -23,7 +23,11 @@ sh scripts/fetch-engine.sh "$NATIVE/engine" amd64
 PILOT_TEST_ENGINE=$NATIVE/engine "$GO" test -race ./...
 "$GO" vet ./...
 for FILE in install.sh scripts/*.sh packaging/*; do sh -n "$FILE"; done
-if command -v node >/dev/null 2>&1; then node --check internal/pilot/web/app.js; fi
+if command -v node >/dev/null 2>&1; then
+    node --check internal/pilot/web/app.js
+    node --check internal/pilot/web/music.js
+    node tests/test_music_ui.cjs
+fi
 if [ "${PILOT_TEST_BROWSER:-0}" = "1" ]; then
     node tests/test_boxes_ui.cjs
     node tests/test_services_ui.cjs
