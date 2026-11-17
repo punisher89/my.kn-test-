@@ -41,7 +41,7 @@ let relay={worker_host:'',status:'draft_only',can_route:false,source:'t0fox/d2o 
     tunes++;demo.busy=true;demo.job={profile:route.request().postDataJSON().profile,stage:'direct',started:new Date().toISOString(),trials:[]};return json(demo,202);
    }
    const file=url.pathname==='/'?'index.html':url.pathname.slice(1);
-   if(!['index.html','app.js','style.css','setup.css','favicon.svg'].includes(file))return route.abort();
+   if(!['index.html','app.js','music.js','style.css','setup.css','favicon.svg'].includes(file))return route.abort();
    return route.fulfill({body:read('internal/pilot/web/'+file),contentType:file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.svg')?'image/svg+xml':'text/html'});
   });
   await page.goto('http://pilot.test/#profiles');
