@@ -26,6 +26,18 @@ class SSHInstallerTests(unittest.TestCase):
             self.assertNotIn("latest.json", script)
             self.assertNotIn("packages/latest.json", script)
 
+    def test_publisher_metadata_contains_pinned_engine_and_source(self):
+        version, files, info = mod.package_files("ChatGPT")
+        self.assertEqual(version, (ROOT / "VERSION").read_text().strip())
+        self.assertEqual(info["source"], "ChatGPT")
+        self.assertEqual(info["channel"], "ssh")
+        self.assertTrue(info["engine_version"])
+        self.assertEqual(len(info["engine_sha256"]), 64)
+        self.assertEqual(files["SOURCE.txt"], b"ChatGPT\\n")
+        self.assertEqual(info["manifest_sha256"], hashlib.sha256(files["SHA256SUMS"]).hexdigest())
+        self.assertIn(f"install-chatgpt.sh", files)
+        self.assertEqual(info["installer_sha256"], hashlib.sha256(files["install-chatgpt.sh"]).hexdigest())
+
     def test_no_implicit_source(self):
         with self.assertRaises(RuntimeError):
             mod.package_files("Unknown")
