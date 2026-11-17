@@ -26,6 +26,20 @@ class SSHInstallerTests(unittest.TestCase):
             self.assertNotIn("latest.json", script)
             self.assertNotIn("packages/latest.json", script)
 
+    def test_openwrt_installer_is_pinned_and_never_calls_entware(self):
+        marker = hashlib.sha256(b"openwrt-test-manifest").hexdigest()
+        for source in ("ChatGPT", "Codex"):
+            script = mod.make_openwrt_installer("0.2.0-alpha.22", source, marker)
+            self.assertIn("install-openwrt.sh", script)
+            self.assertIn(marker, script)
+            self.assertIn("/etc/openwrt_release", script)
+            self.assertIn("sha256sum -c", script)
+            self.assertIn("refs/heads/ssh-releases/v0.2.0-alpha.22", script)
+            self.assertNotIn("--skip-packages", script)
+            self.assertNotIn("S98keenetic-pilot", script)
+            self.assertNotIn("PREFIX=/opt", script)
+            self.assertIn("ROOT", str(ROOT))
+
     def test_publisher_metadata_contains_pinned_engine_and_source(self):
         version, files, info = mod.package_files("ChatGPT")
         self.assertEqual(version, (ROOT / "VERSION").read_text().strip())
@@ -36,6 +50,8 @@ class SSHInstallerTests(unittest.TestCase):
         self.assertEqual(files["SOURCE.txt"], b"ChatGPT\n")
         self.assertEqual(info["manifest_sha256"], hashlib.sha256(files["SHA256SUMS"]).hexdigest())
         self.assertIn(f"install-chatgpt.sh", files)
+        self.assertIn("install-openwrt-chatgpt.sh", files)
+        self.assertTrue(files["install-openwrt-chatgpt.sh"].startswith(b"#!/bin/sh"))
         self.assertEqual(info["installer_sha256"], hashlib.sha256(files["install-chatgpt.sh"]).hexdigest())
 
     def test_no_implicit_source(self):
