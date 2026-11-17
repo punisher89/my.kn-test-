@@ -211,7 +211,10 @@ func DiagnoseOpenWrt(c Config) []DoctorCheck {
   add(bin,err,"установлено")
  }
  if rules,ruleErr:=OpenWrtNftRules(c);ruleErr==nil {
-  _,err=nftCommand(rules,"-c","-f","-")
+  // Validation also works when an installed Pilot already owns its live
+  // table; test in a unique unused *virtual* table, without netlink changes.
+  preview:=strings.ReplaceAll(rules,openwrtNftTable,"keenetic_pilot_preflight")
+  _,err=nftCommand(preview,"-c","-f","-")
   add("nft-syntax",err,"правила проверены без изменения firewall")
  }
  if err=CheckEngine(c);err!=nil {add("nfqws2",err,"")}else{add("nfqws2",nil,"проверены бинарник и Lua; трафик не перехватывается")}
