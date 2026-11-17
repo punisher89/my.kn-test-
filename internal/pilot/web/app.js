@@ -285,13 +285,31 @@ function bindYoutubeVideoCheck(){
   });
 }
 
+// A running six-minute background search must not lock users out of a manual
+// recovery. Cancel only the cancellable tuning/search operation, wait until
+// the controller's normal rollback frees the operation lock, then apply a
+// fresh copy of config rather than overwriting another completed change.
+async function applyConfigAfterActiveSearch(change){
+  if(state.busy)await api("tune/cancel","POST",{});
+  for(let i=0;i<24;i++){
+    const fresh=await api("status");
+    if(!fresh.busy){
+      const c=structuredClone(fresh.config);
+      change(c);
+      await api("config","PUT",c);
+      return;
+    }
+    await new Promise(done=>setTimeout(done,400));
+  }
+  throw new Error("Контроллер занят больше 10 секунд. Попробуйте снова после завершения поиска.");
+}
 function performanceRescuePanel(){
   const c=state.config, active=!c.adaptive&&!c.adaptive_active&&!c.auto&&!c.quic&&c.youtube_stable;
   return `<section class="panel" id="performance-rescue">
     <div class="panel-head"><h2>Быстрый режим · снизить нагрузку</h2></div>
     <p>${badge(active?"Режим включён":"Готов к включению",active?"neutral":"warn")}</p>
     <p class="subtle">Диагностика показала высокий load и очередь 64 контекста. Выключить фоновые подборы и обработку QUIC/UDP 443, закрепить для YouTube ранее работавший fake-host-md5. Это сократит загрузку, но не доказывает работоспособность видео. Остальные профили и MTProto не меняются.</p>
-    <div class="form-actions"><button id="performance-rescue-apply" class="primary" ${active||state.busy||serviceMutationPending?"disabled":""}>Применить быстрый режим</button></div>
+    <div class="form-actions"><button id="performance-rescue-apply" class="primary" ${active||serviceMutationPending?"disabled":""}>Применить быстрый режим</button></div>
     <small>Изменятся только adaptive, adaptive_active, auto, quic, youtube_stable и стратегия YouTube. Вернуть каждый переключатель можно в «Настройках». Служба кратко перезапустится.</small>
   </section>`;
 }
@@ -300,8 +318,8 @@ function bindPerformanceRescue(){
   if(!button)return;
   button.addEventListener("click",()=>serviceAction(async()=>{
     if(!window.confirm("Уменьшить нагрузку: выключить автоподбор и QUIC, закрепить fake-host-md5 для YouTube? Другие сервисы и MTProto не изменятся."))return;
-    const c=structuredClone(state.config);
-    c.adaptive=false;
+    await applyConfigAfterActiveSearch(c=>{
+      c.adaptive=false;
     c.adaptive_active=false;
     c.auto=false;
     c.quic=false;
@@ -312,7 +330,7 @@ function bindPerformanceRescue(){
       if(preset)p.domains=expandedProfileDomains(p,preset,c.profiles);
       p.strategy="fake-host-md5";
     }
-    await api("config","PUT",c);
+    });
     profileDrafts.delete("youtube");
     notify("Быстрый режим применён. Проверь загрузку CPU и реальное видео YouTube.");
   }));
@@ -323,7 +341,7 @@ function telegramNativePanel(){
     <div class="panel-head"><h2>Telegram · приложение (MTProto TCP)</h2></div>
     <p>${badge(enabled?"MTProto TCP включён":"MTProto TCP выключен",enabled?"neutral":"warn")}</p>
     <p class="subtle">Отдельный режим для Telegram Desktop и мобильного приложения. Не требует добавления Telegram Web в каталог. Обрабатывается только распознанное начало MTProto TCP на портах 80, 443 и 5222.</p>
-    <div class="form-actions"><button type="button" id="telegram-native-toggle" ${state.busy||serviceMutationPending?"disabled":""}>${enabled?"Выключить MTProto TCP":"Включить MTProto TCP"}</button></div>
+    <div class="form-actions"><button type="button" id="telegram-native-toggle" ${serviceMutationPending?"disabled":""}>${enabled?"Выключить MTProto TCP":"Включить MTProto TCP"}</button></div>
     <small>Экспериментально: реальная отправка сообщений не проверена. Звонки/UDP не поддерживаются. Сохранение кратко перезапускает движок; YouTube и другие профили сохраняются.</small>
   </section>`;
 }
@@ -332,9 +350,7 @@ function bindTelegramNative(){
   if(!button)return;
   button.addEventListener("click",()=>serviceAction(async()=>{
     const next=!Boolean(state.config.telegram_mtproto);
-    const c=structuredClone(state.config);
-    c.telegram_mtproto=next;
-    await api("config","PUT",c);
+    await applyConfigAfterActiveSearch(c=>{c.telegram_mtproto=next;});
     notify(next?"MTProto TCP включён. Проверь сообщения в приложении Telegram.":"MTProto TCP выключен. Остальные сервисы не изменены.");
   }));
 }
