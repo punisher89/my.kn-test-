@@ -60,16 +60,16 @@ func OpenWrtNftRules(c Config) (string,error) {
  fmt.Fprintf(out,"add table inet %s\n",openwrtNftTable)
  fmt.Fprintf(out,"add chain inet %s pilot_pre { type filter hook prerouting priority -149; policy accept; }\n",openwrtNftTable)
  fmt.Fprintf(out,"add chain inet %s pilot_post { type filter hook postrouting priority -149; policy accept; }\n",openwrtNftTable)
- common:=func(chain, direction,iface,ctdir string,proto,ports string){
-   fmt.Fprintf(out,"add rule inet %s %s %s%s %q meta mark & 0x40000000 == 0 ct direction %s ct %s packets <= %d %s dport { %s } queue num %d bypass comment %q\n",
-      openwrtNftTable,chain,family,direction,iface,ctdir,ctdir,maxPackets,proto,ports,c.Queue,openwrtRuleTag)
+ common:=func(chain, direction,iface,ctdir string,proto,portField,ports string){
+   fmt.Fprintf(out,"add rule inet %s %s %s%s %q meta mark & 0x40000000 == 0 ct direction %s ct %s packets <= %d %s %s { %s } queue num %d bypass comment %q\n",
+      openwrtNftTable,chain,family,direction,iface,ctdir,ctdir,maxPackets,proto,portField,ports,c.Queue,openwrtRuleTag)
  }
- common("pilot_post","oifname",c.WAN,"original","tcp",strings.Join(tcpPorts,", "))
- common("pilot_pre","iifname",c.WAN,"reply","tcp",strings.Join(tcpPorts,", "))
+ common("pilot_post","oifname",c.WAN,"original","tcp","dport",strings.Join(tcpPorts,", "))
+ common("pilot_pre","iifname",c.WAN,"reply","tcp","sport",strings.Join(tcpPorts,", "))
  if len(udpPorts)>0 {
     ports:=strings.Join(udpPorts,", ")
-    common("pilot_post","oifname",c.WAN,"original","udp",ports)
-    common("pilot_pre","iifname",c.WAN,"reply","udp",ports)
+    common("pilot_post","oifname",c.WAN,"original","udp","dport",ports)
+    common("pilot_pre","iifname",c.WAN,"reply","udp","sport",ports)
  }
  return out.String(),nil
 }
