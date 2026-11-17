@@ -175,6 +175,53 @@ class Installation(unittest.TestCase):
         self.run_cmd([self.init, "start"])
         self.assertEqual(self.health()["mode"], "router")
 
+    def test_static_comparison_is_reversible_and_preserves_saved_strategies(self):
+        settings = json.loads(self.config.read_text())
+        settings["adaptive"] = True
+        self.config.write_text(json.dumps(settings))
+        self.run_cmd([self.init, "restart"])
+        original = self.config.read_bytes()
+        token = self.token_path.read_bytes()
+        helper = ROOT / "scripts/test-static-mode.sh"
+        self.run_cmd(["sh", helper, "--prefix", self.prefix])
+        snapshot = json.loads(self.config.read_text())
+        before = json.loads(original)
+        self.assertFalse(snapshot["adaptive"])
+        self.assertFalse(snapshot["auto"])
+        snapshot["adaptive"], snapshot["auto"] = before["adaptive"], before["auto"]
+        self.assertEqual(snapshot, before)
+        self.assertEqual(self.token_path.read_bytes(), token)
+        self.assertEqual(self.health()["mode"], "router")
+        repeat = self.run_cmd(["sh", helper, "--prefix", self.prefix], ok=False)
+        self.assertNotEqual(repeat.returncode, 0)
+        self.run_cmd(["sh", helper, "--prefix", self.prefix, "--restore"])
+        self.assertEqual(self.config.read_bytes(), original)
+        self.assertEqual(self.token_path.read_bytes(), token)
+        self.assertFalse((self.config.parent / "config.before-static-test.json").exists())
+        self.assertEqual(self.health()["mode"], "router")
+
+    def test_static_comparison_rolls_back_when_new_service_fails(self):
+        settings = json.loads(self.config.read_text())
+        settings["adaptive"] = True
+        self.config.write_text(json.dumps(settings))
+        original = self.config.read_bytes()
+        real_init = self.init.with_name("S98keenetic-pilot-real")
+        self.init.rename(real_init)
+        self.init.write_text("#!/bin/sh\n# Keenetic Pilot test wrapper\n"
+                             f"if [ \"$1\" = start ] && grep -q '\"adaptive\": false' '{self.config}'; then exit 71; fi\n"
+                             f"exec '{real_init}' \"$@\"\n")
+        self.init.chmod(0o755)
+        helper = ROOT / "scripts/test-static-mode.sh"
+        result = self.run_cmd(["sh", helper, "--prefix", self.prefix], ok=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("restoring the configuration", result.stderr)
+        self.assertEqual(self.config.read_bytes(), original)
+        self.assertEqual(self.health()["mode"], "router")
+        self.run_cmd(["sh", helper, "--prefix", self.prefix, "--restore"])
+        self.assertEqual(self.config.read_bytes(), original)
+        self.assertFalse((self.config.parent / "config.before-static-test.json").exists())
+        self.assertEqual(self.health()["mode"], "router")
+
     def test_service_does_not_require_nohup_and_survives_hangup(self):
         self.run_cmd([self.init,'stop'])
         bindir=self.prefix/'bin'
