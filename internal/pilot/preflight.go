@@ -71,8 +71,10 @@ func passivePreflight(proc, opt string, ownPID int) RouterPreflight {
             break
         }
     }
-    for _,name:=range []string{"S99d2k","S99zapret2"} {
-        if _,err:=os.Lstat(filepath.Join(opt,"etc/init.d",name));err==nil {
+    servicesDir:=filepath.Join(opt,"etc/init.d")
+    if opt=="/overlay" {servicesDir="/etc/init.d"}
+    for _,name:=range []string{"S99d2k","S99zapret2","zapret","https-dns-proxy"} {
+        if _,err:=os.Lstat(filepath.Join(servicesDir,name));err==nil {
             report.InstalledServices=append(report.InstalledServices,name)
         }
     }
