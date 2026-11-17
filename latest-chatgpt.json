@@ -1,0 +1,14 @@
+{
+  "kind": "pilot-ssh-release",
+  "version": "0.2.0-alpha.20",
+  "source": "ChatGPT",
+  "channel": "ssh",
+  "engine_version": "v1.0.7-z2k-r0",
+  "engine_sha256": "bc741e78eda3aaac8733aeaa246b18ed9b2fd780e421689b4cac969a6fd9cfca",
+  "git_sha": "32f3b9c752ab1852009ae11e25bd9170d10b6604",
+  "published_at": "2026-11-17T08:43:41.121463+00:00",
+  "manifest_sha256": "fff6bef04c4f502c9fef25da4f2312163b590b8f2b6d4932dae119241073c9ae",
+  "installer_sha256": "50fa13691b6372b3e758db27b82538addb4f08feb09930735959e45bc7f1bc04",
+  "installed_via": "ssh",
+  "signed_panel_updater_modified": false
+}
