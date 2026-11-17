@@ -34,7 +34,7 @@ let calls = 0, fail = false, diagnosticFail = false, holdResponse;
         return fail ? json({error:'Проверка ошибки обновления'}, 503) : json(snapshot);
       }
       const file = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
-      if (!['index.html', 'style.css', 'setup.css', 'app.js', 'favicon.svg'].includes(file)) return route.abort();
+      if (!['index.html', 'style.css', 'setup.css', 'app.js','music.js', 'favicon.svg'].includes(file)) return route.abort();
       return route.fulfill({ body: read('internal/pilot/web/' + file), contentType: file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : file.endsWith('.svg') ? 'image/svg+xml' : 'text/html' });
     });
     await page.goto('http://pilot.test/#adaptive');
