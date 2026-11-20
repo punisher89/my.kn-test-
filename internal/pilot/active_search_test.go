@@ -194,6 +194,9 @@ func TestActiveQueueGivesUntriedDomainTurnBeforeReadyRetry(t *testing.T) {
 
 func TestConfiguredServiceEntersFullQueueAndGetsPriority(t *testing.T) {
 	m, c, _, s := activeFixture(t)
+	// Stress-test legacy opt-in broad discovery, while alpha.23 defaults to only services.
+	c.BackgroundOtherDomains=true
+	m.c.BackgroundOtherDomains=true
 	now := time.Now().Unix()
 	m.domainTasks = map[DomainScope]*domainTask{}
 	for i := 0; i < 64; i++ {
