@@ -36,6 +36,7 @@ type domainTask struct {
 	Next            time.Time
 	Attempted       time.Time
 	ProofFailures   int
+	Manual          bool // explicit user queue item, not subject to automatic scope filtering
 }
 
 // Stable codes are safe to include in exported diagnostics; raw probe errors
@@ -424,6 +425,13 @@ func (m *Manager) watchActive(ctx context.Context) {
 	}
 }
 
+// Configured services are always eligible for automatic recovery. Sites
+// discovered from unrelated browsing require explicit opt-in to prevent a
+// flood of expensive TLS probes on small Keenetic CPUs.
+func autoSearchEligible(c Config, s DomainScope, manual bool) bool {
+    return manual || c.BackgroundOtherDomains || servicePriority(c,s)==0
+}
+
 func servicePriority(c Config, s DomainScope) int {
 	for _, p := range c.Profiles {
 		for _, domain := range p.Domains {
@@ -469,7 +477,7 @@ func (m *Manager) activeTick(parent context.Context) {
 	for _, r := range data.History {
 		b := boxContext(r)
 		s := DomainScope{r.Host, b.TLS, b.Family, r.Port}
-		if stableYouTubeHost(c, s.Host) || r.Status != "failed" || !s.valid() || r.Network != c.WAN || r.Updated > now.Unix() || now.Unix()-r.Updated > 600 || c.excludedBy(s.Host) != "" || c.pinFor(s.Host, s.TLS, s.Family, s.Port) != "" || s.Family == "ipv6" && !c.IPv6 {
+		if !autoSearchEligible(c,s,false) || stableYouTubeHost(c, s.Host) || r.Status != "failed" || !s.valid() || r.Network != c.WAN || r.Updated > now.Unix() || now.Unix()-r.Updated > 600 || c.excludedBy(s.Host) != "" || c.pinFor(s.Host, s.TLS, s.Family, s.Port) != "" || s.Family == "ipv6" && !c.IPv6 {
 			continue
 		}
 		live := profileForDomain(c, s.Host).Strategy
@@ -488,9 +496,19 @@ func (m *Manager) activeTick(parent context.Context) {
 		}
 	}
 	if m.domainTasks == nil {
-		m.domainTasks = map[DomainScope]*domainTask{}
-	}
-	scopes := make([]DomainScope, 0, len(signals))
+        m.domainTasks = map[DomainScope]*domainTask{}
+    }
+    // On upgrade, old queued unknown sites are discarded unless manually
+    // queued or broad search was explicitly enabled. This is memory-only;
+    // saved strategies, pinned methods and live nfqws2 remain unchanged.
+    if !c.BackgroundOtherDomains {
+        for s, task := range m.domainTasks {
+            if !autoSearchEligible(c,s,task.Manual) {
+                delete(m.domainTasks,s)
+            }
+        }
+    }
+    scopes := make([]DomainScope, 0, len(signals))
 	for s := range signals {
 		scopes = append(scopes, s)
 	}
@@ -536,7 +554,7 @@ func (m *Manager) activeTick(parent context.Context) {
 			delete(m.domainTasks, s)
 			continue
 		}
-		if task.Signal > task.Handled && !stableYouTubeHost(c, s.Host) && c.excludedBy(s.Host) == "" && c.pinFor(s.Host, s.TLS, s.Family, s.Port) == "" {
+		if task.Signal > task.Handled && autoSearchEligible(c,s,task.Manual) && !stableYouTubeHost(c, s.Host) && c.excludedBy(s.Host) == "" && c.pinFor(s.Host, s.TLS, s.Family, s.Port) == "" {
 			pending = append(pending, task)
 		}
 	}
@@ -613,7 +631,7 @@ func (m *Manager) QueueDomain(s DomainScope) error {
 	if _, exists := m.domainTasks[s]; !exists && len(m.domainTasks) >= 64 {
 		return errors.New("очередь заполнена; дождитесь завершения поиска")
 	}
-	m.domainTasks[s] = &domainTask{Scope: s, Signal: time.Now().Unix()}
+	m.domainTasks[s] = &domainTask{Scope: s, Signal: time.Now().Unix(), Manual: true}
 	queued := 0
 	for _, task := range m.domainTasks {
 		if task.Signal > task.Handled {
