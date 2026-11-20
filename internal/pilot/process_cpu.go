@@ -25,9 +25,10 @@ type pilotProcessCPU struct {
 func cpuTicks(raw []byte) (uint64,bool) {
  lines:=strings.SplitN(string(raw),"\n",2)
  fields:=strings.Fields(lines[0])
- if len(fields)<5||fields[0]!="cpu" {return 0,false}
+ if len(fields)<9||fields[0]!="cpu" {return 0,false}
  var total uint64
- for _,v:=range fields[1:] {
+ // guest and guest_nice are already included in user/nice; avoid double-counting.
+ for _,v:=range fields[1:9] {
     n,e:=strconv.ParseUint(v,10,64)
     if e!=nil {return 0,false}
     total+=n
