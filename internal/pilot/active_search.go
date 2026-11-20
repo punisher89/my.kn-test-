@@ -413,7 +413,11 @@ func (m *Manager) searchDomain(ctx context.Context, c Config, s DomainScope) (st
 }
 
 func (m *Manager) watchActive(ctx context.Context) {
-	ticker := time.NewTicker(2 * time.Second)
+    // Domain history and priority calculations are heavyweight on dual-core
+    // routers. Ten seconds is enough for background discovery; active probes
+    // are still scheduled sequentially and manual endpoint requests are not
+    // blocked by this polling cadence.
+    ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 	for {
 		select {
