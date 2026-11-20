@@ -35,6 +35,8 @@ type DiagnosticReport struct {
 
 type DiagnosticResources struct {
 	CPUPercent      *float64      `json:"cpu_percent"`
+	PilotCPUPercent *float64 `json:"pilot_cpu_percent,omitempty"`
+	EngineCPUPercent *float64 `json:"engine_cpu_percent,omitempty"`
 	CPUCores        int           `json:"cpu_cores"`
 	Load            []float64     `json:"load"`
 	MemoryTotal     uint64        `json:"memory_total"`
@@ -207,7 +209,7 @@ func (m *Manager) Diagnostics() DiagnosticReport {
 	case "высокая очередь задач CPU":
 		hold = "load"
 	}
-	d.Resources = DiagnosticResources{CPUPercent: device.CPUPercent, CPUCores: device.CPUCores, Load: device.Load, MemoryTotal: device.MemoryTotal, MemoryAvailable: device.MemoryAvailable, Temperatures: device.Temperatures, BackgroundHold: hold}
+	d.Resources = DiagnosticResources{CPUPercent: device.CPUPercent, PilotCPUPercent: device.PilotCPUPercent, EngineCPUPercent: device.EngineCPUPercent, CPUCores: device.CPUCores, Load: device.Load, MemoryTotal: device.MemoryTotal, MemoryAvailable: device.MemoryAvailable, Temperatures: device.Temperatures, BackgroundHold: hold}
 	if j := s.DomainJob; j != nil && j.Scope.valid() {
 		stage := "unknown"
 		for _, known := range []string{"direct", "search", "confirm", "applied", "unmeasured", "exhausted", "waiting", "cancelled", "error"} {
