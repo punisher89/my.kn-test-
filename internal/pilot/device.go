@@ -22,6 +22,8 @@ type DeviceInfo struct {
 	CPUSampleAvailable bool          `json:"cpu_sample_available"`
 	CPUCores           int           `json:"cpu_cores"`
 	CPUPercent         *float64      `json:"cpu_percent"`
+	PilotCPUPercent *float64 `json:"pilot_cpu_percent,omitempty"`
+	EngineCPUPercent *float64 `json:"engine_cpu_percent,omitempty"`
 	Load               []float64     `json:"load"`
 	MemoryTotal        uint64        `json:"memory_total"`
 	MemoryAvailable    *uint64       `json:"memory_available"`
@@ -241,7 +243,14 @@ func (r *deviceReader) read(root, wan string, now time.Time, resourcesOnly bool)
 func (m *Manager) Device() DeviceInfo {
 	now := time.Now()
 	d := m.device.Read("", m.Config().WAN, now)
-	if m.backend.Kind() == "router" {
+    var enginePID int
+    if router,ok:=m.backend.(*Router);ok {
+       router.mu.Lock()
+       if router.cmd!=nil&&router.cmd.Process!=nil {enginePID=router.cmd.Process.Pid}
+       router.mu.Unlock()
+    }
+    d.PilotCPUPercent,d.EngineCPUPercent=m.processCPU.sample("",os.Getpid(),enginePID,now)
+    if m.backend.Kind() == "router" {
 		d.Temperatures = append(d.Temperatures, m.radio.Read(now, readRadioCommand)...)
 	}
 	return d

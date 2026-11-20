@@ -35,6 +35,8 @@ type DiagnosticReport struct {
 
 type DiagnosticResources struct {
 	CPUPercent      *float64      `json:"cpu_percent"`
+	PilotCPUPercent *float64 `json:"pilot_cpu_percent,omitempty"`
+	EngineCPUPercent *float64 `json:"engine_cpu_percent,omitempty"`
 	CPUCores        int           `json:"cpu_cores"`
 	Load            []float64     `json:"load"`
 	MemoryTotal     uint64        `json:"memory_total"`
@@ -79,6 +81,7 @@ type DiagnosticSettings struct {
 	MaxSwitches       int    `json:"max_switches_per_ten_minutes"`
 	GlobalMaxSwitches int    `json:"global_max_switches_per_ten_minutes"`
 	ProbeLoadGuard    bool   `json:"probe_load_guard"`
+	BackgroundOtherDomains bool `json:"background_other_domains"`
 	CatalogRevision   uint64 `json:"catalog_revision"`
 }
 type DiagnosticProfile struct {
@@ -183,7 +186,7 @@ func (m *Manager) Diagnostics() DiagnosticReport {
 		SchemaVersion: 1, GeneratedAt: now, Version: s.Version, Platform: runtime.GOOS + "/" + runtime.GOARCH,
 		Preflight: m.Preflight(),
 		Service:  DiagnosticService{Mode: s.Mode, Enabled: s.Config.Enabled, Running: s.Running, Busy: s.Busy, HasError: s.Error != ""},
-		Settings: DiagnosticSettings{Active: s.Config.AdaptiveActive, FastStart: s.Config.AdaptiveFastStart, GlobalMaxSwitches: s.Config.AdaptiveGlobalMaxSwitches, ProbeLoadGuard: s.Config.ProbeLoadGuard, WAN: s.Config.WAN, IPv6: s.Config.IPv6, PPE: s.Config.PPE, QUIC: s.Config.QUIC, DiscordVoice: s.Config.DiscordVoice, TelegramMTProto: s.Config.TelegramMTProto, YouTubeStable: s.Config.YouTubeStable, Adaptive: s.Config.Adaptive, Reuse: s.Config.AdaptiveReuse, CooldownSeconds: s.Config.AdaptiveCooldownSeconds, MaxSwitches: s.Config.AdaptiveMaxSwitches, CatalogRevision: s.Config.CatalogRevision},
+		Settings: DiagnosticSettings{Active: s.Config.AdaptiveActive, FastStart: s.Config.AdaptiveFastStart, GlobalMaxSwitches: s.Config.AdaptiveGlobalMaxSwitches, ProbeLoadGuard: s.Config.ProbeLoadGuard, BackgroundOtherDomains: s.Config.BackgroundOtherDomains, WAN: s.Config.WAN, IPv6: s.Config.IPv6, PPE: s.Config.PPE, QUIC: s.Config.QUIC, DiscordVoice: s.Config.DiscordVoice, TelegramMTProto: s.Config.TelegramMTProto, YouTubeStable: s.Config.YouTubeStable, Adaptive: s.Config.Adaptive, Reuse: s.Config.AdaptiveReuse, CooldownSeconds: s.Config.AdaptiveCooldownSeconds, MaxSwitches: s.Config.AdaptiveMaxSwitches, CatalogRevision: s.Config.CatalogRevision},
 		Profiles: []DiagnosticProfile{}, Methods: []DiagnosticMethod{},
 		Rules:      DiagnosticRules{Pins: []DiagnosticPin{}, Paused: append([]string{}, s.Config.PausedDomains...), Exclusions: append([]string{}, s.Config.Exclusions...)},
 		Generation: a.Generation, ObservationReadError: a.Error != "", Storage: []DiagnosticSlot{},
@@ -206,7 +209,7 @@ func (m *Manager) Diagnostics() DiagnosticReport {
 	case "высокая очередь задач CPU":
 		hold = "load"
 	}
-	d.Resources = DiagnosticResources{CPUPercent: device.CPUPercent, CPUCores: device.CPUCores, Load: device.Load, MemoryTotal: device.MemoryTotal, MemoryAvailable: device.MemoryAvailable, Temperatures: device.Temperatures, BackgroundHold: hold}
+	d.Resources = DiagnosticResources{CPUPercent: device.CPUPercent, PilotCPUPercent: device.PilotCPUPercent, EngineCPUPercent: device.EngineCPUPercent, CPUCores: device.CPUCores, Load: device.Load, MemoryTotal: device.MemoryTotal, MemoryAvailable: device.MemoryAvailable, Temperatures: device.Temperatures, BackgroundHold: hold}
 	if j := s.DomainJob; j != nil && j.Scope.valid() {
 		stage := "unknown"
 		for _, known := range []string{"direct", "search", "confirm", "applied", "unmeasured", "exhausted", "waiting", "cancelled", "error"} {
