@@ -1,6 +1,7 @@
 package pilot
 
-import "strings"
+import ("strings"
+"time")
 
 // Auto-tuning in legacy mode restarts nfqws2 for each candidate. A complete,
 // repeated transport failure is necessary before risking a live service.
@@ -38,6 +39,6 @@ func autoRecoverableFailure(results []ProbeResult, p Profile, c Config) bool {
 }
 
 const (
-    automaticTuneCooldown = 60 * 60 * 1000000000 // one hour, time.Duration nanoseconds
-    catalogStartDelay = 10 * 60 * 1000000000
+    automaticTuneCooldown = time.Hour
+    catalogStartDelay = 10 * time.Minute
 )
