@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -193,22 +194,27 @@ func (m *Manager) changeLocked(c Config) error {
 	if err := c.Validate(); err != nil {
 		return err
 	}
-	c.Enabled = old.Enabled
-	if c.Enabled {
-		if err := m.backend.Start(c); err != nil {
+    c.Enabled = old.Enabled
+    if reflect.DeepEqual(old,c) { return m.setError(nil) }
+    // A pause/resume of periodic background work must never restart live
+    // NFQUEUE, reset existing connections, or rewrite proven strategies.
+    sameEngine := reflect.DeepEqual(EngineArgs(old),EngineArgs(c)) &&
+        reflect.DeepEqual(FirewallRules(old),FirewallRules(c))
+    if c.Enabled && !sameEngine {
+        if err := m.backend.Start(c); err != nil {
 			return m.setError(errors.Join(err, m.backend.Start(old)))
 		}
 	}
 	if err := WriteJSON(m.path+".previous", old); err != nil {
-		if old.Enabled {
-			_ = m.backend.Start(old)
-		}
+        if old.Enabled && !sameEngine {
+            _ = m.backend.Start(old)
+        }
 		return m.setError(err)
 	}
 	if err := m.save(c); err != nil {
-		if old.Enabled {
-			err = errors.Join(err, m.backend.Start(old))
-		}
+        if old.Enabled && !sameEngine {
+            err = errors.Join(err, m.backend.Start(old))
+        }
 		return m.setError(err)
 	}
 	return m.setError(nil)
@@ -439,109 +445,143 @@ func (m *Manager) Check(ctx context.Context, id string) ([]ProbeResult, error) {
 }
 
 func (m *Manager) Watch(ctx context.Context) {
-	go m.watchActive(ctx)
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-	next := time.Now()
-	failures := map[string]int{}
-	profileIndex := 0
-	nextCatalog := time.Now()
-	nextDomains := map[string]time.Time{}
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if m.updateRequested.Load() {
-				continue
-			}
-			if !m.op.TryLock() {
-				continue
-			}
-			if m.updateRequested.Load() {
-				m.op.Unlock()
-				continue
-			}
-			c := m.Config()
-			allowed := m.backgroundAllowed(c)
-			if allowed && c.AutoCatalog && time.Now().After(nextCatalog) {
-				nextCatalog = time.Now().Add(24 * time.Hour)
-				if err := m.updateCatalog(ctx); err != nil {
-					m.log.Add("Каталог стратегий: " + err.Error())
-				}
-				c = m.Config()
-			}
-			for _, p := range c.Profiles {
-				if allowed && p.AutoDomains && p.DomainSource != "" && time.Now().After(nextDomains[p.ID]) {
-					nextDomains[p.ID] = time.Now().Add(24 * time.Hour)
-					if err := m.updateServiceDomains(ctx, p.ID); err != nil {
-						m.log.Add("Домены " + p.ID + ": " + err.Error())
-					}
-				}
-			}
-			c = m.Config()
-			if !c.Enabled {
-				m.op.Unlock()
-				continue
-			}
-			var err error
-			if !m.backend.Running() {
-				err = m.backend.Start(c)
-			} else {
-				err = m.backend.Repair()
-			}
-			if err != nil {
-				m.setError(err)
-				m.op.Unlock()
-				continue
-			}
-			if (c.Adaptive && c.AdaptiveActive) || !c.Auto || !allowed || time.Now().Before(next) {
-				m.op.Unlock()
-				continue
-			}
-			next = time.Now().Add(time.Duration(c.IntervalMinutes) * time.Minute)
-			toTune := ""
-			checkContext, cancelChecks := context.WithTimeout(ctx, 90*time.Second)
-			for checked := 0; checked < len(c.Profiles); checked++ {
-				if checkContext.Err() != nil {
-					break
-				}
-				if !m.backgroundAllowed(c) {
-					next = time.Now().Add(30 * time.Second)
-					break
-				}
-				// Resume from the next profile after a slow/failed one so a
-				// bounded cycle cannot permanently starve later services.
-				p := c.Profiles[profileIndex%len(c.Profiles)]
-				profileIndex = (profileIndex + 1) % len(c.Profiles)
-				if profileControlReason(c, p) != "" {
-					failures[p.ID] = 0
-					continue
-				}
-				r := m.checkLocked(checkContext, p, c)
-				if checkContext.Err() != nil {
-					break
-				} // A time budget is not a site failure.
-				if allPassed(r, p, c) {
-					failures[p.ID] = 0
-				} else {
-					failures[p.ID]++
-					if failures[p.ID] >= 2 {
-						toTune = p.ID
-						break
-					}
-				}
-			}
-			cancelChecks()
-			m.op.Unlock()
-			if toTune != "" && m.backgroundAllowed(c) {
-				failures[toTune] = 0
-				if err = m.BeginTune(toTune); err != nil {
-					m.log.Add(fmt.Sprintf("Автоподбор: %v", err))
-				}
-			}
-		}
-	}
+    go m.watchActive(ctx)
+    ticker := time.NewTicker(30 * time.Second)
+    defer ticker.Stop()
+
+    // Boot should not immediately run DNS/catalog updates and an engine
+    // integrity check together. All maintenance is deferred and bounded.
+    next := time.Now()
+    nextCatalog := time.Now().Add(catalogStartDelay)
+    nextDomains := map[string]time.Time{}
+    nextRepair := time.Now()
+    nextStartRetry := time.Time{}
+    startRetryDelay := 30 * time.Second
+    failures := map[string]int{}
+    nextAutoTune := map[string]time.Time{}
+    profileIndex := 0
+
+    for {
+        select {
+        case <-ctx.Done():
+            return
+        case <-ticker.C:
+            if m.updateRequested.Load() || !m.op.TryLock() {
+                continue
+            }
+            if m.updateRequested.Load() {
+                m.op.Unlock()
+                continue
+            }
+            c := m.Config()
+            allowed := m.backgroundAllowed(c)
+            now := time.Now()
+
+            if allowed && c.AutoCatalog && !now.Before(nextCatalog) {
+                nextCatalog = now.Add(24 * time.Hour)
+                if err := m.updateCatalog(ctx); err != nil {
+                    m.log.Add("Каталог стратегий: " + err.Error())
+                }
+                c = m.Config()
+            }
+            for _, p := range c.Profiles {
+                if _, exists := nextDomains[p.ID]; !exists {
+                    nextDomains[p.ID] = now.Add(catalogStartDelay)
+                }
+                if allowed && p.AutoDomains && p.DomainSource != "" && !now.Before(nextDomains[p.ID]) {
+                    nextDomains[p.ID] = now.Add(24 * time.Hour)
+                    if err := m.updateServiceDomains(ctx, p.ID); err != nil {
+                        m.log.Add("Домены " + p.ID + ": " + err.Error())
+                    }
+                }
+            }
+            c = m.Config()
+            if !c.Enabled {
+                m.op.Unlock()
+                continue
+            }
+
+            // Poll process health every 30s, but checking all iptables/PPE
+            // rules forks many programs. A healthy service only needs a full
+            // firewall audit every two minutes, without stopping its engine.
+            var err error
+            if !m.backend.Running() {
+                if now.Before(nextStartRetry) {
+                    m.op.Unlock()
+                    continue
+                }
+                err = m.backend.Start(c)
+                if err != nil {
+                    nextStartRetry = now.Add(startRetryDelay)
+                    startRetryDelay *= 2
+                    if startRetryDelay > 5*time.Minute {startRetryDelay = 5*time.Minute}
+                } else {
+                    nextStartRetry = time.Time{}
+                    startRetryDelay = 30 * time.Second
+                    nextRepair = now.Add(2 * time.Minute)
+                }
+            } else {
+                nextStartRetry = time.Time{}
+                startRetryDelay = 30 * time.Second
+                if !now.Before(nextRepair) {
+                    nextRepair = now.Add(2 * time.Minute)
+                    err = m.backend.Repair()
+                    if err != nil {
+                        nextRepair = now.Add(30 * time.Second)
+                    }
+                }
+            }
+            if err != nil {
+                m.setError(err)
+                m.op.Unlock()
+                continue
+            }
+            if (c.Adaptive && c.AdaptiveActive) || !c.Auto || !allowed || now.Before(next) {
+                m.op.Unlock()
+                continue
+            }
+
+            // Legacy tuning restarts the engine repeatedly. Never launch it
+            // for an HTTP rejection, DNS failure, missing/partial check, or
+            // transient mixture of successes/failures.
+            next = time.Now().Add(backgroundCheckInterval(c))
+            toTune := ""
+            checkContext, cancelChecks := context.WithTimeout(ctx, 60*time.Second)
+            if len(c.Profiles) > 0 && m.backgroundAllowed(c) {
+                // One profile per interval avoids 2-10 simultaneous TLS
+                // matrices while preserving each service's check cadence.
+                p := c.Profiles[profileIndex%len(c.Profiles)]
+                profileIndex = (profileIndex + 1) % len(c.Profiles)
+                if profileControlReason(c, p) != "" {
+                    failures[p.ID] = 0
+                } else {
+                    results := m.checkLocked(checkContext, p, c)
+                    if checkContext.Err() == nil {
+                        if allPassed(results, p, c) {
+                            failures[p.ID] = 0
+                        } else if autoRecoverableFailure(results, p, c) {
+                            failures[p.ID]++
+                            if failures[p.ID] >= 2 && !time.Now().Before(nextAutoTune[p.ID]) {
+                                toTune = p.ID
+                            }
+                        } else {
+                            failures[p.ID] = 0
+                        }
+                    }
+                }
+            }
+            cancelChecks()
+            m.op.Unlock()
+            if toTune != "" && m.backgroundAllowed(c) {
+                failures[toTune] = 0
+                if err := m.BeginTune(toTune); err != nil {
+                    m.log.Add(fmt.Sprintf("Автоподбор: %v", err))
+                } else {
+                    nextAutoTune[toTune] = time.Now().Add(automaticTuneCooldown)
+                }
+            }
+        }
+    }
 }
 func (m *Manager) Close() error {
 	m.mu.Lock()

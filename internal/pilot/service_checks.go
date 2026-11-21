@@ -112,7 +112,13 @@ func backgroundPressure(d DeviceInfo) string {
 	return ""
 }
 func (m *Manager) backgroundAllowed(c Config) bool {
-	reason := ""
+    reason := ""
+    if c.BackgroundPaused {
+        m.mu.Lock()
+        m.backgroundHold = "фоновые проверки приостановлены пользователем"
+        m.mu.Unlock()
+        return false
+    }
 	if c.ProbeLoadGuard {
 		reason = backgroundPressure(m.guardDevice.ReadResources("", time.Now()))
 	}

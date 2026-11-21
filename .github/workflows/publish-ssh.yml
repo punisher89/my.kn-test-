@@ -1,10 +1,10 @@
 name: Publish independent ChatGPT / Codex SSH release
 
-# The existing Ed25519-signed panel updater and 'packages' branch are untouched.\n# Source release publishes alpha.23 [ChatGPT] only after CPU diagnostics, queue policy and five-arch lifecycle tests.
+# The existing Ed25519-signed panel updater and 'packages' branch are untouched.\n# Source release publishes alpha.24 [ChatGPT] only after safe background pause, non-disruptive repair and full five-architecture tests.
 on:
   push:
     branches:
-      - feature/keenetic-stability-alpha23
+      - feature/keenetic-reliability-alpha24
     paths:
       - .github/workflows/publish-ssh.yml
       - scripts/publish-ssh-release.py
@@ -28,7 +28,7 @@ concurrency:
 
 jobs:
   independent-ssh-release:
-    if: github.repository == 'punisher89/my.kn-test-' && github.ref == 'refs/heads/feature/keenetic-stability-alpha23'
+    if: github.repository == 'punisher89/my.kn-test-' && github.ref == 'refs/heads/feature/keenetic-reliability-alpha24'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
