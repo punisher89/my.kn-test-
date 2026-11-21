@@ -30,4 +30,15 @@ func TestBackgroundPauseIsReversibleAndNeverRestartsLiveEngine(t *testing.T){
   after:=m.Config()
   after.BackgroundPaused=initial.BackgroundPaused
   if !reflect.DeepEqual(initial,after){t.Fatal("pause changed unrelated network configuration")}
+  // Other scheduled-only settings are also safe to apply without an engine restart.
+  changed:=m.Config()
+  changed.Auto=!changed.Auto
+  if err:=m.Change(changed);err!=nil{t.Fatal(err)}
+  if len(b.configs)!=0{t.Fatal("monitoring-only option restarted packet processing")}
+  // Packet-affecting options still trigger normal restart + rollback paths.
+  changed=m.Config()
+  changed.QUIC=!changed.QUIC
+  if err:=m.Change(changed);err!=nil{t.Fatal(err)}
+  if len(b.configs)!=1||!b.Running(){t.Fatal("packet-affecting QUIC change was not applied to engine")}
 }
+
