@@ -592,7 +592,10 @@ func (m *Manager) activeTick(parent context.Context) {
 		return
 	}
 	task.Attempted = now
-	ctx, cancel := context.WithTimeout(parent, 6*time.Minute)
+	// Keep background auto-selection cooperative: a single failing domain may
+    // otherwise monopolize the operation lock and delay service repairs for
+    // six minutes. Resume the same candidate in a later turn.
+    ctx, cancel := context.WithTimeout(parent, 55*time.Second)
 	defer cancel()
 	m.mu.Lock()
 	m.cancel = cancel
