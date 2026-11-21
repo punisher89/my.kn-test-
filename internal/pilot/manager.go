@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -193,22 +194,27 @@ func (m *Manager) changeLocked(c Config) error {
 	if err := c.Validate(); err != nil {
 		return err
 	}
-	c.Enabled = old.Enabled
-	if c.Enabled {
-		if err := m.backend.Start(c); err != nil {
+    c.Enabled = old.Enabled
+    // A pause/resume of periodic background work must never restart live
+    // NFQUEUE, reset existing connections, or rewrite proven strategies.
+    compared := cloneConfig(old)
+    compared.BackgroundPaused = c.BackgroundPaused
+    sameEngine := reflect.DeepEqual(compared,c)
+    if c.Enabled && !sameEngine {
+        if err := m.backend.Start(c); err != nil {
 			return m.setError(errors.Join(err, m.backend.Start(old)))
 		}
 	}
 	if err := WriteJSON(m.path+".previous", old); err != nil {
-		if old.Enabled {
-			_ = m.backend.Start(old)
-		}
+        if old.Enabled && !sameEngine {
+            _ = m.backend.Start(old)
+        }
 		return m.setError(err)
 	}
 	if err := m.save(c); err != nil {
-		if old.Enabled {
-			err = errors.Join(err, m.backend.Start(old))
-		}
+        if old.Enabled && !sameEngine {
+            err = errors.Join(err, m.backend.Start(old))
+        }
 		return m.setError(err)
 	}
 	return m.setError(nil)
