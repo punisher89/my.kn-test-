@@ -42,3 +42,13 @@ const (
     automaticTuneCooldown = time.Hour
     catalogStartDelay = 10 * time.Minute
 )
+
+// Spread background HTTPS checks across service profiles instead of launching
+// the whole matrix for every profile in one watchdog tick.
+func backgroundCheckInterval(c Config) time.Duration {
+    n:=len(c.Profiles)
+    if n<1 {n=1}
+    gap:=time.Duration(c.IntervalMinutes)*time.Minute/time.Duration(n)
+    if gap<time.Minute {gap=time.Minute}
+    return gap
+}
