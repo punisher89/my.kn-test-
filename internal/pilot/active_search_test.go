@@ -485,3 +485,27 @@ func TestActiveDomainEndpointAuthAndDiagnosticAllowlist(t *testing.T) {
 		t.Fatal("active progress absent from diagnostic")
 	}
 }
+
+
+// A timeslice deadline must not lose the candidate cursor or replace a
+// working method. The next scheduler pass can resume this exact method.
+func TestActiveSearchDeadlineYieldsWithoutResettingCandidate(t *testing.T) {
+    m,c,backend,scope:=activeFixture(t)
+    task:=&domainTask{Scope:scope,Signal:time.Now().Unix(),
+        Fingerprint:domainFingerprint(c,scope),
+        Cursor:1,Pool:[]string{"split-sni","fake-md5"}}
+    m.domainTasks=map[DomainScope]*domainTask{scope:task}
+    m.activeProbeHook=func(context.Context,Config,DomainScope,Target,string) activeEvidence {
+        t.Fatal("expired timeslice launched a network probe")
+        return activeEvidence{}
+    }
+    ctx,cancel:=context.WithDeadline(context.Background(),time.Now().Add(-time.Second))
+    defer cancel()
+    stage,next:=m.searchDomain(ctx,c,scope)
+    if stage!="waiting" || m.domainJob.Reason!="time_slice" || task.Cursor!=1 {
+        t.Fatalf("candidate lost on deadline stage=%s cursor=%d reason=%s",stage,task.Cursor,m.domainJob.Reason)
+    }
+    if next.Before(time.Now().Add(45*time.Second)) || len(m.domainPlans.Plans)!=0 || !backend.Running() {
+        t.Fatal("deadline damaged running engine or attempted immediate unbounded retry")
+    }
+}
