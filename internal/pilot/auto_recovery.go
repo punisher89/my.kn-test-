@@ -1,7 +1,10 @@
 package pilot
 
-import ("strings"
-"time")
+import (
+ "fmt"
+ "strings"
+ "time"
+)
 
 // Auto-tuning in legacy mode restarts nfqws2 for each candidate. A complete,
 // repeated transport failure is necessary before risking a live service.
@@ -10,8 +13,28 @@ func autoRecoverableFailure(results []ProbeResult, p Profile, c Config) bool {
     want := len(p.Targets)*2*c.Attempts
     if c.IPv6 {want*=2}
     if want<2 || len(results)!=want {return false}
+    expected:=map[string]bool{}
+    families:=[]string{"tcp4"}
+    if c.IPv6 {families=append(families,"tcp6")}
+    key:=func(url,tls,family string,attempt int)string {
+        return fmt.Sprintf("%s\\x00%s\\x00%s\\x00%d",url,tls,family,attempt)
+    }
+    for _,t:=range p.Targets {
+        for _,family:=range families {
+            for _,tls:=range []string{"1.2","1.3"} {
+                for attempt:=1;attempt<=c.Attempts;attempt++ {
+                    expected[key(t.URL,tls,family,attempt)]=true
+                }
+            }
+        }
+    }
+    if len(expected)!=want {return false}
     failures:=0
     for _,r:=range results {
+        k:=key(r.URL,r.TLS,r.Family,r.Attempt)
+        if !expected[k] {return false}
+        delete(expected,k)
+
         if r.OK || r.Status!=0 {return false}
         msg:=strings.ToLower(r.Error)
         for _,reject:=range []string{
@@ -35,7 +58,7 @@ func autoRecoverableFailure(results []ProbeResult, p Profile, c Config) bool {
         if !valid {return false}
         failures++
     }
-    return failures>=2
+    return failures>=2 && len(expected)==0
 }
 
 const (
