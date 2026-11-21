@@ -143,18 +143,18 @@ let relay={worker_host:'',status:'draft_only',can_route:false,source:'t0fox/d2o 
   assert.equal(JSON.stringify(demo.config.profiles),profilesBefore,"Relay template must not modify native routing");
   assert.match(await relayPanel.innerText(),/Прокси НЕ запущен|Прокси и перенаправление выключены/);
 
-  // A one-click recovery reduces load but must preserve unrelated profiles and MTProto.
-  const before=JSON.stringify(demo.config.profiles.filter(p=>p.id!=="youtube"));
-  const nativeSetting=demo.config.telegram_mtproto;
+  // A quick pause cannot change any live packet settings or profiles.
+  const before=JSON.stringify(demo.config.profiles);
+  const networkSettings=Object.fromEntries(["quic","adaptive","adaptive_active","auto","youtube_stable","telegram_mtproto","ppe","wan"].map(k=>[k,demo.config[k]]));
   await page.locator("#performance-rescue-apply").click();
-  await page.waitForFunction(()=>state.config.adaptive===false && state.config.youtube_stable===true);
-  assert.equal(demo.config.adaptive_active,false);
-  assert.equal(demo.config.auto,false);
-  assert.equal(demo.config.quic,false);
-  assert.equal(demo.config.profiles.find(p=>p.id==="youtube").strategy,"fake-host-md5");
-  assert.equal(JSON.stringify(demo.config.profiles.filter(p=>p.id!=="youtube")),before);
-  assert.equal(demo.config.telegram_mtproto,nativeSetting);
-  assert.match(await page.locator("#performance-rescue").innerText(),/Режим включён/);
+  await page.waitForFunction(()=>state.config.background_paused===true);
+  assert.equal(JSON.stringify(demo.config.profiles),before,"Pause rewrote service profiles");
+  for(const [k,v] of Object.entries(networkSettings))assert.equal(demo.config[k],v,"Pause modified "+k);
+  assert.match(await page.locator("#performance-rescue").innerText(),/Проверки приостановлены/);
+  await page.locator("#performance-rescue-apply").click();
+  await page.waitForFunction(()=>state.config.background_paused===false);
+  assert.equal(JSON.stringify(demo.config.profiles),before,"Resume rewrote service profiles");
+  for(const [k,v] of Object.entries(networkSettings))assert.equal(demo.config[k],v,"Resume modified "+k);
   assert.deepEqual(errors,[]);
   console.log('PASS: service presets, add/remove, error recovery, preserved drafts, compact profiles, tuner selection, explicit tuning, busy recovery, mobile layout');
  }finally{await browser.close();}
