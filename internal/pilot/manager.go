@@ -538,33 +538,30 @@ func (m *Manager) Watch(ctx context.Context) {
             // Legacy tuning restarts the engine repeatedly. Never launch it
             // for an HTTP rejection, DNS failure, missing/partial check, or
             // transient mixture of successes/failures.
-            next = time.Now().Add(time.Duration(c.IntervalMinutes) * time.Minute)
+            next = time.Now().Add(backgroundCheckInterval(c))
             toTune := ""
-            checkContext, cancelChecks := context.WithTimeout(ctx, 90*time.Second)
-            for checked := 0; checked < len(c.Profiles); checked++ {
-                if checkContext.Err() != nil {break}
-                if !m.backgroundAllowed(c) {
-                    next = time.Now().Add(30 * time.Second)
-                    break
-                }
+            checkContext, cancelChecks := context.WithTimeout(ctx, 60*time.Second)
+            if len(c.Profiles) > 0 && m.backgroundAllowed(c) {
+                // One profile per interval avoids 2-10 simultaneous TLS
+                // matrices while preserving each service's check cadence.
                 p := c.Profiles[profileIndex%len(c.Profiles)]
                 profileIndex = (profileIndex + 1) % len(c.Profiles)
                 if profileControlReason(c, p) != "" {
                     failures[p.ID] = 0
-                    continue
-                }
-                results := m.checkLocked(checkContext, p, c)
-                if checkContext.Err() != nil {break}
-                if allPassed(results, p, c) {
-                    failures[p.ID] = 0
-                } else if autoRecoverableFailure(results, p, c) {
-                    failures[p.ID]++
-                    if failures[p.ID] >= 2 && !time.Now().Before(nextAutoTune[p.ID]) {
-                        toTune = p.ID
-                        break
-                    }
                 } else {
-                    failures[p.ID] = 0
+                    results := m.checkLocked(checkContext, p, c)
+                    if checkContext.Err() == nil {
+                        if allPassed(results, p, c) {
+                            failures[p.ID] = 0
+                        } else if autoRecoverableFailure(results, p, c) {
+                            failures[p.ID]++
+                            if failures[p.ID] >= 2 && !time.Now().Before(nextAutoTune[p.ID]) {
+                                toTune = p.ID
+                            }
+                        } else {
+                            failures[p.ID] = 0
+                        }
+                    }
                 }
             }
             cancelChecks()
