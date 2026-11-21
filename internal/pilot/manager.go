@@ -197,9 +197,8 @@ func (m *Manager) changeLocked(c Config) error {
     c.Enabled = old.Enabled
     // A pause/resume of periodic background work must never restart live
     // NFQUEUE, reset existing connections, or rewrite proven strategies.
-    compared := cloneConfig(old)
-    compared.BackgroundPaused = c.BackgroundPaused
-    sameEngine := reflect.DeepEqual(compared,c)
+    sameEngine := reflect.DeepEqual(EngineArgs(old),EngineArgs(c)) &&
+        reflect.DeepEqual(FirewallRules(old),FirewallRules(c))
     if c.Enabled && !sameEngine {
         if err := m.backend.Start(c); err != nil {
 			return m.setError(errors.Join(err, m.backend.Start(old)))
