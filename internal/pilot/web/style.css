@@ -1577,3 +1577,8 @@ meter::-moz-meter-bar { background:var(--accent); }
 .sidebar nav a .nav-icon { display:inline-flex; align-items:center; justify-content:center; flex:0 0 22px; width:22px; height:22px; line-height:1; }
 .sidebar nav a .nav-icon svg { display:block; width:20px; height:20px; flex:none; }
 @media (max-width:730px) { .sidebar nav a { min-height:36px; } .sidebar nav a .nav-icon { flex-basis:18px; width:18px; height:18px; } .sidebar nav a .nav-icon svg { width:16px; height:16px; } }
+
+/* Compact, accessible Geo Routing disclosures. */
+.geo-fold > summary { cursor:pointer; font-weight:600; font-size:15px; color:var(--accent); padding:6px 0; }
+.geo-fold > summary:focus-visible { outline:2px solid var(--accent); outline-offset:4px; border-radius:3px; }
+.geo-fold[open] > summary { margin-bottom:12px; border-bottom:1px solid var(--border); padding-bottom:12px; }
