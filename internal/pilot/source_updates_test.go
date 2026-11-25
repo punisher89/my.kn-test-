@@ -133,3 +133,25 @@ func TestSourceAPIsRequireAuthenticationAndOrigin(t *testing.T) {
     if w.Code!=403 {t.Fatalf("foreign origin %s: %d",item.path,w.Code)}
  }
 }
+
+func TestBetaDiscoveryAndAlphaBridge(t *testing.T) {
+ oldVersion,oldTransport:=Version,http.DefaultTransport
+ defer func(){Version,http.DefaultTransport=oldVersion,oldTransport}()
+ Version="0.2.0-alpha.33"
+ m,_:=updateFixture(t)
+ alpha:=fakeSourceRelease();alpha.Version=Version
+ beta:=alpha;beta.Version="0.2.0-beta.1"
+ a,_:=json.Marshal(alpha); b,_:=json.Marshal(beta)
+ http.DefaultTransport=updateTransport(func(r *http.Request)(*http.Response,error){
+  var data []byte
+  switch {
+  case strings.HasSuffix(r.URL.Path,"/latest-chatgpt.json"),strings.HasSuffix(r.URL.Path,"/v0.2.0-alpha.33/release-info.json"):data=a
+  case strings.HasSuffix(r.URL.Path,"/latest-chatgpt-beta.json"),strings.HasSuffix(r.URL.Path,"/v0.2.0-beta.1/release-info.json"):data=b
+  default:t.Fatalf("unexpected update path %s",r.URL.Path)
+  }
+  return &http.Response{StatusCode:200,Body:io.NopCloser(bytes.NewReader(data)),Header:make(http.Header)},nil
+ })
+ if err:=m.CheckSourceUpdate(context.Background(),"ChatGPT");err!=nil{t.Fatal(err)}
+ s:=m.SourceUpdates().Sources[0]
+ if !s.Available||s.Latest!=beta.Version{t.Fatal(s)}
+}
