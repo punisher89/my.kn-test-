@@ -1571,3 +1571,9 @@ meter::-moz-meter-bar { background:var(--accent); }
 #update-monitor .form-actions{display:flex;gap:8px;flex-wrap:wrap}
 #update-monitor p{overflow-wrap:anywhere;margin:8px 0}
 @media(max-width:500px){#update-monitor{padding:16px}}
+
+/* Stable sidebar icon and label alignment on desktop and mobile. */
+.sidebar nav a { display:flex; align-items:center; min-height:44px; box-sizing:border-box; white-space:nowrap; }
+.sidebar nav a .nav-icon { display:inline-flex; align-items:center; justify-content:center; flex:0 0 22px; width:22px; height:22px; line-height:1; }
+.sidebar nav a .nav-icon svg { display:block; width:20px; height:20px; flex:none; }
+@media (max-width:730px) { .sidebar nav a { min-height:36px; } .sidebar nav a .nav-icon { flex-basis:18px; width:18px; height:18px; } .sidebar nav a .nav-icon svg { width:16px; height:16px; } }
