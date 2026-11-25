@@ -237,8 +237,21 @@ func allowedOrigin(s string) bool {
 	return s == "initial" || s == "pool" || s == "learned" || s == "restored" || s == "manual"
 }
 
-func ReadAdaptive(c Config) (result AdaptiveSnapshot) {
+func readAdaptiveState(c Config) (result AdaptiveSnapshot) {
 	result = AdaptiveSnapshot{Enabled: c.Adaptive, Reuse: c.AdaptiveReuse, Hosts: []AdaptiveHost{}, Discovered: []string{}, History: []AdaptiveHost{}, Boxes: []AdaptiveBox{}}
+	for i := 0; i < 2; i++ {
+		n, hosts, events, err := readAdaptiveSlot(filepath.Join(c.RuntimeDir, fmt.Sprintf("state%d.tsv", i)))
+		if err == nil && n > result.Generation {
+			result.Generation = n
+			result.Hosts = hosts
+			result.History = events
+		}
+	}
+	return result
+}
+
+func ReadAdaptive(c Config) (result AdaptiveSnapshot) {
+	result = readAdaptiveState(c)
 	defer func() {
 		result.Active = c.Adaptive && c.AdaptiveActive
 		plans := map[DomainScope]string{}
@@ -268,14 +281,6 @@ func ReadAdaptive(c Config) (result AdaptiveSnapshot) {
 		}
 		result.Boxes = adaptiveBoxes(result.Hosts, result.History, c, time.Now().Unix())
 	}()
-	for i := 0; i < 2; i++ {
-		n, hosts, events, err := readAdaptiveSlot(filepath.Join(c.RuntimeDir, fmt.Sprintf("state%d.tsv", i)))
-		if err == nil && n > result.Generation {
-			result.Generation = n
-			result.Hosts = hosts
-			result.History = events
-		}
-	}
 	f, err := os.Open(filepath.Join(c.RuntimeDir, "autohosts.txt"))
 	if err != nil {
 		if !os.IsNotExist(err) {

@@ -134,14 +134,24 @@ demo.checks={};
  for(const hash of ['overview','device','updates','profiles','tune','settings','adaptive']){await page.evaluate(h=>{location.hash=h;},hash);await page.waitForFunction(h=>page===h,hash);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,hash+' must fit mobile width');}
  await page.evaluate(()=>{location.hash='settings';});await page.locator('#adaptive_fast_start').waitFor();
  assert.equal(await page.locator('#background_other_domains').isChecked(),false,'Unknown domains must not be probed automatically by default');
+ assert.equal(await page.locator('#background_paused').count(),1);
+ const profilesBeforeSettings=structuredClone(demo.config.profiles);
+ await page.locator('#background_paused').check();
+ await page.locator('#settings-form button[type=submit]').click();
+ await page.waitForFunction(()=>state.config.background_paused===true);
+ assert.equal(demo.config.background_other_domains,false);
  await page.locator('#background_other_domains').check();
  await page.locator('#settings-form button[type=submit]').click();
  await page.waitForFunction(()=>state.config.background_other_domains===true);
  assert.equal(demo.config.background_other_domains,true,'Explicit opt-in was not saved');
+ assert.equal(demo.config.background_paused,true);
+ await page.locator('#background_paused').uncheck();
  await page.locator('#background_other_domains').uncheck();
  await page.locator('#settings-form button[type=submit]').click();
  await page.waitForFunction(()=>state.config.background_other_domains===false);
  assert.equal(demo.config.background_other_domains,false,'Unknown-site search opt-out was not saved');
+ assert.equal(demo.config.background_paused,false);
+ assert.deepEqual(demo.config.profiles,profilesBeforeSettings);
 
  assert.equal(await page.locator('#adaptive_fast_start').isChecked(),true);
  const limits=[demo.config.adaptive_cooldown_seconds,demo.config.adaptive_max_switches,demo.config.adaptive_global_max_switches];

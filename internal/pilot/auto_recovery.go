@@ -75,3 +75,28 @@ func backgroundCheckInterval(c Config) time.Duration {
     if gap<time.Minute {gap=time.Minute}
     return gap
 }
+
+type recoveryFailure struct {
+	fingerprint [32]byte
+	at time.Time
+}
+
+type recoveryFailures map[string]recoveryFailure
+
+// A partial or interrupted cycle breaks the streak. Evidence from a previous
+// WAN, profile or long gap cannot trigger a restart on its own.
+func (f recoveryFailures) confirm(p Profile, c Config, results []ProbeResult, checkErr error, now time.Time) bool {
+	if checkErr != nil || !autoRecoverableFailure(results, p, c) {
+		delete(f, p.ID)
+		return false
+	}
+	current := recoveryFailure{fingerprint: checkFingerprint(c, p), at: now}
+	previous, ok := f[p.ID]
+	maxGap := 2 * backgroundCheckInterval(c) * time.Duration(len(c.Profiles))
+	if ok && previous.fingerprint == current.fingerprint && now.After(previous.at) && now.Sub(previous.at) <= maxGap {
+		delete(f, p.ID)
+		return true
+	}
+	f[p.ID] = current
+	return false
+}

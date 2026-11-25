@@ -262,6 +262,12 @@ func (m *Manager) BeginTune(id string) error {
 	if !m.op.TryLock() {
 		return ErrBusy
 	}
+	return m.beginTuneLocked(id)
+}
+
+// The caller owns m.op. On success the tuning goroutine releases it,
+// and on a validation error this method releases it before returning.
+func (m *Manager) beginTuneLocked(id string) error {
 	c := m.Config()
 	idx := -1
 	for i, p := range c.Profiles {
@@ -457,7 +463,7 @@ func (m *Manager) Watch(ctx context.Context) {
     nextRepair := time.Now()
     nextStartRetry := time.Time{}
     startRetryDelay := 30 * time.Second
-    failures := map[string]int{}
+    failures := make(recoveryFailures)
     nextAutoTune := map[string]time.Time{}
     profileIndex := 0
 
@@ -496,6 +502,9 @@ func (m *Manager) Watch(ctx context.Context) {
                 }
             }
             c = m.Config()
+            if !c.Enabled || !c.Auto || !allowed || (c.Adaptive && c.AdaptiveActive) {
+                clear(failures)
+            }
             if !c.Enabled {
                 m.op.Unlock()
                 continue
@@ -553,33 +562,26 @@ func (m *Manager) Watch(ctx context.Context) {
                 p := c.Profiles[profileIndex%len(c.Profiles)]
                 profileIndex = (profileIndex + 1) % len(c.Profiles)
                 if profileControlReason(c, p) != "" {
-                    failures[p.ID] = 0
+                    delete(failures, p.ID)
                 } else {
                     results := m.checkLocked(checkContext, p, c)
-                    if checkContext.Err() == nil {
-                        if allPassed(results, p, c) {
-                            failures[p.ID] = 0
-                        } else if autoRecoverableFailure(results, p, c) {
-                            failures[p.ID]++
-                            if failures[p.ID] >= 2 && !time.Now().Before(nextAutoTune[p.ID]) {
-                                toTune = p.ID
-                            }
-                        } else {
-                            failures[p.ID] = 0
-                        }
+                    if failures.confirm(p, c, results, checkContext.Err(), time.Now()) && !time.Now().Before(nextAutoTune[p.ID]) {
+                        toTune = p.ID
                     }
                 }
             }
             cancelChecks()
-            m.op.Unlock()
-            if toTune != "" && m.backgroundAllowed(c) {
-                failures[toTune] = 0
-                if err := m.BeginTune(toTune); err != nil {
+            if toTune != "" && ctx.Err() == nil && !m.updateRequested.Load() && m.backgroundAllowed(c) {
+                // Keep the lock from the check through the decision. A settings
+                // change cannot slip between validating and starting recovery.
+                if err := m.beginTuneLocked(toTune); err != nil {
                     m.log.Add(fmt.Sprintf("Автоподбор: %v", err))
                 } else {
                     nextAutoTune[toTune] = time.Now().Add(automaticTuneCooldown)
                 }
+                continue
             }
+            m.op.Unlock()
         }
     }
 }
