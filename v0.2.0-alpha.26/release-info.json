@@ -1,0 +1,14 @@
+{
+  "kind": "pilot-ssh-release",
+  "version": "0.2.0-alpha.26",
+  "source": "Codex",
+  "channel": "ssh",
+  "engine_version": "v1.0.7-z2k-r0",
+  "engine_sha256": "bc741e78eda3aaac8733aeaa246b18ed9b2fd780e421689b4cac969a6fd9cfca",
+  "git_sha": "b07b1116758f1a464c02346638cf8e6e05c39e7d",
+  "published_at": "2026-11-25T21:05:42.370886+00:00",
+  "manifest_sha256": "15407f001855d853f8bdd69345316a5145983ec3d745f8320ee06d7e56e3e829",
+  "installer_sha256": "d9373fe9c32a503839eb5b356a70a44cb8c9052d6b00b2eb79dadf2f857721c3",
+  "installed_via": "ssh",
+  "signed_panel_updater_modified": false
+}
