@@ -88,9 +88,14 @@ func StrategiesFor(c Config) []Strategy {
 	return pool
 }
 func strategyFor(c Config, id string) (Strategy, bool) {
-	for _, s := range StrategiesFor(c) {
-		if s.ID == id {
-			return s, true
+	// Preserve built-in precedence without allocating the entire catalog or
+	// calculating families for strategies that the caller never requested.
+	for _, pool := range [][]Strategy{Strategies, c.Catalog} {
+		for _, s := range pool {
+			if s.ID == id {
+				s.Family = StrategyFamily(s)
+				return s, true
+			}
 		}
 	}
 	return Strategy{}, false

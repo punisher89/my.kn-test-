@@ -475,13 +475,25 @@ func (m *Manager) activeTick(parent context.Context) {
 	data := readAdaptiveState(c)
 	now := time.Now()
 	latest := map[DomainScope]int64{}
+	// This cache lives for a single tick only. Config is immutable under op,
+	// and a changed profile is therefore visible on the next scheduler tick.
+	priorities := map[string]int{}
+	priority := func(s DomainScope) int {
+		if p, ok := priorities[s.Host]; ok { return p }
+		p := servicePriority(c, s)
+		priorities[s.Host] = p
+		return p
+	}
+	eligible := func(s DomainScope, manual bool) bool {
+		return manual || c.BackgroundOtherDomains || priority(s) == 0
+	}
 	for _, r := range data.History {
 		if r.Status != "failed" || r.Network != c.WAN || r.Updated > now.Unix() || now.Unix()-r.Updated > 600 {
 			continue
 		}
-		b := boxContext(r)
-		s := DomainScope{r.Host, b.TLS, b.Family, r.Port}
-		if !autoSearchEligible(c,s,false) || stableYouTubeHost(c, s.Host) || !s.valid() || c.excludedBy(s.Host) != "" || c.pinFor(s.Host, s.TLS, s.Family, s.Port) != "" || s.Family == "ipv6" && !c.IPv6 {
+		tls, family := observationProtocol(r.Group)
+		s := DomainScope{r.Host, tls, family, r.Port}
+		if !eligible(s,false) || stableYouTubeHost(c, s.Host) || !s.valid() || c.excludedBy(s.Host) != "" || c.pinFor(s.Host, s.TLS, s.Family, s.Port) != "" || s.Family == "ipv6" && !c.IPv6 {
 			continue
 		}
 		live := profileForDomain(c, s.Host).Strategy
@@ -503,7 +515,7 @@ func (m *Manager) activeTick(parent context.Context) {
     // saved strategies, pinned methods and live nfqws2 remain unchanged.
     if !c.BackgroundOtherDomains {
         for s, task := range m.domainTasks {
-            if !autoSearchEligible(c,s,task.Manual) {
+            if !eligible(s,task.Manual) {
                 delete(m.domainTasks,s)
             }
         }
@@ -513,7 +525,7 @@ func (m *Manager) activeTick(parent context.Context) {
 		scopes = append(scopes, s)
 	}
 	sort.Slice(scopes, func(i, j int) bool {
-		if a, b := servicePriority(c, scopes[i]), servicePriority(c, scopes[j]); a != b {
+		if a, b := priority(scopes[i]), priority(scopes[j]); a != b {
 			return a < b
 		}
 		return scopes[i].key() < scopes[j].key()
@@ -529,9 +541,9 @@ func (m *Manager) activeTick(parent context.Context) {
 			}
 			// A full queue of unrelated unresolved sites must not prevent a
 			// configured service from entering the search at all.
-			if oldest == nil && servicePriority(c, s) == 0 {
+			if oldest == nil && priority(s) == 0 {
 				for _, candidate := range m.domainTasks {
-					if servicePriority(c, candidate.Scope) > 0 && (oldest == nil || candidate.Signal < oldest.Signal) {
+					if priority(candidate.Scope) > 0 && (oldest == nil || candidate.Signal < oldest.Signal) {
 						oldest = candidate
 					}
 				}
@@ -554,12 +566,12 @@ func (m *Manager) activeTick(parent context.Context) {
 			delete(m.domainTasks, s)
 			continue
 		}
-		if task.Signal > task.Handled && autoSearchEligible(c,s,task.Manual) && !stableYouTubeHost(c, s.Host) && c.excludedBy(s.Host) == "" && c.pinFor(s.Host, s.TLS, s.Family, s.Port) == "" {
+		if task.Signal > task.Handled && eligible(s,task.Manual) && !stableYouTubeHost(c, s.Host) && c.excludedBy(s.Host) == "" && c.pinFor(s.Host, s.TLS, s.Family, s.Port) == "" {
 			pending = append(pending, task)
 		}
 	}
 	sort.Slice(pending, func(i, j int) bool {
-		if a, b := servicePriority(c, pending[i].Scope), servicePriority(c, pending[j].Scope); a != b {
+		if a, b := priority(pending[i].Scope), priority(pending[j].Scope); a != b {
 			return a < b
 		}
 		if !pending[i].Attempted.Equal(pending[j].Attempted) {
