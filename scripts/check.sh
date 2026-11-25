@@ -27,6 +27,7 @@ if command -v node >/dev/null 2>&1; then
     node --check internal/pilot/web/app.js
     node --check internal/pilot/web/music.js
     node tests/test_music_ui.cjs
+    node tests/test_vpn_profile.cjs
 fi
 if [ "${PILOT_TEST_BROWSER:-0}" = "1" ]; then
     node tests/test_boxes_ui.cjs
