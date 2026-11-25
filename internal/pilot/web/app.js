@@ -618,7 +618,7 @@ function geoPage(){
  <h2>Туннель и политика</h2><p id="geo-tunnels" class="subtle">Поиск VPN-интерфейсов…</p>
  <form id="geo-form"><div class="field"><label for="geo-interface">Имя интерфейса KeeneticOS</label><input id="geo-interface" required maxlength="32" placeholder="OpkgTun10" value="OpkgTun10" autocomplete="off"></div>
  <div class="field"><label for="geo-policy">Имя существующей политики доступа (CLI)</label><input id="geo-policy" required maxlength="32" placeholder="Policy0" autocomplete="off"><small>Проверь имя в конфигурации Keenetic. Не название Wi-Fi.</small></div>
- <div id="geo-services">Загрузка списка…</div><div class="form-actions"><button type="submit" id="geo-build" disabled>Создать план</button></div></form>
+ <div class="form-actions"><button id="geo-probe" type="button">Проверить VPN</button></div><p id="geo-probe-result" class="subtle" aria-live="polite"></p><div id="geo-services">Загрузка списка…</div><div class="form-actions"><button type="submit" id="geo-build" disabled>Создать план</button></div></form>
  <p class="subtle">Ни одна служба не направляется в VPN до ручного применения. Список доменов стартовый и не гарантирует охват всех CDN/авторизации. Учитывай правила доступности сервисов. DNS клиентов должен обслуживать Keenetic. Telegram дополнительно использует официальные IP-сети; проверь поддержку IPv6 в туннеле и назначение политики всем нужным клиентам.</p>
  <div id="geo-output" hidden><label for="geo-commands">Предпросмотр команд CLI</label><textarea id="geo-commands" readonly rows="12" spellcheck="false"></textarea><button id="geo-download" type="button">Скачать команды TXT</button>
  <p>Проверь отсутствие существующих групп pilot-geo-*, резервную копию конфигурации, туннель и политику. Применяй в CLI самой KeeneticOS, не в Entware shell. Проверь доступ из клиента политики перед сохранением конфигурации. Для отката удали только созданные маршруты и группы в настройках Keenetic. Автоматического отката нет.</p></div>
@@ -636,6 +636,18 @@ function bindGeo(){
   target.innerHTML=d.services.map(s=>`<div class="toggle-row"><div><label for="geo-${esc(s.id)}">${esc(s.name)}</label><p>${s.domains.map(esc).join(", ")}${s.networks?.length?` · ${s.networks.length} IP-сетей (IPv4/IPv6)`:""}</p></div><input id="geo-${esc(s.id)}" type="checkbox" value="${esc(s.id)}"></div>`).join("");
   button.disabled=false;
  }).catch(e=>{if(current())status.textContent="Не удалось загрузить: "+e.message;});
+ const probeButton=$("#geo-probe"),probeResult=$("#geo-probe-result");
+ probeButton.addEventListener("click",async ()=>{
+  const name=$("#geo-interface").value.trim();
+  probeButton.disabled=true;probeResult.textContent="Проверка HTTPS через "+name+"…";
+  try{
+   const d=await api("geo/probe","POST",{interface:name});
+   if(!current())return;
+   const messages={reachable:"HTTPS через туннель доступен",unreachable:"Нет ответа HTTPS",down:"Интерфейс не обнаружен или выключен",unknown:"Доступность не подтверждена"};
+   probeResult.textContent=d.interface+": "+(messages[d.state]||messages.unknown)+". Маршруты не менялись.";
+  }catch(e){if(current())probeResult.textContent="Ошибка проверки: "+e.message;}
+  finally{if(current())probeButton.disabled=false;}
+ });
  let serial=0;
  form.addEventListener("input",()=>{serial++;output.hidden=true;commands.value="";button.disabled=false;});
  form.addEventListener("submit",async e=>{
