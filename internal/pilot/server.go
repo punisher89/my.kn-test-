@@ -167,6 +167,9 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 		}
 		jsonReply(w, 202, m.Snapshot())
 	})
+	api("GET /api/vpn/capabilities", func(w http.ResponseWriter, r *http.Request) {
+		jsonReply(w, 200, map[string]any{"engines": independentVPNCapabilities(), "managed_tunnels": false})
+	})
 	api("GET /api/geo", func(w http.ResponseWriter, r *http.Request) {
 		jsonReply(w,200, map[string]any{"services":geoServices,"tunnels":geoTunnels(),"applied":false})
 	})
