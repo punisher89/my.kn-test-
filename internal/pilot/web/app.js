@@ -645,8 +645,9 @@ function validateIndependentVPN(type, data){
  }
  return "Основные параметры найдены. Это проверка формата, не проверка подключения.";
 }
+function dnsProbePanel(){return `<section class="panel"><h2>Защищённый DNS</h2><p>Проверка реальных DNS-запросов с роутера через текущую маршрутизацию. AdGuard DNS · DoH / DoT / DoQ. Требуется kdig с поддержкой соответствующего протокола. Настройки DNS не меняются.</p><button id="dns-probe" type="button">Проверить DNS</button><pre id="dns-probe-result" aria-live="polite">Не проверено</pre></section>`;}
 function geoPage(){
- return heading("Geo Routing","План выборочной маршрутизации KeeneticOS 5.2 через собственный VPN. Pilot не применяет команды автоматически.")+`<section class="panel">
+ return heading("Geo Routing","План выборочной маршрутизации KeeneticOS 5.2 через собственный VPN. Pilot не применяет команды автоматически.")+dnsProbePanel()+`<section class="panel">
  <h2>Туннель и политика</h2><p id="geo-tunnels" class="subtle">Поиск VPN-интерфейсов…</p>
  <form id="geo-form"><div class="field"><label for="geo-interface">Имя интерфейса KeeneticOS</label><input id="geo-interface" required maxlength="32" placeholder="OpkgTun10" value="OpkgTun10" autocomplete="off"></div>
  <div class="field"><label for="geo-policy">Имя существующей политики доступа (CLI)</label><input id="geo-policy" required maxlength="32" placeholder="Policy0" autocomplete="off"><small>Проверь имя в конфигурации Keenetic. Не название Wi-Fi.</small></div>
@@ -669,6 +670,13 @@ function bindGeo(){
  const target=$("#geo-services"),status=$("#geo-tunnels"),button=$("#geo-build"),output=$("#geo-output"),commands=$("#geo-commands");
  const session=panelSession;
  const current=()=>signedIn&&panelSession===session&&form===$("#geo-form");
+ const dnsButton=$("#dns-probe"),dnsResult=$("#dns-probe-result");
+ dnsButton?.addEventListener("click",async()=>{
+  dnsButton.disabled=true;dnsResult.textContent="Проверяется…";
+  try{const rows=await api("dns/probe","POST",{});if(current())dnsResult.textContent=rows.map(r=>`${r.protocol} · ${r.server} · ${r.status==="ok"?"Есть DNS-ответ":r.status==="unavailable"?"kdig не найден":r.status==="timeout"?"Таймаут":"Нет подтверждения (ошибка или протокол не поддерживается)"} · ${r.milliseconds} мс`).join("\n");}
+  catch(e){if(current())dnsResult.textContent=e.message;}
+  finally{if(current())dnsButton.disabled=false;}
+ });
  const prep=$("#vpn-prepare"),type=$("#vpn-type"),result=$("#vpn-prepare-result"),file=$("#vpn-config");
  let prepSerial=0;
  const changeVPN=()=>{prepSerial++;result.textContent="";$("#vpn-ssh-fields").hidden=type.value!=="ssh";$("#vpn-config-fields").hidden=type.value==="ssh";file.value="";};
