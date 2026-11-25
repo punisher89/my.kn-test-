@@ -66,6 +66,7 @@ function notify(message, error = false) {
   toastTimer = setTimeout(() => toast.classList.add("hidden"), 6000);
 }
 async function logout() {
+  stopUpdateMonitor();
   document.dispatchEvent(new Event("pilot-logout"));
   signedIn = false;
   panelSession++;
@@ -793,26 +794,8 @@ function bindActions() {
   $("#method-search")?.addEventListener("input",e=>{methodQuery=e.target.value;$("#method-results").innerHTML=methodResults();bindMethodViews();});
   $("#method-family")?.addEventListener("change",e=>{methodFamily=e.target.value;$("#method-results").innerHTML=methodResults();bindMethodViews();});
   $("#update-check")?.addEventListener("click",async e=>{const button=e.currentTarget;button.disabled=true;try{await api("updates/check","POST",{});await loadUpdates(true);}catch(error){notify(error.message,true);button.disabled=false;}});
-  $("#update-install")?.addEventListener("click",async e=>{const button=e.currentTarget;button.disabled=true;try{await api("updates/install","POST",{version:updatesData.latest});await loadUpdates(true);}catch(error){notify(error.message,true);button.disabled=false;}});
-  document.querySelectorAll("[data-source-update-check]").forEach(button=>button.addEventListener("click",async()=>{
-    button.disabled=true;
-    try{
-      await api("updates/sources/check","POST",{source:button.dataset.sourceUpdateCheck});
-      await loadSourceUpdates(true);
-      notify("Источник "+button.dataset.sourceUpdateCheck+" проверен");
-    }catch(err){notify("Ошибка источника: "+err.message,true);button.disabled=false;}
-  }));
-  document.querySelectorAll("[data-source-update-install]").forEach(button=>button.addEventListener("click",async()=>{
-    const source=button.dataset.sourceUpdateInstall;
-    const item=sourceUpdatesData?.sources?.find(x=>x.source===source);
-    if(!item?.available||!item.latest)return;
-    const confirmed=window.confirm("Установить "+item.latest+" ["+source+"]? Это отдельный канал GitHub HTTPS + SHA-256, БЕЗ независимой подписи. Будут проверены манифест, пакет, версия и конфигурация; служба кратко перезапустится.");
-    if(!confirmed)return;
-    button.disabled=true;
-    try{await api("updates/sources/install","POST",{source,version:item.latest});await loadSourceUpdates(true);await loadUpdates(true);}
-    catch(err){notify(err.message,true);button.disabled=false;}
-  }));
-
+  $("#update-install")?.addEventListener("click",e=>{if(updatesData?.available&&!updatesData.running)startMonitoredUpdate("updates/install",{version:updatesData.latest},"Подписанный канал",e.currentTarget);});
+  $("#update-monitor-open")?.addEventListener("click",()=>openUpdateMonitor());
   $("#custom-service-form")?.addEventListener("submit",event=>{event.preventDefault();serviceAction(async()=>{
     const f=event.target,bytes=new Uint32Array(2);crypto.getRandomValues(bytes);const id="custom-"+[...bytes].map(v=>v.toString(16).padStart(8,"0")).join("");
     const url=f.elements.url.value.trim(),source=f.elements.source.value.trim(),domains=lines(f.elements.domains.value);
@@ -1040,10 +1023,15 @@ function groupedHistory(rows) {
   });
   return groups.sort((a, b) => b.index - a.index).map((g) => g.row);
 }
+function retryObservationText(r,enabled=true,now=Date.now()/1000){
+  if(!enabled||!state?.config?.adaptive_active||!r.retry_at||r.paused||r.pinned||!observationHasContext(r))return "";
+  return r.retry_at>now?"Повтор домена не раньше "+new Date(r.retry_at*1000).toLocaleString("ru-RU"):"Домен в очереди повторной проверки";
+}
 function currentObservationStatus(r, enabled = true) {
   if (r.paused) return "Приостановлен";
   if (r.pinned && r.pinned !== r.strategy) return "Ожидает наблюдений";
   if (r.https_measured) return "HTTPS подтверждён";
+  if (retryObservationText(r,enabled)) return "Повторная проверка";
   if (r.applied_strategy && r.applied_strategy !== r.strategy) return "Ожидает новых подключений";
   if (currentHold(r, enabled)) return "Смена отложена";
   if (observationStale(r)) return "Нет свежих наблюдений";
@@ -1063,14 +1051,14 @@ function currentObservationReason(r, enabled = true) {
 }
 function observationTone(r, history, enabled) {
   if (!history) {
-    if (r.paused || currentHold(r, enabled) || (r.pinned && r.pinned !== r.strategy)) return "warn";
+    if (r.paused || currentHold(r, enabled) || retryObservationText(r,enabled) || (r.pinned && r.pinned !== r.strategy)) return "warn";
     if (observationStale(r) || !observationHasContext(r)) return "neutral";
   }
   return r.status === "failed" ? "fail" : r.status === "connected" ? "" : "warn";
 }
 function observationTable(rows, history = false, enabled = true) {
   if (!rows.length) return '<p class="subtle">Наблюдений пока нет.</p>';
-  return `<table class="probe-table"><thead><tr><th>Сайт / метод</th><th>Результат</th><th>Причина / источник</th><th>Время</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${esc(r.host)}<br><small>${esc(strategyName(history ? r.strategy : r.pinned || r.applied_strategy || r.strategy))}</small></td><td>${badge(history ? observedStatus(r.status) : currentObservationStatus(r, enabled), observationTone(r, history, enabled))}${history && r.event_count > 1 ? `<br><small>Событий: ${r.event_count}</small>` : ""}${!history && r.https_measured ? '<br><small>HTTPS подтверждён роутером</small>' : ""}${!history && r.pinned ? '<br><small>Закреплён вручную</small>' : ""}</td><td>${esc(history ? eventReason(r) : currentObservationReason(r, enabled))}<br><small>${esc(originLabels[r.origin] || originLabels.restored)}</small></td><td>${history && r.event_count > 1 && r.first_updated !== r.updated ? `${esc(new Date(r.first_updated * 1000).toLocaleString("ru-RU"))}<br>— ` : ""}${esc(new Date(r.updated * 1000).toLocaleString("ru-RU"))}</td></tr>`).join("")}</tbody></table>`;
+  return `<table class="probe-table"><thead><tr><th>Сайт / метод</th><th>Результат</th><th>Причина / источник</th><th>Время</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${esc(r.host)}<br><small>${esc(strategyName(history ? r.strategy : r.pinned || r.applied_strategy || r.strategy))}</small></td><td>${badge(history ? observedStatus(r.status) : currentObservationStatus(r, enabled), observationTone(r, history, enabled))}${history && r.event_count > 1 ? `<br><small>Событий: ${r.event_count}</small>` : ""}${!history && r.https_measured ? '<br><small>HTTPS подтверждён роутером</small>' : ""}${!history && r.pinned ? '<br><small>Закреплён вручную</small>' : ""}${retryObservationText(r,enabled)?`<br><small>${esc(retryObservationText(r,enabled))}</small>`:""}</td><td>${esc(history ? eventReason(r) : currentObservationReason(r, enabled))}<br><small>${esc(originLabels[r.origin] || originLabels.restored)}</small></td><td>${history && r.event_count > 1 && r.first_updated !== r.updated ? `${esc(new Date(r.first_updated * 1000).toLocaleString("ru-RU"))}<br>— ` : ""}${esc(new Date(r.updated * 1000).toLocaleString("ru-RU"))}</td></tr>`).join("")}</tbody></table>`;
 }
 function controlScope(b) {
   return {
@@ -1375,7 +1363,105 @@ async function loadPreflight(){
   }catch(err){if(el===$("#preflight-data")&&session===panelSession&&signedIn)el.textContent="Проверка среды недоступна: "+err.message;}
   finally{preflightLoading=false;}
 }
-function updatesPage(){return heading("Обновления","Обновление Pilot, панели и закреплённого nfqws2 с сохранением настроек.")+`<div class="panel"><div id="update-info">Загрузка…</div><div class="form-actions"><button id="update-check">Проверить версию</button><button id="update-install" class="primary" disabled>Установить обновление</button></div><p class="subtle">Выпуск проверяется по подписи и SHA-256. Перед остановкой службы проверяются пакет и конфигурация; установщик сохраняет прежнюю версию для отката при ошибке. Текущий подбор будет отменён перед установкой. Будет краткий перерыв. После перезапуска войдите с прежним паролем.</p></div><div class="panel"><h3>ChatGPT / Codex · отдельные обновления</h3><p class="subtle">Это дополнительный канал GitHub HTTPS + SHA-256, без независимой подписи Ed25519. Автор указан издателем в GitHub, а не подтверждён криптографически. Старый подписанный канал выше оставлен без изменений.</p><div id="source-update-info">Загрузка сведений об источниках…</div></div><div class="panel"><h3>Каталог методов</h3><p>Подписанные стратегии можно загрузить отдельно от приложения.</p><button id="catalog-update">Загрузить стратегии сейчас</button></div>`;}
+
+let updateMonitor=null, updateMonitorTimer=null;
+const updateStepNames=["Ожидание","Загрузка и проверка","Установка / перезапуск","Проверка версии"];
+function updateProgressView(d){
+ const titles={waiting:"Ожидание завершения операции",downloading:"Загрузка и проверка пакета",installing:"Установка и перезапуск службы",completed:"Установка завершена",failed:"Установка не завершена",interrupted:"Процесс прерван"};
+ const phases={"log-open":"Открытие журнала",waiting:"Завершение текущей операции",prepare:"Подготовка пакета","worker-start":"Запуск установщика",install:"Установка приложения и движка","version-check":"Проверка версии"};
+ const bad=d.stage==="failed"||d.stage==="interrupted";
+ const confirmed=d.stage==="completed"&&!!d.target&&d.current===d.target;
+ const position=confirmed?4:d.stage==="installing"?(d.phase==="version-check"?3:2):d.stage==="downloading"?1:d.stage==="waiting"?0:-1;
+ return {title:d.stage==="completed"&&!confirmed?"Установленная версия не подтверждена":titles[d.stage]||"Ожидание статуса",phase:phases[d.phase]||"",position,bad,terminal:bad||d.stage==="completed",confirmed};
+}
+function ensureUpdateDialog(){
+ let dialog=$("#update-monitor");
+ if(dialog)return dialog;
+ dialog=document.createElement("dialog");
+ dialog.id="update-monitor";
+ dialog.setAttribute("aria-labelledby","update-monitor-title");
+ dialog.innerHTML='<h2 id="update-monitor-title">Обновление Keenetic Pilot</h2><p id="update-monitor-version" class="subtle"></p><p id="update-monitor-state" role="status" aria-live="polite"></p><progress id="update-monitor-progress" aria-label="Выполняется обновление"></progress><ol id="update-monitor-steps"></ol><p id="update-monitor-detail" class="subtle"></p><div class="form-actions"><button id="update-monitor-copy" type="button">Скачать диагностику</button><button id="update-monitor-close" type="button">Свернуть</button></div><small>Закрытие окна не отменяет обновление. Не отключайте питание роутера во время установки.</small>';
+ document.body.appendChild(dialog);
+ $("#update-monitor-close").onclick=()=>dialog.close();
+ $("#update-monitor-copy").onclick=()=>{
+  if(!updateMonitor)return;
+  const m=updateMonitor,d=m.last||{};
+  const report={target:m.target,source:m.source,current:d.current||null,stage:d.stage||null,phase:d.phase||null,exit_code:d.exit_code||null,connection:m.connection,checked_at:m.checkedAt||null};
+  const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:"application/json"}));
+  const a=document.createElement("a");a.href=url;a.download="pilot-update-status.json";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+ };
+ return dialog;
+}
+function paintUpdateMonitor(){
+ const m=updateMonitor;if(!m)return;
+ ensureUpdateDialog();
+ const d=m.last||{},v=updateProgressView(d);
+ $("#update-monitor-version").textContent=(m.source?m.source+" · ":"")+"Цель: "+(m.target||d.target||"не определена")+(d.current?" · Установлено: "+d.current:"");
+ $("#update-monitor-state").textContent=m.rejected?"Запрос установки отклонён":m.connection==="lost"?"Нет связи с панелью. Ожидаем восстановления; итог ещё неизвестен.":m.pending?"Запрос установки отправляется…":v.title;
+ $("#update-monitor-progress").hidden=m.rejected||(!m.pending&&v.terminal);
+ $("#update-monitor-detail").textContent=[v.phase,d.exit_code?"Код завершения: "+d.exit_code:"",m.rejected?"Запрос не принят. Проверь сообщение панели.":"",v.bad?"Проверь состояние службы. Автоматический откат не подтверждён.":"",m.checkedAt?"Последний ответ: "+new Date(m.checkedAt).toLocaleTimeString("ru-RU"):""].filter(Boolean).join(" · ");
+ const steps=$("#update-monitor-steps");steps.replaceChildren();
+ updateStepNames.forEach((name,i)=>{const li=document.createElement("li");li.textContent=(v.bad?"— ":i<v.position?"✓ ":i===v.position?"▶ ":"○ ")+name;steps.appendChild(li);});
+ $("#update-monitor-close").textContent=v.terminal||m.rejected?"Закрыть":"Свернуть";
+}
+function stopUpdateMonitor(){
+ clearTimeout(updateMonitorTimer);updateMonitorTimer=null;updateMonitor=null;
+ const dialog=$("#update-monitor");if(dialog?.open)dialog.close();
+}
+function openUpdateMonitor(target="",source=""){
+ if(!updateMonitor||target&&updateMonitor.target!==target){
+  clearTimeout(updateMonitorTimer);
+  updateMonitor={target,source,last:null,pending:false,rejected:false,connection:"unknown",checkedAt:null,delay:3000};
+ }
+ const dialog=ensureUpdateDialog();
+ paintUpdateMonitor();if(!dialog.open)dialog.showModal();
+ scheduleUpdateMonitor(0);
+}
+function scheduleUpdateMonitor(delay){
+ clearTimeout(updateMonitorTimer);
+ if(updateMonitor&&!updateMonitor.rejected)updateMonitorTimer=setTimeout(pollUpdateMonitor,delay);
+}
+async function pollUpdateMonitor(){
+ const m=updateMonitor;if(!m||!signedIn||m.polling)return;
+ m.polling=true;
+ const session=panelSession;
+ try{
+  const d=await api("updates");
+  if(updateMonitor!==m||session!==panelSession||!signedIn)return;
+  m.connection="ok";m.checkedAt=Date.now();m.delay=3000;
+  if(!m.target&&d.target)m.target=d.target;
+  if(!m.target||d.target===m.target)m.last=d;
+  paintUpdateMonitor();
+ }catch(e){
+  if(updateMonitor!==m||session!==panelSession||!signedIn)return;
+  m.connection="lost";m.delay=Math.min(15000,m.delay*2);paintUpdateMonitor();
+ }finally{
+  m.polling=false;
+  if(updateMonitor===m&&signedIn&&!m.rejected&&(m.pending||m.connection==="lost"||!m.last||m.last.running||!updateProgressView(m.last).terminal)){
+   if(!m.target&&m.last?.stage==="idle"&&!m.pending)return;
+   scheduleUpdateMonitor(m.delay);
+  }
+ }
+}
+async function startMonitoredUpdate(path,payload,source,button){
+ if(updateMonitor?.pending)return;
+ button.disabled=true;
+ openUpdateMonitor(payload.version,source);
+ const m=updateMonitor;m.pending=true;m.rejected=false;m.last=null;paintUpdateMonitor();
+ try{
+  await api(path,"POST",payload);
+  await Promise.all([loadUpdates(true),loadSourceUpdates(true)]);
+ }catch(e){
+  if(updateMonitor!==m)return;
+  if(e.status>=400&&e.status<500){m.rejected=true;notify(e.message,true);}
+  else{m.connection="lost";notify("Ответ на запуск не получен; проверяем состояние.",true);}
+ }finally{
+  if(updateMonitor===m){m.pending=false;paintUpdateMonitor();if(!m.rejected)scheduleUpdateMonitor(0);}
+  if(button.isConnected)button.disabled=m.rejected?false:Boolean(updatesData?.running||sourceUpdatesData?.running||!m.last||!updateProgressView(m.last).terminal);
+ }
+}
+
+function updatesPage(){return heading("Обновления","Обновление Pilot, панели и закреплённого nfqws2 с сохранением настроек.")+`<div class="panel"><div id="update-info">Загрузка…</div><div class="form-actions"><button id="update-check">Проверить версию</button><button id="update-install" class="primary" disabled>Установить обновление</button><button id="update-monitor-open" type="button">Ход обновления</button></div><p class="subtle">Выпуск проверяется по подписи и SHA-256. Перед остановкой службы проверяются пакет и конфигурация; установщик сохраняет прежнюю версию для отката при ошибке. Текущий подбор будет отменён перед установкой. Будет краткий перерыв. После перезапуска войдите с прежним паролем.</p></div><div class="panel"><h3>ChatGPT / Codex · отдельные обновления</h3><p class="subtle">Это дополнительный канал GitHub HTTPS + SHA-256, без независимой подписи Ed25519. Автор указан издателем в GitHub, а не подтверждён криптографически. Старый подписанный канал выше оставлен без изменений.</p><div id="source-update-info">Загрузка сведений об источниках…</div></div><div class="panel"><h3>Каталог методов</h3><p>Подписанные стратегии можно загрузить отдельно от приложения.</p><button id="catalog-update">Загрузить стратегии сейчас</button></div>`;}
 async function loadSourceUpdates(force=false){
   const target=$("#source-update-info");
   if(!target||(sourceUpdatesLoading&&!force))return;
@@ -1409,8 +1495,7 @@ async function loadSourceUpdates(force=false){
       if(!item?.available||!item.latest)return;
       if(!window.confirm("Установить "+item.latest+" ["+source+"] из GitHub? Проверка HTTPS + SHA-256; НЕ независимая подпись. Перед перезапуском проверяются пакет и конфигурация."))return;
       button.disabled=true;
-      try{await api("updates/sources/install","POST",{source,version:item.latest});await loadSourceUpdates(true);await loadUpdates(true);}
-      catch(err){notify(err.message,true);button.disabled=false;}
+      await startMonitoredUpdate("updates/sources/install",{source,version:item.latest},source,button);
     }));
   }catch(e){if(target===$("#source-update-info"))target.textContent="Не удалось получить сведения об источниках: "+e.message;}
   finally{if(serial===sourceUpdatesSerial)sourceUpdatesLoading=false;}

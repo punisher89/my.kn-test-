@@ -25,11 +25,11 @@ demo.checks={};
   }
   if(url.pathname==='/api/updates/sources/install'){
     assert.deepEqual(req.postDataJSON(),{source:'ChatGPT',version:'0.2.0-alpha.12'});
-    sourceInstalls++;sourceUpdate={...sourceUpdate,running:true,stage:'downloading'};return json(sourceUpdate,202);
+    sourceInstalls++;sourceUpdate={...sourceUpdate,running:true,stage:'downloading'};update={...update,running:true,stage:'downloading',target:'0.2.0-alpha.12'};return json(sourceUpdate,202);
   }
   if(url.pathname==='/api/updates')return json(update);
   if(url.pathname==='/api/updates/check'){update={...update,latest:'0.2.0-alpha.11',latest_engine:'v-next',available:true};return json(update);}
-  if(url.pathname==='/api/updates/install'){assert.deepEqual(req.postDataJSON(),{version:'0.2.0-alpha.11'});installs++;update={...update,running:true,stage:'downloading'};return json(update,202);}
+  if(url.pathname==='/api/updates/install'){assert.deepEqual(req.postDataJSON(),{version:'0.2.0-alpha.11'});installs++;update={...update,running:true,stage:'downloading',target:'0.2.0-alpha.11'};return json(update,202);}
   if(url.pathname==='/api/services/custom'){creates++;const p=req.postDataJSON();demo.config.profiles.push(p);return json(demo);}
   if(url.pathname.endsWith('/domains')){syncs++;const id=url.pathname.split('/')[3],p=demo.config.profiles.find(p=>p.id===id);if(!p.domains.includes('static.customcdn.test'))p.domains.push('static.customcdn.test');p.domains_updated=new Date().toISOString();return json(demo);}
   if(url.pathname==='/api/config'){demo.config=req.postDataJSON();return json(demo);}
@@ -44,7 +44,8 @@ demo.checks={};
  await musicDetails.locator('summary').click();
  await page.locator('#radio-station').waitFor();
  await page.locator('#music-audio').waitFor({state:'attached'});
- assert.equal(await page.locator('#radio-station option').count(),10);
+ assert.equal(await page.locator('#radio-station option').count(),24);
+ await page.locator('#radio-search').fill('максимум');assert.equal(await page.locator('#radio-station option').count(),1);await page.locator('#radio-search').clear();
  assert.equal(await page.locator('#music-audio').evaluate(a=>a.autoplay),false);
  assert.equal(await page.locator('#music-audio').evaluate(a=>a.getAttribute('preload')),'none');
  assert.equal(await page.locator('#music-audio').evaluate(a=>a.hasAttribute('src')),false);
@@ -71,7 +72,7 @@ demo.checks={};
  await page.locator('#update-check').click();await page.waitForFunction(()=>updatesData.available);assert.equal(installs,0);
  assert.equal(await page.locator('#update-install').isEnabled(),true,'Verified update must be installable during background search');
  update={...update,checking:true};await page.evaluate(()=>loadUpdates());assert.equal(await page.locator('#update-check').isDisabled(),true,'Duplicate metadata check is blocked');update={...update,checking:false};
- await page.locator('#update-install').click();await page.waitForFunction(()=>updatesData.running);assert.equal(installs,1);assert.equal(await page.locator('#update-install').isDisabled(),true);
+ await page.locator('#update-install').click();await page.waitForFunction(()=>updatesData.running);assert.equal(installs,1);assert.equal(await page.locator('#update-install').isDisabled(),true);await page.locator('#update-monitor[open]').waitFor();await page.waitForFunction(()=>document.querySelector('#update-monitor-state').textContent.includes('Загрузка'));await page.locator('#update-monitor-close').click();
  update={...update,stage:'waiting'};await page.evaluate(()=>loadUpdates());assert.match(await page.locator('#update-info').innerText(),/Ожидание завершения текущего подбора/);assert.equal(await page.locator('#update-check').isDisabled(),true);demo.busy=false;
  update={...update,current:'0.2.0-alpha.11',running:false,stage:'completed',available:false};await page.evaluate(()=>loadUpdates());assert.match(await page.locator('#update-info').innerText(),/Обновление завершено/);
  update={...update,stage:'failed',phase:'install',exit_code:23};await page.evaluate(()=>loadUpdates());assert.match(await page.locator('#update-info').innerText(),/установка приложения и движка/);assert.match(await page.locator('#update-info').innerText(),/код завершения: 23/);assert.match(await page.locator('#update-info').innerText(),/\/opt\/etc\/keenetic-pilot\/update.log/);
@@ -84,8 +85,8 @@ demo.checks={};
  page.on('dialog',dialog=>dialog.accept());
  await page.locator('[data-source-update-install="ChatGPT"]').click();
  await page.waitForFunction(()=>sourceUpdatesData?.running===true);
- assert.equal(sourceInstalls,1);
- sourceUpdate.running=false;
+ assert.equal(sourceInstalls,1);await page.locator('#update-monitor[open]').waitFor();await page.waitForFunction(()=>document.querySelector('#update-monitor-state').textContent.includes('Загрузка'));await page.locator('#update-monitor-close').click();
+ sourceUpdate.running=false;update={...update,running:false,stage:'completed',current:'0.2.0-alpha.12',exit_code:0,phase:''};
 
  // The approved Matrix overview uses real-shaped telemetry, explicit checks,
  // escaped errors, a bounded chart and mobile layout rather than fake successes.

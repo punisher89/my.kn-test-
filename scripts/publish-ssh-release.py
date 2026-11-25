@@ -84,8 +84,8 @@ printf '%s\\n' 'Installed {label}. Original signed panel updater is unchanged.'
 
 def package_files(source):
     version = (ROOT / "VERSION").read_text().strip()
-    if not re.fullmatch(r"\d+\.\d+\.\d+-alpha\.\d+", version):
-        raise RuntimeError("Expected numeric alpha VERSION")
+    if not re.fullmatch(r"\d+\.\d+\.\d+-(?:alpha|beta)\.\d+", version):
+        raise RuntimeError("Expected numeric alpha or beta VERSION")
     if source not in SOURCES:
         raise RuntimeError("Source must be ChatGPT or Codex")
     archives = {}
@@ -132,7 +132,8 @@ def publish(version, files):
     info = json.loads(files["release-info.json"])
     # A small per-source discovery pointer is independent of signed packages/latest.json.
     # This lives exclusively in the separate ssh-releases branch.
-    files[f"latest-{info['source'].lower()}.json"] = files["release-info.json"]
+    suffix = "-beta" if "-beta." in version else ""
+    files[f"latest-{info['source'].lower()}{suffix}.json"] = files["release-info.json"]
     remote = git("ls-remote", "origin", f"refs/heads/{CHANNEL}")
     parent = None
     if remote:

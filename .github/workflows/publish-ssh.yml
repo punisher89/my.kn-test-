@@ -3,12 +3,16 @@ name: Publish independent ChatGPT / Codex SSH release
 on:
   push:
     branches:
-      - feature/keenetic-telegram-transparent-alpha32
+      - feature/keenetic-beta1
     paths:
       - .github/workflows/publish-ssh.yml
       - scripts/publish-ssh-release.py
       - release-source.txt
       - VERSION
+      - internal/pilot/**
+      - tests/**
+      - scripts/check.sh
+      - lua/**
   workflow_dispatch:
     inputs:
       source:
@@ -28,7 +32,7 @@ concurrency:
 
 jobs:
   independent-ssh-release:
-    if: github.repository == 'punisher89/my.kn-test-' && github.ref == 'refs/heads/feature/keenetic-telegram-transparent-alpha32'
+    if: github.repository == 'punisher89/my.kn-test-' && github.ref == 'refs/heads/feature/keenetic-beta1'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -61,6 +65,8 @@ jobs:
           case "$origin" in ChatGPT) ;; *) echo "::error::Unknown release source"; exit 1 ;; esac
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Publish only the beta candidate. The legacy migration pointer is separate.
+          test "$(cat VERSION)" = "0.2.0-beta.1"
           python3 scripts/publish-ssh-release.py --source "$origin" --push
       - name: Verify independent release is reachable via HTTPS
         shell: bash
