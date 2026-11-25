@@ -7,12 +7,12 @@ import (
   "testing"
 )
 
-func TestBrowserMusicPlayerEmbeddedWithNarrowMediaCSP(t *testing.T) {
+func TestBrowserRadioEmbeddedWithNarrowMediaCSP(t *testing.T) {
   m:=NewManager(DefaultConfig(),filepath.Join(t.TempDir(),"config.json"),&testBackend{},successfulProber{},&LogBuffer{})
   h:=Handler(m,strings.Repeat("a",64))
   for _,target:=range []struct{path,expected string}{
     {"/","id=\"pilot-music\""},
-    {"/music.js","createObjectURL"},
+    {"/music.js","radio-station"},
     {"/style.css",".music-popover"},
   } {
     w:=httptest.NewRecorder()

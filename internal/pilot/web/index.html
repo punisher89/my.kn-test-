@@ -99,38 +99,34 @@
           </div>
           <span class="local-indicator"><i></i> <span id="connection-indicator">Локальное подключение</span></span>
           <details id="pilot-music" class="music-widget">
-            <summary id="music-summary-label" aria-label="Открыть музыкальный плеер">♫ Музыка</summary>
+            <summary id="music-summary-label" aria-label="Открыть интернет-радио">♫ Радио</summary>
             <div class="music-popover">
-              <div class="music-heading">
-                <strong>Музыка в браузере</strong>
-                <span class="subtle">Без нагрузки на роутер</span>
-              </div>
-              <p id="music-title" class="music-title">Нет выбранной песни</p>
-              <label for="music-file">Выбрать песню на устройстве</label>
-              <input id="music-file" type="file" accept="audio/*,.mp3,.m4a,.aac,.ogg,.oga,.wav,.flac,.webm" />
-              <label for="music-url">Или прямая HTTPS-ссылка на аудио</label>
-              <div class="music-url-row">
-                <input id="music-url" type="url" autocomplete="off" placeholder="https://example.com/song.mp3" />
-                <button id="music-load-url" type="button">Открыть</button>
-              </div>
-              <audio id="music-audio" controls preload="none" aria-label="Аудиоплеер"></audio>
+              <div class="music-heading"><strong>Pilot Radio</strong><span class="subtle">Прямой эфир в браузере</span></div>
+              <p id="music-title" class="music-title">Станция не выбрана</p>
+              <label for="radio-search">Поиск станции или жанра</label>
+              <input id="radio-search" type="search" placeholder="Record, рок, chill…" maxlength="80" />
+              <label for="radio-station">Радиостанции</label>
+              <select id="radio-station"></select>
               <div class="music-options">
-                <label class="music-repeat"><input id="music-repeat" type="checkbox" /> Повторять</label>
-                <label for="music-sleep">Таймер
-                  <select id="music-sleep" aria-label="Таймер отключения музыки">
-                    <option value="0">Выкл.</option>
-                    <option value="15">15 минут</option>
-                    <option value="30">30 минут</option>
-                    <option value="60">60 минут</option>
-                  </select>
-                </label>
-                <button id="music-reset" type="button" class="text-button">Убрать песню</button>
+                <button id="radio-play" type="button">▶ Слушать</button>
+                <button id="radio-favorite" type="button" aria-pressed="false">☆ Избранное</button>
+                <label><input id="radio-only-favorites" type="checkbox" /> Только избранные</label>
               </div>
-              <p id="music-message" class="music-message" aria-live="polite">Выбери песню с устройства или укажи прямую HTTPS-ссылку.</p>
-              <small>Ничего не загружается на Keenetic. Звук воспроизводит этот браузер. Автозапуска нет; файл нужно выбрать снова после перезагрузки страницы.</small>
+              <label for="music-url">Свой прямой HTTPS-поток</label>
+              <div class="music-url-row">
+                <input id="music-url" type="url" autocomplete="off" placeholder="https://radio.example/stream" maxlength="2048" />
+                <button id="music-load-url" type="button">Слушать</button>
+              </div>
+              <audio id="music-audio" preload="none" aria-label="Интернет-радио"></audio>
+              <div class="music-options">
+                <label for="radio-volume">Громкость <input id="radio-volume" type="range" min="0" max="100" value="65" /></label>
+                <label for="music-sleep">Таймер <select id="music-sleep"><option value="0">Выкл.</option><option value="15">15 минут</option><option value="30">30 минут</option><option value="60">60 минут</option></select></label>
+                <button id="music-reset" type="button">■ Стоп</button>
+              </div>
+              <p id="music-message" class="music-message" aria-live="polite">Выбери станцию и нажми «Слушать».</p>
+              <small>Без автозапуска и прокси на Keenetic. Поток загружает браузер; доступность зависит от вещателя и сети.</small>
             </div>
-          </details>
-        </header>
+          </details>       </header>
         <main>
           <div id="connection-banner" class="notice" role="status" hidden>
             <span id="connection-info"></span>
