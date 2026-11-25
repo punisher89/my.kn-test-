@@ -107,3 +107,17 @@ func TestResourceGuardUsesStableSampleAndSkipsTemperatureScan(t *testing.T) {
 		t.Fatal("resource guard collected unrelated telemetry")
 	}
 }
+
+func TestDeviceIdentityCacheExpiresAndSeparatesRoots(t *testing.T) {
+	root:=t.TempDir()
+	p:=filepath.Join(root,"proc","device-tree","model")
+	if err:=os.MkdirAll(filepath.Dir(p),0700);err!=nil{t.Fatal(err)}
+	if err:=os.WriteFile(p,[]byte("first"),0600);err!=nil{t.Fatal(err)}
+	r:=deviceReader{}
+	now:=time.Unix(1000,0)
+	if got:=r.Read(root,"",now).Model;got!="first"{t.Fatal(got)}
+	if err:=os.WriteFile(p,[]byte("second"),0600);err!=nil{t.Fatal(err)}
+	if got:=r.Read(root,"",now.Add(time.Second)).Model;got!="first"{t.Fatal("identity cache missed",got)}
+	if got:=r.Read(root,"",now.Add(5*time.Minute)).Model;got!="second"{t.Fatal("identity cache did not expire",got)}
+	if got:=r.Read(t.TempDir(),"",now.Add(6*time.Minute)).Model;got!=""{t.Fatal("identity leaked across roots",got)}
+}

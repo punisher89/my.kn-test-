@@ -1,6 +1,7 @@
 package pilot
 
 import (
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -44,10 +45,16 @@ type deviceReader struct {
 	resourceAt          time.Time
 	resourceRoot        string
 	resourceSample      DeviceInfo
+	identityRoot        string
+	identityAt          time.Time
+	model, kernel       string
 }
 
 func smallRead(root, path string) string {
-	b, err := os.ReadFile(filepath.Join(root, path))
+	f, err := os.Open(filepath.Join(root, path))
+	if err != nil { return "" }
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, (1<<20)+1))
 	if err != nil || len(b) > 1<<20 {
 		return ""
 	}
@@ -75,19 +82,25 @@ func (r *deviceReader) ReadResources(root string, now time.Time) DeviceInfo {
 func (r *deviceReader) read(root, wan string, now time.Time, resourcesOnly bool) DeviceInfo {
 	d := DeviceInfo{Platform: runtime.GOOS + "/" + runtime.GOARCH, CPUCores: runtime.NumCPU(), WAN: wan, Load: []float64{}, Temperatures: []Temperature{}}
 	if !resourcesOnly {
-		d.Model = smallRead(root, "/proc/device-tree/model")
-		d.Kernel = smallRead(root, "/proc/sys/kernel/osrelease")
-		if d.Model == "" {
-			d.Model = smallRead(root, "/sys/firmware/devicetree/base/model")
-		}
-		for _, line := range strings.Split(smallRead(root, "/proc/cpuinfo"), "\n") {
-			parts := strings.SplitN(line, ":", 2)
-			if len(parts) == 2 && d.Model == "" && (strings.TrimSpace(parts[0]) == "Hardware" || strings.TrimSpace(parts[0]) == "system type") {
-				d.Model = strings.TrimSpace(parts[1])
+		if root != r.identityRoot || r.identityAt.IsZero() || now.Before(r.identityAt) || now.Sub(r.identityAt) >= 5*time.Minute {
+			r.model = smallRead(root, "/proc/device-tree/model")
+			r.kernel = smallRead(root, "/proc/sys/kernel/osrelease")
+			if r.model == "" { r.model = smallRead(root, "/sys/firmware/devicetree/base/model") }
+			if r.model == "" {
+				for _, line := range strings.Split(smallRead(root, "/proc/cpuinfo"), "\n") {
+					key, value, ok := strings.Cut(line, ":")
+					if ok && (strings.TrimSpace(key) == "Hardware" || strings.TrimSpace(key) == "system type") {
+						r.model = strings.TrimSpace(value)
+						break
+					}
+				}
 			}
+			r.identityRoot, r.identityAt = root, now
 		}
+		d.Model, d.Kernel = r.model, r.kernel
 	}
-	cpu := strings.Fields(strings.Split(smallRead(root, "/proc/stat"), "\n")[0])
+	firstLine, _, _ := strings.Cut(smallRead(root, "/proc/stat"), "\n")
+	cpu := strings.Fields(firstLine)
 	var total, idle uint64
 	valid := len(cpu) >= 5 && cpu[0] == "cpu"
 	if valid {
@@ -242,7 +255,10 @@ func (r *deviceReader) read(root, wan string, now time.Time, resourcesOnly bool)
 }
 func (m *Manager) Device() DeviceInfo {
 	now := time.Now()
-	d := m.device.Read("", m.Config().WAN, now)
+	m.mu.Lock()
+	wan := m.c.WAN
+	m.mu.Unlock()
+	d := m.device.Read("", wan, now)
     var enginePID int
     if router,ok:=m.backend.(*Router);ok {
        router.mu.Lock()
