@@ -557,3 +557,37 @@ func TestBoxRetryDelayIsBounded(t *testing.T) {
   if got:=boxRetryDelay(tc.round);got!=tc.want{t.Fatalf("round %d: %v",tc.round,got)}
  }
 }
+
+func TestBoxFreshCycleAfterThreeExhaustedRounds(t *testing.T) {
+ start:=time.Date(2026,11,26,0,0,0,0,time.UTC)
+ task:=&domainTask{Signal:start.Unix(),Network:"ppp0"}
+ task.beginRetryCycle(start)
+ first:=task.scheduleBoxRetry(start)
+ if !first.Equal(start.Add(10*time.Minute))||task.FreshPending{t.Fatal("first retry",first)}
+ second:=task.scheduleBoxRetry(first)
+ if !second.Equal(start.Add(40*time.Minute))||task.FreshPending{t.Fatal("second retry",second)}
+ third:=task.scheduleBoxRetry(second)
+ if !third.Equal(start.Add(4*time.Hour))||!task.FreshPending{t.Fatal("fresh cycle not scheduled",third)}
+ task.ProofFailures=5;task.Cursor=7;task.Pool=[]string{"old"}
+ task.beginRetryCycle(third)
+ if !task.FreshCycle||task.FreshPending||task.RetryRounds!=0||task.ProofFailures!=0||task.Cursor!=0||len(task.Pool)!=0||!task.CycleStarted.Equal(third){t.Fatalf("old retry state carried forward: %+v",task)}
+ if task.Signal!=start.Unix()||task.Network!="ppp0"{t.Fatal("route context or evidence was lost")}
+}
+func TestBoxFreshCycleStillRespectsMinimumPause(t *testing.T) {
+ start:=time.Date(2026,11,26,0,0,0,0,time.UTC)
+ task:=&domainTask{CycleStarted:start,RetryRounds:2}
+ now:=start.Add(5*time.Hour)
+ if got:=task.scheduleBoxRetry(now);!got.Equal(now.Add(time.Hour)){t.Fatal("minimum cooldown ignored",got)}
+}
+func TestBoxFreshCycleUsesFullCatalogAndDoesNotReplaceWorkingMethodOnFailure(t *testing.T) {
+ m,c,b,s:=activeFixture(t)
+ now:=time.Now()
+ m.domainTasks=map[DomainScope]*domainTask{s:{Scope:s,Signal:now.Unix(),Fingerprint:domainFingerprint(c,s),FreshPending:true,RetryRounds:3}}
+ var tested []string
+ m.activeProbeHook=func(_ context.Context,_ Config,_ DomainScope,_ Target,id string)activeEvidence{if id!="direct"{tested=append(tested,id)};return evidence(false,true)}
+ stage,_:=m.searchDomain(context.Background(),c,s)
+ if stage!="exhausted"||!m.domainTasks[s].FreshCycle||len(m.domainPlans.Plans)!=0||len(b.configs)!=0||!b.Running(){t.Fatal("fresh search altered live service",stage)}
+ var expected []string
+ for _,candidate:=range StrategiesFor(c){if candidate.ID!="none"{expected=append(expected,candidate.ID)}}
+ if strings.Join(tested,",")!=strings.Join(expected,","){t.Fatal("fresh search used stale ranking or skipped candidates")}
+}
