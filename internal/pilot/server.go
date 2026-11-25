@@ -167,8 +167,25 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 		}
 		jsonReply(w, 202, m.Snapshot())
 	})
+	api("GET /api/vpn/capabilities", func(w http.ResponseWriter, r *http.Request) {
+		jsonReply(w, 200, map[string]any{"engines": independentVPNCapabilities(), "managed_tunnels": false})
+	})
 	api("GET /api/geo", func(w http.ResponseWriter, r *http.Request) {
 		jsonReply(w,200, map[string]any{"services":geoServices,"tunnels":geoTunnels(),"applied":false})
+	})
+	// Serialize manual tunnel probes; they must not compete with each other.
+	vpnProbeSlot := make(chan struct{}, 1)
+	api("POST /api/geo/probe", func(w http.ResponseWriter, r *http.Request) {
+		var input struct { Interface string `json:"interface"` }
+		if !read(w,r,&input){return}
+		if !geoTunnelRE.MatchString(input.Interface){jsonReply(w,400,map[string]string{"error":"Некорректный VPN-интерфейс"});return}
+		select {
+		case vpnProbeSlot <- struct{}{}:
+			defer func(){<-vpnProbeSlot}()
+		default:
+			replyError(w,ErrBusy);return
+		}
+		jsonReply(w,200,probeVPN(r.Context(),input.Interface))
 	})
 	api("POST /api/geo/plan", func(w http.ResponseWriter, r *http.Request) {
 		var input GeoPlanRequest

@@ -613,16 +613,54 @@ function updateChrome() {
   $("#service-error").textContent = state.error || "";
   $("#service-error").classList.toggle("hidden", !state.error);
 }
+function validateIndependentVPN(type, data){
+ if(type==="ssh"){
+  const host=String(data.host||"").trim(), user=String(data.user||"").trim(), port=String(data.port||"");
+  if(!/^(?:[a-zA-Z0-9][a-zA-Z0-9.-]{0,252}|\[[0-9a-fA-F:]+\])$/.test(host)||! /^[a-zA-Z_][a-zA-Z0-9_.-]{0,63}$/.test(user)||!/^\d{1,5}$/.test(port)||Number(port)<1||Number(port)>65535)throw Error("Проверь адрес, логин и порт SSH.");
+  return "Параметры SSH имеют допустимый формат. Для полноценного туннеля требуется поддержка на сервере.";
+ }
+ if(!["wg","awg","openvpn"].includes(type))throw Error("Неизвестный тип VPN.");
+ const config=String(data.config||"");
+ if(!config.trim()||config.length>65536||config.includes("\0"))throw Error("Выбери текстовую конфигурацию до 64 КБ.");
+ const lines=config.split(/\r?\n/).map(s=>s.trim()).filter(s=>s&&!/^[#;]/.test(s));
+ if(type==="openvpn"){
+  if(lines.some(s=>/^(?:--)?(?:up|down|route-up|route-pre-down|ipchange|learn-address|client-connect|client-disconnect|plugin|script-security|management|config|tls-verify|auth-user-pass-verify)(?:\s|$)/i.test(s)))throw Error("Обнаружены внешние команды или потенциально опасные директивы OpenVPN.");
+  if(!lines.some(s=>/^(?:--)?remote\s+\S+/i.test(s))||!lines.some(s=>/^(?:--)?(?:client|tls-client)(?:\s|$)/i.test(s)))throw Error("Нужен клиентский профиль OpenVPN с remote.");
+ }else{
+  let section="",iface=false,peer=false,key=false,remote=false,pub=false,allowed=false;
+  for(const line of lines){
+   if(/^\[(Interface|Peer)\]$/i.test(line)){section=line.toLowerCase();iface||=section==="[interface]";peer||=section==="[peer]";continue;}
+   const m=line.match(/^([a-zA-Z][a-zA-Z0-9]*)\s*=\s*(.+)$/);
+   if(!m||!section)throw Error("Неверная структура профиля WireGuard.");
+   const field=m[1].toLowerCase(), value=m[2].trim();
+   if(["preup","postup","predown","postdown","saveconfig","table"].includes(field))throw Error("Профиль содержит команды или собственные правила маршрутизации.");
+   if(section==="[interface]"&&field==="privatekey")key=/^[A-Za-z0-9+/]{43}=$/.test(value);
+   if(section==="[peer]"&&field==="publickey")pub=/^[A-Za-z0-9+/]{43}=$/.test(value);
+   if(section==="[peer]"&&field==="endpoint")remote=!!value;
+   if(section==="[peer]"&&field==="allowedips")allowed=!!value;
+   if(type==="wg"&&/^(?:jc|jmin|jmax|s[1-4]|h[1-4]|i[1-5])$/.test(field))throw Error("Это параметры AmneziaWG — выбери соответствующий тип.");
+  }
+  if(!iface||!peer||!key||!pub||!remote||!allowed)throw Error("В профиле отсутствуют обязательные параметры Interface/Peer.");
+ }
+ return "Основные параметры найдены. Это проверка формата, не проверка подключения.";
+}
 function geoPage(){
  return heading("Geo Routing","План выборочной маршрутизации KeeneticOS 5.2 через собственный VPN. Pilot не применяет команды автоматически.")+`<section class="panel">
  <h2>Туннель и политика</h2><p id="geo-tunnels" class="subtle">Поиск VPN-интерфейсов…</p>
  <form id="geo-form"><div class="field"><label for="geo-interface">Имя интерфейса KeeneticOS</label><input id="geo-interface" required maxlength="32" placeholder="OpkgTun10" value="OpkgTun10" autocomplete="off"></div>
  <div class="field"><label for="geo-policy">Имя существующей политики доступа (CLI)</label><input id="geo-policy" required maxlength="32" placeholder="Policy0" autocomplete="off"><small>Проверь имя в конфигурации Keenetic. Не название Wi-Fi.</small></div>
- <div id="geo-services">Загрузка списка…</div><div class="form-actions"><button type="submit" id="geo-build" disabled>Создать план</button></div></form>
+ <div class="form-actions"><button id="geo-probe" type="button">Проверить VPN</button></div><p id="geo-probe-result" class="subtle" aria-live="polite"></p><div id="geo-services">Загрузка списка…</div><div class="form-actions"><button type="submit" id="geo-build" disabled>Создать план</button></div></form>
  <p class="subtle">Ни одна служба не направляется в VPN до ручного применения. Список доменов стартовый и не гарантирует охват всех CDN/авторизации. Учитывай правила доступности сервисов. DNS клиентов должен обслуживать Keenetic. Telegram дополнительно использует официальные IP-сети; проверь поддержку IPv6 в туннеле и назначение политики всем нужным клиентам.</p>
  <div id="geo-output" hidden><label for="geo-commands">Предпросмотр команд CLI</label><textarea id="geo-commands" readonly rows="12" spellcheck="false"></textarea><button id="geo-download" type="button">Скачать команды TXT</button>
  <p>Проверь отсутствие существующих групп pilot-geo-*, резервную копию конфигурации, туннель и политику. Применяй в CLI самой KeeneticOS, не в Entware shell. Проверь доступ из клиента политики перед сохранением конфигурации. Для отката удали только созданные маршруты и группы в настройках Keenetic. Автоматического отката нет.</p></div>
- </section>`;
+ </section><section class="panel" id="vpn-standalone">
+ <h2>Smart VPN Auto · независимое подключение (разработка)</h2>
+ <p class="subtle">Проверка формата на устройстве пользователя. Туннель, автоматическая маршрутизация и сохранение секретов пока не реализованы. Не вводи пароль в HTTP-панель.</p>
+ <p id="vpn-engines" class="subtle">Поиск VPN-движков…</p>
+ <form id="vpn-prepare"><div class="field"><label for="vpn-type">Тип подключения</label><select id="vpn-type"><option value="ssh">VPS по SSH</option><option value="wg">WireGuard</option><option value="awg">AmneziaWG</option><option value="openvpn">OpenVPN</option></select></div>
+ <div id="vpn-ssh-fields"><div class="field"><label for="vpn-host">IP или домен сервера</label><input id="vpn-host" maxlength="253" autocomplete="off"></div><div class="field"><label for="vpn-port">Порт SSH</label><input id="vpn-port" type="number" min="1" max="65535" value="22"></div><div class="field"><label for="vpn-user">Логин</label><input id="vpn-user" maxlength="64" autocomplete="off"></div></div>
+ <div id="vpn-config-fields" hidden><label for="vpn-config">Локальный файл конфигурации</label><input id="vpn-config" type="file" accept=".conf,.ovpn,.txt"><p class="subtle">Файл проверяется только в браузере, не отправляется на роутер.</p></div>
+ <button type="submit">Проверить формат</button><p id="vpn-prepare-result" aria-live="polite"></p></form></section>`;
 }
 function bindGeo(){
  const form=$("#geo-form");
@@ -630,12 +668,47 @@ function bindGeo(){
  const target=$("#geo-services"),status=$("#geo-tunnels"),button=$("#geo-build"),output=$("#geo-output"),commands=$("#geo-commands");
  const session=panelSession;
  const current=()=>signedIn&&panelSession===session&&form===$("#geo-form");
+ const prep=$("#vpn-prepare"),type=$("#vpn-type"),result=$("#vpn-prepare-result"),file=$("#vpn-config");
+ let prepSerial=0;
+ const changeVPN=()=>{prepSerial++;result.textContent="";$("#vpn-ssh-fields").hidden=type.value!=="ssh";$("#vpn-config-fields").hidden=type.value==="ssh";file.value="";};
+ type.addEventListener("change",changeVPN);
+ prep.addEventListener("input",()=>{prepSerial++;result.textContent="";});
+ prep.addEventListener("submit",async e=>{
+  e.preventDefault();const serial=++prepSerial,kind=type.value;result.textContent="";
+  try{
+   let config="";
+   if(kind!=="ssh"){
+    const f=file.files[0];if(!f||f.size>65536)throw Error("Выбери файл до 64 КБ.");
+    config=await f.text();
+   }
+   if(!current()||serial!==prepSerial)return;
+   result.textContent=validateIndependentVPN(kind,{host:$("#vpn-host").value,user:$("#vpn-user").value,port:$("#vpn-port").value,config});
+  }catch(err){if(current()&&serial===prepSerial)result.textContent=err.message;}
+ });
+ api("vpn/capabilities").then(d=>{
+  if(!current())return;
+  const found=Object.entries(d.engines||{}).filter(([,v])=>v).map(([k])=>k);
+  $("#vpn-engines").textContent=found.length?"Найдены исполняемые файлы: "+found.join(", ")+". Поддержка туннелей ядром ещё не проверена.":"VPN-движки не найдены.";
+ }).catch(()=>{if(current())$("#vpn-engines").textContent="Не удалось получить сведения о VPN-движках.";});
+
  api("geo").then(d=>{
   if(!current())return;
   status.textContent=d.tunnels.length?"Обнаружены активные интерфейсы Linux: "+d.tunnels.join(", ")+". Это не подтверждение доступности VPN.":"Поддерживаемые активные интерфейсы не обнаружены. Проверь AWG Manager и имя CLI.";
   target.innerHTML=d.services.map(s=>`<div class="toggle-row"><div><label for="geo-${esc(s.id)}">${esc(s.name)}</label><p>${s.domains.map(esc).join(", ")}${s.networks?.length?` · ${s.networks.length} IP-сетей (IPv4/IPv6)`:""}</p></div><input id="geo-${esc(s.id)}" type="checkbox" value="${esc(s.id)}"></div>`).join("");
   button.disabled=false;
  }).catch(e=>{if(current())status.textContent="Не удалось загрузить: "+e.message;});
+ const probeButton=$("#geo-probe"),probeResult=$("#geo-probe-result");
+ probeButton.addEventListener("click",async ()=>{
+  const name=$("#geo-interface").value.trim();
+  probeButton.disabled=true;probeResult.textContent="Проверка HTTPS через "+name+"…";
+  try{
+   const d=await api("geo/probe","POST",{interface:name});
+   if(!current())return;
+   const messages={reachable:"HTTPS через туннель доступен",unreachable:"Нет ответа HTTPS",down:"Интерфейс не обнаружен или выключен",unknown:"Доступность не подтверждена"};
+   probeResult.textContent=d.interface+": "+(messages[d.state]||messages.unknown)+". Маршруты не менялись.";
+  }catch(e){if(current())probeResult.textContent="Ошибка проверки: "+e.message;}
+  finally{if(current())probeButton.disabled=false;}
+ });
  let serial=0;
  form.addEventListener("input",()=>{serial++;output.hidden=true;commands.value="";button.disabled=false;});
  form.addEventListener("submit",async e=>{
