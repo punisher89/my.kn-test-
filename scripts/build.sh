@@ -15,7 +15,7 @@ for ARCH in $ARCHES; do
     mkdir -p "$PKG/bin" "$PKG/scripts" "$PKG/dependencies" "$PKG/packaging"
     CGO_ENABLED=0 GOOS=linux GOARCH=$ARCH GOARM=7 GOMIPS=softfloat GOTOOLCHAIN=local \
       "$GO" build -trimpath -ldflags "-s -w -X github.com/punisher89/my.kn-test-/internal/pilot.Version=$VERSION" -o "$PKG/bin/pilot" ./cmd/pilot
-    cp scripts/install.sh scripts/uninstall.sh scripts/fetch-engine.sh scripts/update-worker.sh scripts/source-update-worker.sh "$PKG/scripts/"
+    cp scripts/install.sh scripts/uninstall.sh scripts/fetch-engine.sh scripts/update-worker.sh scripts/source-update-worker.sh scripts/vps-socks.sh "$PKG/scripts/"
     cp packaging/S98keenetic-pilot packaging/095-keenetic-pilot.sh "$PKG/packaging/"
     cp dependencies/nfqws2.env "$PKG/dependencies/"
     cp -R dependencies/nfqws2-files "$PKG/dependencies/"
