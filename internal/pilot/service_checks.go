@@ -85,40 +85,47 @@ func (m *Manager) checkLocked(ctx context.Context, p Profile, c Config) []ProbeR
 	return append([]ProbeResult{}, report.Results...)
 }
 
-func (m *Manager) checksLocked() map[string]ServiceCheck {
+func (m *Manager) checksLocked(running bool) map[string]ServiceCheck {
 	reports := map[string]ServiceCheck{}
 	for _, p := range m.c.Profiles {
 		if r, ok := m.checks[p.ID]; ok {
 			r.Results = append([]ProbeResult{}, r.Results...)
-			r.Stale = r.fingerprint != checkFingerprint(m.c, p) || r.Running != m.backend.Running()
+			r.Stale = r.fingerprint != checkFingerprint(m.c, p) || r.Running != running
 			reports[p.ID] = r
 		}
 	}
 	return reports
 }
 
+const (
+	holdCPU    = "CPU занят на 65% или больше; фоновые проверки временно отложены"
+	holdLoad   = "высокая очередь задач CPU"
+	holdMemory = "мало доступной памяти"
+	holdByUser = "фоновые проверки приостановлены пользователем"
+)
+
 // Unknown sensors are not treated as measured low load. Known pressure defers
 // background work, never stops the working bypass or changes its strategy.
 func backgroundPressure(d DeviceInfo) string {
 	if d.MemoryAvailable != nil && (*d.MemoryAvailable < 16<<20 || (d.MemoryTotal > 0 && float64(*d.MemoryAvailable)/float64(d.MemoryTotal) < 0.08)) {
-		return "мало доступной памяти"
+		return holdMemory
 	}
 	if d.CPUPercent != nil && *d.CPUPercent >= 65 {
-		return "CPU занят на 65% или больше; фоновые проверки временно отложены"
+		return holdCPU
 	}
 	if len(d.Load) > 0 && d.CPUCores > 0 && d.Load[0] >= float64(d.CPUCores) {
-		return "высокая очередь задач CPU"
+		return holdLoad
 	}
 	return ""
 }
 func (m *Manager) backgroundAllowed(c Config) bool {
-    reason := ""
-    if c.BackgroundPaused {
-        m.mu.Lock()
-        m.backgroundHold = "фоновые проверки приостановлены пользователем"
-        m.mu.Unlock()
-        return false
-    }
+	reason := ""
+	if c.BackgroundPaused {
+		m.mu.Lock()
+		m.backgroundHold = holdByUser
+		m.mu.Unlock()
+		return false
+	}
 	if c.ProbeLoadGuard {
 		reason = backgroundPressure(m.guardDevice.ReadResources("", time.Now()))
 	}
@@ -128,9 +135,15 @@ func (m *Manager) backgroundAllowed(c Config) bool {
 	return reason == ""
 }
 
+type checkRetryAfter int
+
+func (seconds checkRetryAfter) Error() string {
+	return fmt.Sprintf("повторная проверка этого сервиса доступна через %d с", seconds)
+}
+
 func checkCooldown(r ServiceCheck) error {
-	if time.Since(r.Finished) < 20*time.Second {
-		return fmt.Errorf("повторная проверка этого сервиса доступна через %d с", 20-int(time.Since(r.Finished).Seconds()))
+	if left := 20*time.Second - time.Since(r.Finished); !r.Finished.IsZero() && left > 0 {
+		return checkRetryAfter((left + time.Second - 1) / time.Second)
 	}
 	return nil
 }

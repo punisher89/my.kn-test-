@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -69,7 +70,11 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 	}
 	replyError := func(w http.ResponseWriter, err error) {
 		code := 400
-		if errors.Is(err, ErrBusy) {
+		var retry checkRetryAfter
+		if errors.As(err, &retry) {
+			w.Header().Set("Retry-After", strconv.Itoa(int(retry)))
+			code = http.StatusTooManyRequests
+		} else if errors.Is(err, ErrBusy) {
 			code = 409
 		}
 		jsonReply(w, code, map[string]string{"error": err.Error()})

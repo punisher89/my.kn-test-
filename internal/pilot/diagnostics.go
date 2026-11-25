@@ -12,6 +12,7 @@ import (
 // DiagnosticReport is an explicit export allowlist. Never embed Config, Job,
 // Snapshot, logs, or arbitrary error text: they can contain URLs or credentials.
 type DiagnosticReport struct {
+	LastVideo            *VideoMeasurement `json:"last_video_check,omitempty"`
 	Resources            DiagnosticResources     `json:"resources"`
 	Preflight            RouterPreflight         `json:"preflight"`
 	ActiveSearch         *DiagnosticActiveSearch `json:"active_search,omitempty"`
@@ -82,9 +83,22 @@ type DiagnosticSettings struct {
 	GlobalMaxSwitches int    `json:"global_max_switches_per_ten_minutes"`
 	ProbeLoadGuard    bool   `json:"probe_load_guard"`
 	BackgroundOtherDomains bool `json:"background_other_domains"`
+	BackgroundPaused bool `json:"background_paused"`
 	CatalogRevision   uint64 `json:"catalog_revision"`
 }
+type DiagnosticCheck struct {
+	Finished time.Time `json:"finished"`
+	Strategy string `json:"strategy"`
+	Running bool `json:"running"`
+	Stale bool `json:"stale"`
+	Complete bool `json:"complete"`
+	Passed bool `json:"passed"`
+	Attempts int `json:"attempts"`
+	Successful int `json:"successful"`
+}
+
 type DiagnosticProfile struct {
+	Check *DiagnosticCheck `json:"last_https_check,omitempty"`
 	ID       string   `json:"id"`
 	Domains  []string `json:"domains"`
 	Strategy string   `json:"strategy"`
@@ -183,10 +197,10 @@ func (m *Manager) Diagnostics() DiagnosticReport {
 	now := time.Now().UTC()
 	a := ReadAdaptive(s.Config)
 	d := DiagnosticReport{
-		SchemaVersion: 1, GeneratedAt: now, Version: s.Version, Platform: runtime.GOOS + "/" + runtime.GOARCH,
+		LastVideo: s.LastVideo, SchemaVersion: 1, GeneratedAt: now, Version: s.Version, Platform: runtime.GOOS + "/" + runtime.GOARCH,
 		Preflight: m.Preflight(),
 		Service:  DiagnosticService{Mode: s.Mode, Enabled: s.Config.Enabled, Running: s.Running, Busy: s.Busy, HasError: s.Error != ""},
-		Settings: DiagnosticSettings{Active: s.Config.AdaptiveActive, FastStart: s.Config.AdaptiveFastStart, GlobalMaxSwitches: s.Config.AdaptiveGlobalMaxSwitches, ProbeLoadGuard: s.Config.ProbeLoadGuard, BackgroundOtherDomains: s.Config.BackgroundOtherDomains, WAN: s.Config.WAN, IPv6: s.Config.IPv6, PPE: s.Config.PPE, QUIC: s.Config.QUIC, DiscordVoice: s.Config.DiscordVoice, TelegramMTProto: s.Config.TelegramMTProto, YouTubeStable: s.Config.YouTubeStable, Adaptive: s.Config.Adaptive, Reuse: s.Config.AdaptiveReuse, CooldownSeconds: s.Config.AdaptiveCooldownSeconds, MaxSwitches: s.Config.AdaptiveMaxSwitches, CatalogRevision: s.Config.CatalogRevision},
+		Settings: DiagnosticSettings{Active: s.Config.AdaptiveActive, FastStart: s.Config.AdaptiveFastStart, GlobalMaxSwitches: s.Config.AdaptiveGlobalMaxSwitches, ProbeLoadGuard: s.Config.ProbeLoadGuard, BackgroundOtherDomains: s.Config.BackgroundOtherDomains, BackgroundPaused: s.Config.BackgroundPaused, WAN: s.Config.WAN, IPv6: s.Config.IPv6, PPE: s.Config.PPE, QUIC: s.Config.QUIC, DiscordVoice: s.Config.DiscordVoice, TelegramMTProto: s.Config.TelegramMTProto, YouTubeStable: s.Config.YouTubeStable, Adaptive: s.Config.Adaptive, Reuse: s.Config.AdaptiveReuse, CooldownSeconds: s.Config.AdaptiveCooldownSeconds, MaxSwitches: s.Config.AdaptiveMaxSwitches, CatalogRevision: s.Config.CatalogRevision},
 		Profiles: []DiagnosticProfile{}, Methods: []DiagnosticMethod{},
 		Rules:      DiagnosticRules{Pins: []DiagnosticPin{}, Paused: append([]string{}, s.Config.PausedDomains...), Exclusions: append([]string{}, s.Config.Exclusions...)},
 		Generation: a.Generation, ObservationReadError: a.Error != "", Storage: []DiagnosticSlot{},
@@ -202,11 +216,13 @@ func (m *Manager) Diagnostics() DiagnosticReport {
 	device := m.Device()
 	hold := ""
 	switch s.BackgroundHold {
-	case "мало доступной памяти":
+	case holdMemory:
 		hold = "memory"
-	case "CPU занят на 85% или больше":
+	case holdCPU:
 		hold = "cpu"
-	case "высокая очередь задач CPU":
+	case holdByUser:
+		hold = "user"
+	case holdLoad:
 		hold = "load"
 	}
 	d.Resources = DiagnosticResources{CPUPercent: device.CPUPercent, PilotCPUPercent: device.PilotCPUPercent, EngineCPUPercent: device.EngineCPUPercent, CPUCores: device.CPUCores, Load: device.Load, MemoryTotal: device.MemoryTotal, MemoryAvailable: device.MemoryAvailable, Temperatures: device.Temperatures, BackgroundHold: hold}
@@ -228,7 +244,17 @@ func (m *Manager) Diagnostics() DiagnosticReport {
 		d.ActiveSearch.Reason = activeReasonCode(j.Reason)
 	}
 	for _, p := range s.Config.Profiles {
-		d.Profiles = append(d.Profiles, DiagnosticProfile{ID: p.ID, Domains: append([]string{}, p.Domains...), Strategy: p.Strategy})
+		profile := DiagnosticProfile{ID: p.ID, Domains: append([]string{}, p.Domains...), Strategy: p.Strategy}
+		if r, ok := s.Checks[p.ID]; ok {
+			summary := DiagnosticCheck{Finished: r.Finished, Strategy: r.Strategy, Running: r.Running, Stale: r.Stale, Complete: r.Complete, Passed: r.Passed, Attempts: len(r.Results)}
+			for _, probe := range r.Results {
+				if probe.OK {
+					summary.Successful++
+				}
+			}
+			profile.Check = &summary
+		}
+		d.Profiles = append(d.Profiles, profile)
 	}
 	for _, method := range s.Strategies {
 		d.Methods = append(d.Methods, DiagnosticMethod{ID: method.ID, Family: StrategyFamily(method)})

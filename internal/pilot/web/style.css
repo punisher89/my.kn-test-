@@ -1550,3 +1550,8 @@ meter::-moz-meter-bar { background:var(--accent); }
   .music-widget > summary { min-width: 74px; padding: 7px 8px; font-size: 10px; }
   .music-popover { right: -5px; width: min(355px, calc(100vw - 15px)); }
 }
+
+#connection-banner[hidden], #check-stop[hidden] { display: none; }
+.local-indicator.offline i { background: #e8a75a; }
+#connection-banner button { margin-inline-start: .5rem; }
+.panel-address { overflow-wrap: anywhere; }

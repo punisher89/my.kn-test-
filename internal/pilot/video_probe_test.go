@@ -25,6 +25,7 @@ func TestVideoURLIsScopedAndTemporary(t *testing.T) {
         fmt.Sprintf("http://rr1.googlevideo.com/videoplayback?expire=%d&sig=x",expires),
         fmt.Sprintf("https://rr1.googlevideo.com:444/videoplayback?expire=%d&sig=x",expires),
         fmt.Sprintf("https://name:pass@rr1.googlevideo.com/videoplayback?expire=%d&sig=x",expires),
+        fmt.Sprintf("https://rr1.googlevideo.com/videoplayback-preview?expire=%d&sig=x",expires),
         fmt.Sprintf("https://rr1.googlevideo.com/other?expire=%d&sig=x",expires),
         fmt.Sprintf("https://rr1.googlevideo.com/videoplayback?expire=%d&sig=x",now.Add(-time.Hour).Unix()),
         fmt.Sprintf("https://rr1.googlevideo.com/videoplayback?expire=%d&sig=x",now.Add(48*time.Hour).Unix()),

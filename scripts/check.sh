@@ -33,6 +33,7 @@ if [ "${PILOT_TEST_BROWSER:-0}" = "1" ]; then
     node tests/test_services_ui.cjs
     node tests/test_menu_ui.cjs
     node tests/test_active_ui.cjs
+    node tests/test_health_ui.cjs
 fi
 GO=$GO sh scripts/build.sh
 python3 tests/test_ssh_release.py

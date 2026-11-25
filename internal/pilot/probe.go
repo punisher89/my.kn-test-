@@ -1,6 +1,7 @@
 package pilot
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -186,17 +187,40 @@ func performRequest(ctx context.Context, transport *http.Transport, target Targe
 	if resp.StatusCode != target.Status {
 		return resp.StatusCode, fmt.Errorf("HTTP %d; ожидался %d", resp.StatusCode, target.Status)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
-	if err != nil {
-		return resp.StatusCode, fmt.Errorf("чтение ответа: %w", err)
+	return resp.StatusCode, checkResponseBody(resp.Body, target)
+}
+
+func checkResponseBody(body io.Reader, target Target) error {
+	const chunk = 16 << 10
+	reader := io.LimitReader(body, 2<<20)
+	marker := []byte(target.Contains)
+	window := make([]byte, chunk+len(marker))
+	matched := len(marker) == 0
+	total, tail := 0, 0
+	for {
+		n, err := reader.Read(window[tail : tail+chunk])
+		total += n
+		if !matched && n > 0 {
+			end := tail + n
+			matched = bytes.Contains(window[:end], marker)
+			// Keep the suffix so a marker can span two reads.
+			tail = min(len(marker)-1, end)
+			copy(window[:tail], window[end-tail:end])
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("чтение ответа: %w", err)
+		}
 	}
-	if target.Contains != "" && !strings.Contains(string(body), target.Contains) {
-		return resp.StatusCode, errors.New("ответ не содержит контрольный фрагмент")
+	if !matched {
+		return errors.New("ответ не содержит контрольный фрагмент")
 	}
-	if len(body) == 0 && target.Status != 204 {
-		return resp.StatusCode, errors.New("пустой ответ")
+	if total == 0 && target.Status != http.StatusNoContent {
+		return errors.New("пустой ответ")
 	}
-	return resp.StatusCode, nil
+	return nil
 }
 
 func allPassed(r []ProbeResult, p Profile, c Config) bool {
