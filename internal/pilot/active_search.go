@@ -493,6 +493,23 @@ func boxRetryOutcomes(data AdaptiveSnapshot, c Config, now time.Time, live func(
 	return out
 }
 
+// Called under op. Publish only a small immutable queue snapshot to the panel.
+func (m *Manager) publishDomainRetryView(c Config) {
+ view := map[DomainScope]int64{}
+ now := time.Now().Unix()
+ for s,t := range m.domainTasks {
+  if t.Signal<=t.Handled || now-t.Signal>=int64(boxRetryLifetime/time.Second) || (t.Network!="" && t.Network!=c.WAN) ||
+   !autoSearchEligible(c,s,t.Manual) || stableYouTubeHost(c,s.Host) || c.excludedBy(s.Host)!="" ||
+   c.pinFor(s.Host,s.TLS,s.Family,s.Port)!="" || (s.Family=="ipv6"&&!c.IPv6) {continue}
+  next:=now
+  if !t.Next.IsZero() && t.Next.Unix()>now {next=t.Next.Unix()}
+  view[s]=next
+ }
+ m.mu.Lock()
+ m.domainRetryView=view
+ m.mu.Unlock()
+}
+
 func (m *Manager) activeTick(parent context.Context) {
 	if m.updateRequested.Load() {
 		return
@@ -511,6 +528,7 @@ func (m *Manager) activeTick(parent context.Context) {
 	// Avoid scanning hundreds of captured connections, and do not launch
 	// more full HTTPS probes while the router is already CPU-bound.
 	// A manual check remains available; the running nfqws2 is unaffected.
+	defer m.publishDomainRetryView(c)
 	if !m.backgroundAllowed(c) {
 		return
 	}
@@ -629,6 +647,7 @@ func (m *Manager) activeTick(parent context.Context) {
 	m.domainQueue = len(pending)
 	closed := m.closed
 	m.mu.Unlock()
+	m.publishDomainRetryView(c)
 	if closed || !m.backgroundAllowed(c) {
 		return
 	}
@@ -700,5 +719,6 @@ func (m *Manager) QueueDomain(s DomainScope) error {
 	m.mu.Lock()
 	m.domainQueue = queued
 	m.mu.Unlock()
+	m.publishDomainRetryView(c)
 	return nil
 }
