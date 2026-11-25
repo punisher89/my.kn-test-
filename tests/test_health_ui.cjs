@@ -86,9 +86,14 @@ const deferred = () => {
     await page.evaluate(() => pollStatus());
     assert.match(await page.locator('#connection-banner').innerText(),/Последние данные получены/);
     assert.equal(await page.locator('#check-all').isDisabled(),true);
+    assert.equal(await page.locator('[data-check-profile]').count() > 0,true);
+    assert.equal(await page.locator('[data-check-profile]').first().isDisabled(),true);
+    await page.evaluate(() => checkOneService('youtube'));
+    assert.deepEqual(requests,[],'offline manual check started');
     rejectStatus = false;
     await page.locator('#retry-connection').click();
     await page.locator('#connection-banner').waitFor({state:'hidden'});
+    await page.waitForFunction(() => !document.querySelector('[data-check-profile]').disabled);
 
     await page.locator('#check-all').click();
     await page.waitForFunction(() => document.querySelector('#batch-status').textContent.includes('Недавно проверены: 1'));

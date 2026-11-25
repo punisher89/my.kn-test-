@@ -70,6 +70,7 @@ async function logout() {
   panelSession++;
   refreshSerial++;
   cancelBatch();
+  singleCheck?.abort();
   batchMessage = "";
   lastContact = 0;
   lostContact = false;
@@ -188,8 +189,8 @@ function overview() {
 function loadControlPanel(){const c=state.config;return `<section class="panel load-control"><div class="panel-head"><h2>Контроль нагрузки</h2><a href="#settings">Настроить →</a></div><div id="cpu-chart">${cpuChart()}</div><div class="info-line"><span>Пауза между сменами</span><strong>${c.adaptive_cooldown_seconds} с</strong></div><div class="info-line"><span>Быстрый старт</span><strong>${c.adaptive_fast_start?"Первые 3 смены · 10 с":"Выключен"}</strong></div><div class="info-line"><span>Лимит на домен и контекст</span><strong>${c.adaptive_max_switches} / 10 мин</strong></div><div class="info-line"><span>Общий лимит движка</span><strong>${c.adaptive_global_max_switches??30} / 10 мин</strong></div><div class="info-line"><span>Защита фоновых проверок</span>${badge(c.probe_load_guard!==false?"Включена":"Выключена",c.probe_load_guard!==false?"":"warn")}</div><p>${state.background_hold?"Фоновые проверки отложены: "+esc(state.background_hold)+". Состояние ресурсов проверяется повторно.":"Проверки идут последовательно. Работающий обход продолжается при паузе фоновых задач."}</p><small>CPU и память общие для роутера. Коробки не являются отдельными процессами.</small></section>`;}
 const checkPending=new Set(),checkOpen=new Map();
 function checkStatus(p){const r=state.checks?.[p.id];if(checkPending.has(p.id))return badge("Проверяется","warn");if(!r)return badge("Не проверялся","neutral");return badge(r.stale?"Проверка устарела":!r.complete?"Не завершена":r.passed?"Есть HTTPS-ответ":"Есть ошибки",r.stale?"neutral":r.passed?"":"warn");}
-function checkReport(p){const r=state.checks?.[p.id];if(!r)return "";const hosts=new Set(r.results.map(v=>new URL(v.url).hostname));const uncovered=p.domains.filter(d=>![...hosts].some(h=>h===d||h.endsWith("."+d)));return `<details class="check-report" data-check-view="${esc(p.id)}" ${checkOpen.get(p.id)?"open":""}><summary>Последняя проверка · ${esc(new Date(r.finished).toLocaleString("ru-RU"))} · ${r.results.filter(v=>v.ok).length}/${r.results.length} проб</summary><p>${r.stale?"Конфигурация или состояние службы изменились — повторите проверку. ":""}${!r.running?"Проверка при остановленном обходе. ":""}Профиль: ${esc(strategyName(r.strategy))}${r.adaptive?"; автоподбор по трафику включён, метод может отличаться по доменам и протоколам":""}.</p>${r.error?`<p class="fail-text">${esc(r.error)}</p>`:""}<div class="table-scroll"><table class="probe-table"><thead><tr><th>HTTPS-адрес</th><th>TLS / IP</th><th>Ответ / время</th><th>Результат</th></tr></thead><tbody>${r.results.map(v=>`<tr><td>${esc(v.url)}</td><td>${esc(v.tls)} / ${esc(v.family)}</td><td>${v.status||"—"} · ${v.duration_ms} мс</td><td class="${v.ok?"ok-text":"fail-text"}">${v.ok?"Есть ответ":esc(v.error||"Ошибка")}</td></tr>`).join("")}</tbody></table></div><small>Контрольные адреса не покрывают весь сервис.${uncovered.length?" Домены без отдельной HTTPS-пробы: "+esc(uncovered.join(", "))+".":""} Отчёт хранится до перезапуска Pilot. Проверка не запускает подбор; её трафик может наблюдаться включённым адаптивным движком.</small><a class="button-link" href="#adaptive">Наблюдаемые методы доменов →</a></details>`;}
-let batch = null, batchMessage = "";
+function checkReport(p){const r=state.checks?.[p.id];if(!r)return "";const hosts=new Set(r.results.map(v=>new URL(v.url).hostname));const uncovered=p.domains.filter(d=>![...hosts].some(h=>h===d||h.endsWith("."+d)));return `<details class="check-report" data-check-view="${esc(p.id)}" ${checkOpen.get(p.id)?"open":""}><summary>Последняя проверка · ${esc(new Date(r.finished).toLocaleString("ru-RU"))} · ${r.results.filter(v=>v.ok).length}/${r.results.length} проб</summary><p>${r.stale?"Срок актуальности истёк или конфигурация/состояние службы изменились — повторите проверку. ":""}${!r.running?"Проверка при остановленном обходе. ":""}Профиль: ${esc(strategyName(r.strategy))}${r.adaptive?"; автоподбор по трафику включён, метод может отличаться по доменам и протоколам":""}.</p>${r.error?`<p class="fail-text">${esc(r.error)}</p>`:""}<div class="table-scroll"><table class="probe-table"><thead><tr><th>HTTPS-адрес</th><th>TLS / IP</th><th>Ответ / время</th><th>Результат</th></tr></thead><tbody>${r.results.map(v=>`<tr><td>${esc(v.url)}</td><td>${esc(v.tls)} / ${esc(v.family)}</td><td>${v.status||"—"} · ${v.duration_ms} мс</td><td class="${v.ok?"ok-text":"fail-text"}">${v.ok?"Есть ответ":esc(v.error||"Ошибка")}</td></tr>`).join("")}</tbody></table></div><small>Контрольные адреса не покрывают весь сервис.${uncovered.length?" Домены без отдельной HTTPS-пробы: "+esc(uncovered.join(", "))+".":""} Отчёт хранится до перезапуска Pilot. Проверка не запускает подбор; её трафик может наблюдаться включённым адаптивным движком.</small><a class="button-link" href="#adaptive">Наблюдаемые методы доменов →</a></details>`;}
+let batch = null, batchMessage = "", singleCheck = null;
 function cancelBatch() {
   if (batch) batch.abort();
 }
@@ -223,7 +224,7 @@ async function checkAllServices() {
         checkPending.delete(profile.id);
       }
     }
-    batchMessage = `Проверено сервисов: ${completed} из ${profiles.length}.` +
+    batchMessage = (controller.signal.aborted ? `Проверка остановлена. Завершено: ${completed} из ${profiles.length}.` : `Проверено сервисов: ${completed} из ${profiles.length}.`) +
       (skipped ? ` Недавно проверены: ${skipped}.` : "");
   } catch (error) {
     batchMessage = controller.signal.aborted
@@ -239,12 +240,40 @@ async function checkAllServices() {
     }
   }
 }
+function checkDisabled(){return !signedIn || lostContact || state.busy || !!batch || checkPending.size>0;}
+async function checkOneService(id) {
+  if (checkDisabled()) return;
+  const controller = new AbortController();
+  const session = panelSession;
+  singleCheck = controller;
+  checkPending.add(id);
+  updateCheckReports();
+  try {
+    await api("check", "POST", {profile:id}, controller.signal);
+  } catch (error) {
+    if (!controller.signal.aborted && session === panelSession && signedIn) notify(error.message, true);
+  } finally {
+    singleCheck = null;
+    checkPending.delete(id);
+    if (session === panelSession && signedIn) {
+      updateCheckReports();
+      try { await refresh(); } catch (error) {
+        if (session === panelSession && signedIn) notify(error.message, true);
+      }
+    }
+  }
+}
 function bindCheckActions(root=document){
   root.querySelector("#check-all")?.addEventListener("click", checkAllServices);
   root.querySelector("#check-stop")?.addEventListener("click", cancelBatch);
   updateBatchButtons();
-  root.querySelectorAll("[data-check-view]").forEach(el=>el.addEventListener("toggle",()=>checkOpen.set(el.dataset.checkView,el.open)));root.querySelectorAll("[data-check-profile]").forEach(button=>{button.disabled=state.busy||!!batch||checkPending.size>0;button.addEventListener("click",async()=>{const id=button.dataset.checkProfile;if(batch||checkPending.size)return;checkPending.add(id);updateCheckReports();try{await api("check","POST",{profile:id});}catch(e){notify(e.message,true);}finally{checkPending.delete(id);if(signedIn){try{await refresh();}catch(e){notify(e.message,true);}updateCheckReports();}}});});}
-function updateCheckReports(){updateBatchButtons();document.querySelectorAll("[data-check-profile]").forEach(el=>{el.disabled=state.busy||!!batch||checkPending.size>0;el.textContent=checkPending.has(el.dataset.checkProfile)?"Проверяется…":"Проверить";});for(const p of state.config.profiles){const status=$(`[data-check-status="${p.id}"]`),report=$(`[data-check-report="${p.id}"]`);if(status)status.innerHTML=checkStatus(p);if(report){report.innerHTML=checkReport(p);report.querySelectorAll("[data-check-view]").forEach(el=>el.addEventListener("toggle",()=>checkOpen.set(el.dataset.checkView,el.open)));}}}
+  root.querySelectorAll("[data-check-view]").forEach(el=>el.addEventListener("toggle",()=>checkOpen.set(el.dataset.checkView,el.open)));
+  root.querySelectorAll("[data-check-profile]").forEach(button=>{
+    button.disabled=checkDisabled();
+    button.addEventListener("click",()=>checkOneService(button.dataset.checkProfile));
+  });
+}
+function updateCheckReports(){updateBatchButtons();document.querySelectorAll("[data-check-profile]").forEach(el=>{el.disabled=checkDisabled();el.textContent=checkPending.has(el.dataset.checkProfile)?"Проверяется…":"Проверить";});for(const p of state.config.profiles){const status=$(`[data-check-status="${p.id}"]`),report=$(`[data-check-report="${p.id}"]`);if(status)status.innerHTML=checkStatus(p);if(report){report.innerHTML=checkReport(p);report.querySelectorAll("[data-check-view]").forEach(el=>el.addEventListener("toggle",()=>checkOpen.set(el.dataset.checkView,el.open)));}}}
 const profileDrafts = new Map(), profileOpen = new Map();
 let serviceCatalogOpen = false, serviceCatalogQuery = "", selectedTuneProfile = "", serviceMutationPending = false;
 function presetNote(id) {
@@ -573,6 +602,7 @@ function showContact(online) {
     $("#connection-info").textContent = "Нет ответа от панели." +
       (lastContact ? ` Последние данные получены в ${new Date(lastContact).toLocaleTimeString("ru-RU")}.` : "");
     updateBatchButtons();
+    document.querySelectorAll("[data-check-profile]").forEach(el=>{el.disabled=true;});
   }
 }
 async function refresh(render = false, poll = false) {

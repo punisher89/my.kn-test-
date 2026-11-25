@@ -85,12 +85,16 @@ func (m *Manager) checkLocked(ctx context.Context, p Profile, c Config) []ProbeR
 	return append([]ProbeResult{}, report.Results...)
 }
 
+// Manual HTTPS results are observations, not a permanent health guarantee.
+const serviceCheckFreshness = 15 * time.Minute
+
 func (m *Manager) checksLocked(running bool) map[string]ServiceCheck {
+	now := time.Now()
 	reports := map[string]ServiceCheck{}
 	for _, p := range m.c.Profiles {
 		if r, ok := m.checks[p.ID]; ok {
 			r.Results = append([]ProbeResult{}, r.Results...)
-			r.Stale = r.fingerprint != checkFingerprint(m.c, p) || r.Running != running
+			r.Stale = r.Finished.IsZero() || now.Sub(r.Finished) >= serviceCheckFreshness || r.fingerprint != checkFingerprint(m.c, p) || r.Running != running
 			reports[p.ID] = r
 		}
 	}

@@ -42,6 +42,16 @@ func TestServiceCheckReadOnlyReportsAndCooldown(t *testing.T) {
 		t.Fatal("check changed config")
 	}
 	m.mu.Lock()
+	old := m.checks["youtube"]
+	old.Finished = time.Now().Add(-serviceCheckFreshness - time.Second)
+	m.checks["youtube"] = old
+	m.mu.Unlock()
+	if !m.Snapshot().Checks["youtube"].Stale {
+		t.Fatal("expired check still shown as fresh")
+	}
+	m.mu.Lock()
+	old.Finished = time.Now()
+	m.checks["youtube"] = old
 	m.c.Profiles[0].Strategy = "none"
 	m.mu.Unlock()
 	if !m.Snapshot().Checks["youtube"].Stale {
