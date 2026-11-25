@@ -51,6 +51,7 @@ type Manager struct {
 	domainJob        *DomainSearch
 	domainQueue      int
 	domainTasks      map[DomainScope]*domainTask
+	domainRetryView  map[DomainScope]int64 // snapshot protected by mu; task map protected by op
 	domainPlans      domainPlanStore
 	domainPlanIssue  string
 	domainPublished  string
