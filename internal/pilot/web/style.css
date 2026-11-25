@@ -1555,3 +1555,8 @@ meter::-moz-meter-bar { background:var(--accent); }
 .local-indicator.offline i { background: #e8a75a; }
 #connection-banner button { margin-inline-start: .5rem; }
 .panel-address { overflow-wrap: anywhere; }
+
+/* Radio uses the existing compact popover without a visualizer or animation. */
+.music-popover #radio-station,.music-popover #radio-search{width:100%;min-width:0;padding:8px;font-size:12px;}
+.music-popover #radio-volume{width:90px;min-width:0;padding:0;}
+.music-popover #music-audio{display:none;}
