@@ -85,8 +85,6 @@ async function logout() {
   videoProbeReport=null; videoProbeBusy=false;
   serviceCatalogQuery = ""; serviceCatalogOpen = false; selectedTuneProfile = "";
   preflightCached="";preflightUpdated=0;
-  telegramRelayDraftData=null;telegramRelayLoading=false;
-  clearTelegramProxyForm();
   token = "";
   sessionStorage.removeItem("pilot-token");
   $("#shell").classList.add("hidden");
@@ -441,134 +439,26 @@ function bindPerformanceRescue(){
     notify(paused?"Фоновый автопоиск возобновлён.":"Фоновые проверки приостановлены, обход продолжает работать.");
   }));
 }
-let telegramRelayDraftData=null,telegramRelayLoading=false;
-function telegramRelayPanel(){
-  const d=telegramRelayDraftData;
-  return `<section class="panel" id="telegram-relay-panel">
-    <div class="panel-head"><h2>Telegram · собственный WSS Worker (заготовка)</h2></div>
-    <p>${badge("Не активен · только настройки","warn")}</p>
-    <p class="subtle">У d2o Telegram использует локальный MTProto-прокси и может ретранслировать соединения через Cloudflare Worker. Здесь можно заранее указать адрес ВАШЕГО Worker. Сам прокси ещё не перенесён: сохранение адреса не меняет маршрутизацию, MTProto TCP, YouTube или firewall.</p>
-    <form id="telegram-relay-draft-form"><div class="field">
-      <label for="telegram-relay-host">Домен вашего Cloudflare Worker</label>
-      <input id="telegram-relay-host" autocomplete="off" spellcheck="false" value="${esc(d?.worker_host||"")}" placeholder="telegram-example.username.workers.dev">
-      <small>Только домен без https://, порта и /пути. Чужие публичные прокси не подключаются автоматически.</small>
-    </div>
-    <div class="form-actions"><button type="submit" ${telegramRelayLoading?"disabled":""}>Сохранить заготовку</button></div>
-    </form>
-    <p id="telegram-relay-status" class="subtle">${d?.worker_host?"Домен сохранён. Прокси и перенаправление выключены.":"Собственный Worker не задан; никакие внешние серверы не используются."}</p>
-    <p class="subtle">Исходный пример Worker: <a href="https://github.com/t0fox/d2o/blob/main/telegram/cloudflare/worker.js" target="_blank" rel="noopener noreferrer">t0fox/d2o / Cloudflare Worker</a>. До разработки совместимого sidecar этот блок не обеспечивает работу Telegram.</p>
-  </section>`;
-}
-async function loadTelegramRelayDraft(){
-  const el=$("#telegram-relay-panel");
-  if(!el||telegramRelayLoading)return;
-  telegramRelayLoading=true;
-  try{
-    const d=await api("telegram/relay-draft");
-    telegramRelayDraftData=d;
-    if(el!==$("#telegram-relay-panel"))return;
-    const input=el.querySelector("#telegram-relay-host");
-    if(input&&document.activeElement!==input)input.value=d.worker_host||"";
-    const status=el.querySelector("#telegram-relay-status");
-    if(status)status.textContent=d.worker_host?"Домен сохранён. Прокси и перенаправление выключены.":"Собственный Worker не задан; никакие внешние серверы не используются.";
-  }catch(err){const status=el.querySelector("#telegram-relay-status");if(status)status.textContent="Не удалось загрузить шаблон: "+err.message;}
-  finally{telegramRelayLoading=false;}
-}
-function bindTelegramRelayDraft(){
-  const form=$("#telegram-relay-draft-form");
-  if(!form)return;
-  form.addEventListener("submit",async event=>{
-    event.preventDefault();
-    const button=form.querySelector("button");
-    button.disabled=true;
-    try{
-      const input=form.querySelector("#telegram-relay-host");
-      const d=await api("telegram/relay-draft","PUT",{worker_host:input.value.trim().toLowerCase()});
-      telegramRelayDraftData=d;
-      $("#telegram-relay-status").textContent=d.worker_host?"Домен сохранён; прокси НЕ запущен.":"Заготовка очищена; прокси НЕ запущен.";
-      notify("Настройки собственного Telegram Worker сохранены без перезапуска обхода.");
-    }catch(err){notify(err.message,true);}
-    finally{button.disabled=false;}
-  });
-}
-function telegramProxyLink(server,port,secret){
-  server=server.trim().toLowerCase();port=port.trim();secret=secret.trim();
-  if(!server||server.length>253||server.split("").some(c=>"/@?#%\\".includes(c)||c.trim()===""))throw Error("Укажи IP или домен MTProxy без схемы, порта и пути.");
-  let host;
-  try{
-    const ipv6=server.includes(":")&&!server.startsWith("[")?"["+server+"]":server;
-    const u=new URL("https://"+ipv6);
-    if(u.port||u.username||u.password||u.pathname!=="/"||!u.hostname)throw Error();
-    host=u.hostname.replace(/^\[|\]$/g,"");
-    if(!host.includes(":")&&!/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(host))throw Error();
-  }catch(_){throw Error("Некорректный адрес MTProxy.");}
-  if(!/^\d{1,5}$/.test(port)||Number(port)<1||Number(port)>65535)throw Error("Порт должен быть от 1 до 65535.");
-  let bytes;
-  if(/^[0-9a-f]+$/i.test(secret)&&secret.length%2===0&&secret.length<=542){
-    bytes=Array.from(secret.match(/../g),v=>parseInt(v,16));
-  }else{
-    try{if(!/^[A-Za-z0-9_-]+={0,2}$/.test(secret)||secret.length>512)throw Error();bytes=Array.from(atob(secret.replace(/-/g,"+").replace(/_/g,"/")),v=>v.charCodeAt(0));}catch(_){throw Error("Некорректный секрет MTProxy.");}
-  }
-  if(!(bytes.length===16||(bytes.length===17&&bytes[0]===0xdd)||(bytes.length>17&&bytes.length<=271&&bytes[0]===0xee)))throw Error("Секрет MTProxy должен содержать 16 байт, dd-секрет или ee-секрет Fake TLS.");
-  return "tg://proxy?"+new URLSearchParams({server:host,port:String(Number(port)),secret}).toString();
-}
-function clearTelegramProxyForm(){
-  const form=$("#telegram-proxy-form"),link=$("#telegram-proxy-open");
-  if(form)form.reset();
-  if(link){link.removeAttribute("href");link.classList.add("hidden");}
-  const status=$("#telegram-proxy-message");
-  if(status)status.textContent="Секрет не отправляется на роутер и не записывается в браузерное хранилище.";
-}
-function bindTelegramProxy(){
-  const form=$("#telegram-proxy-form");
-  if(!form)return;
-  const link=$("#telegram-proxy-open"),status=$("#telegram-proxy-message");
-  form.addEventListener("input",()=>{link.removeAttribute("href");link.classList.add("hidden");status.textContent="Данные изменены. Подготовь подключение заново.";});
-  form.addEventListener("submit",e=>{
-    e.preventDefault();link.removeAttribute("href");link.classList.add("hidden");
-    try{
-      link.href=telegramProxyLink($("#telegram-proxy-server").value,$("#telegram-proxy-port").value,$("#telegram-proxy-secret").value);
-      link.classList.remove("hidden");status.textContent="Ссылка подготовлена. Открой Telegram и подтверди подключение.";
-    }catch(err){status.textContent=err.message;}
-  });
-  $("#telegram-proxy-clear").addEventListener("click",clearTelegramProxyForm);
-}
-function telegramProxyPanel(){
-return `<section class="panel" id="telegram-proxy-panel">
-<div class="panel-head"><h2>Telegram · подключение к своему MTProxy</h2></div>
-<p>Укажи данные уже работающего MTProto-прокси. Pilot сформирует локальную ссылку для Telegram Desktop или телефона. Это настройка приложения, не запуск сервера на Keenetic.</p>
-<form id="telegram-proxy-form" autocomplete="off">
-<div class="field"><label for="telegram-proxy-server">Сервер</label><input id="telegram-proxy-server" required maxlength="253" placeholder="proxy.example.com" autocomplete="off" spellcheck="false"></div>
-<div class="field"><label for="telegram-proxy-port">Порт</label><input id="telegram-proxy-port" required inputmode="numeric" maxlength="5" value="443"></div>
-<div class="field"><label for="telegram-proxy-secret">Секрет MTProxy</label><input id="telegram-proxy-secret" type="password" required maxlength="512" autocomplete="off" spellcheck="false"></div>
-<div class="form-actions"><button type="submit">Подготовить подключение</button><button id="telegram-proxy-clear" type="button">Очистить</button></div>
-</form><p id="telegram-proxy-message" role="status">Секрет не отправляется на роутер и не записывается в браузерное хранилище.</p>
-<p><a id="telegram-proxy-open" class="button-link hidden" rel="noreferrer">Открыть в Telegram ↗</a></p>
-<small>В Telegram подтвердите подключение и проверьте статус прокси и отправку сообщения. Данные Worker ниже не являются MTProxy. Не вводите пароль аккаунта, код входа или API hash.</small>
-</section>`;
-}
 function telegramNativePanel(){
-  const enabled=Boolean(state.config.telegram_mtproto);
+  const legacy=Boolean(state.config.telegram_mtproto);
   return `<section class="panel" id="telegram-native-panel">
-    <div class="panel-head"><h2>Telegram · приложение (MTProto TCP)</h2></div>
-    <p>${badge(enabled?"MTProto TCP включён":"MTProto TCP выключен",enabled?"neutral":"warn")}</p>
-    <p class="subtle">Отдельный режим для Telegram Desktop и мобильного приложения. Не требует добавления Telegram Web в каталог. Обрабатывается только распознанное начало MTProto TCP на портах 80, 443 и 5222.</p>
-    <div class="form-actions"><button type="button" id="telegram-native-toggle" ${serviceMutationPending?"disabled":""}>${enabled?"Выключить MTProto TCP":"Включить MTProto TCP"}</button></div>
-    <small>Экспериментально: реальная отправка сообщений не проверена. Звонки/UDP не поддерживаются. Сохранение кратко перезапускает движок; YouTube и другие профили сохраняются.</small>
+    <div class="panel-head"><h2>Telegram · сквозная маршрутизация</h2></div>
+    <p>Направление Telegram через существующий VPN на роутере: без прокси в приложении, секретов и Cloudflare Worker. Настрой IP-маршруты и домены в Geo Routing. Маршруты применяются вручную в KeeneticOS.</p>
+    ${legacy?'<p class="subtle">Старый экспериментальный режим обработки MTProto включён. После подтверждения рабочих маршрутов его можно выключить отдельно.</p><button id="telegram-native-toggle" type="button">Выключить старую обработку MTProto</button>':'<p class="subtle">Старая обработка MTProto выключена.</p>'}
+    <a href="#geo">Открыть Geo Routing ↗</a>
   </section>`;
 }
 function bindTelegramNative(){
   const button=$("#telegram-native-toggle");
   if(!button)return;
   button.addEventListener("click",()=>serviceAction(async()=>{
-    const next=!Boolean(state.config.telegram_mtproto);
-    await applyConfigAfterActiveSearch(c=>{c.telegram_mtproto=next;});
-    notify(next?"MTProto TCP включён. Проверь сообщения в приложении Telegram.":"MTProto TCP выключен. Остальные сервисы не изменены.");
+    await applyConfigAfterActiveSearch(c=>{c.telegram_mtproto=false;});
+    notify("Старая обработка MTProto выключена. Маршруты Keenetic не изменены.");
   }));
 }
 
 function profiles() {
-  return heading("Сервисы и домены", "Выберите сервис из каталога. Раскройте профиль для стратегии, доменов и проверок.") + youtubeVideoCheckPanel() + performanceRescuePanel() + telegramNativePanel() + telegramProxyPanel() + telegramRelayPanel() + serviceCatalog() + customServiceForm() + `<div class="service-profile-list">${state.config.profiles.map(profileCard).join("")}</div>`;
+  return heading("Сервисы и домены", "Выберите сервис из каталога. Раскройте профиль для стратегии, доменов и проверок.") + youtubeVideoCheckPanel() + performanceRescuePanel() + telegramNativePanel() + serviceCatalog() + customServiceForm() + `<div class="service-profile-list">${state.config.profiles.map(profileCard).join("")}</div>`;
 }
 function readProfileDraft(id) {
   const p = structuredClone(state.config.profiles.find((p) => p.id === id));
@@ -628,7 +518,7 @@ function settings() {
       "Настройки",
       "Сетевые параметры и правила автоматического подбора.",
     ) +
-    `<form id="settings-form"><div class="settings-grid"><div class="panel"><div class="panel-head"><h2>Подключение</h2></div><div class="field"><label for="wan">WAN-интерфейс</label><input id="wan" value="${esc(c.wan)}" placeholder="Например: ppp0"><small>Имя активного интерфейса провайдера на роутере.</small></div>${toggle("ipv6", "Обрабатывать IPv6", "Включайте при наличии работающего IPv6 у провайдера.", c.ipv6)}${toggle("ppe", "Сохранять видимость handshake", "Первые пакеты без аппаратного ускорения: окно 48 при автоподборе по трафику, иначе 30.", c.ppe)}${toggle("quic", "Обрабатывать QUIC", "Статическая стратегия UDP/443. Подбор HTTPS её не проверяет.", c.quic)}${toggle("discord_voice", "Discord Voice · экспериментально", "Обработка UDP 50000–50099. Нужна проверка реального звонка.", c.discord_voice)}${toggle("telegram_mtproto", "Telegram · MTProto TCP (экспериментально)", "Только распознанное начало MTProto на TCP 80/443/5222. Не проверяет сообщения и звонки. Включайте отдельно после теста Telegram Web.", c.telegram_mtproto)}${toggle("youtube_stable", "YouTube · сохранить выбранную стратегию", "Выбранный метод профиля YouTube не будет автоматически заменяться по HTTPS-пробе. Для восстановления используйте кнопку в «Сервисах и доменах».", c.youtube_stable)}</div><div class="panel"><div class="panel-head"><h2>Автоматический подбор</h2></div>${toggle("adaptive", "Автоподбор по трафику", "Обнаруживать повторные ошибки HTTPS и менять метод отдельно для каждого сайта. Сохранённый метод используется первым.", c.adaptive)}<div class="info-note">Новые наблюдения и выбранные методы — в разделе «Коробки обхода». Сетевые ошибки не всегда означают блокировку.</div>${toggle("adaptive_fast_start","Быстрый старт автоподбора","Первые три смены метода в каждом 10-минутном окне: пауза 10 секунд вместо обычной. Затем действует заданная ниже пауза. Два сбоя перед сменой и общие лимиты сохраняются.",c.adaptive_fast_start)}${toggle("adaptive_active","Полный автоподбор","После повторных сбоев самостоятельно проверить прямое подключение и весь каталог на изолированных пробах. Применять только подтверждённый HTTPS-результат без перезапуска движка.",c.adaptive_active)}${toggle("background_paused","Пауза фоновых проверок","Приостановить автоматические проверки и подбор, не перезапуская nfqws2, QUIC и текущие стратегии.",Boolean(c.background_paused))}${toggle("background_other_domains","Проверять посторонние сайты автоматически","По умолчанию выключено для снижения нагрузки. Полный автоподбор работает на настроенных сервисах; неизвестные сайты можно поставить на проверку вручную. Включайте только на мощном роутере.",Boolean(c.background_other_domains))}${toggle("adaptive_reuse", "Использовать опыт коробок", "После повторных сбоев сначала пробовать до трёх методов, давших ответ в похожем контексте за последние семь дней.", c.adaptive_reuse)}<div class="two-fields"><div class="field"><label for="adaptive-cooldown">Пауза между сменами, с</label><input id="adaptive-cooldown" type="number" min="10" max="300" value="${c.adaptive_cooldown_seconds}"></div><div class="field"><label for="adaptive-max-switches">Максимум смен за 10 минут</label><input id="adaptive-max-switches" type="number" min="1" max="20" value="${c.adaptive_max_switches}"></div></div><div class="field"><label for="adaptive-global-max">Общий лимит смен движка за 10 минут</label><input id="adaptive-global-max" type="number" min="1" max="300" value="${c.adaptive_global_max_switches??30}"><small>Для всех коробок вместе. Рабочие методы сохраняются; при достижении лимита смена ждёт окончания окна.</small></div>${toggle("probe_load_guard","Защита фоновых проверок","Откладывать плановые проверки, подбор и загрузку каталогов при CPU ≥65%, load ≥ числу ядер или нехватке памяти. Работающий обход продолжается.",c.probe_load_guard!==false)}${toggle("auto_catalog", "Обновлять каталог стратегий", "Подписанный каталог Pilot: проверка раз в сутки. Новые варианты проверяются при подборе.", c.auto_catalog)}<div class="form-actions"><button type="button" id="catalog-update">Загрузить стратегии сейчас</button></div>${toggle("auto", "Следить за доступностью", "После двух неудачных циклов проверок начинается новый подбор.", c.auto)}<div class="field"></div><div class="two-fields"><div class="field"><label for="interval">Интервал, мин</label><input id="interval" type="number" min="5" max="1440" value="${c.interval_minutes}"></div><div class="field"><label for="timeout">Таймаут запроса, с</label><input id="timeout" type="number" min="2" max="20" value="${c.timeout_seconds}"></div></div><div class="field"><label for="attempts">Попыток на протокол и адрес</label><input id="attempts" type="number" min="1" max="3" value="${c.attempts}"></div><div class="field"><label for="exclusions">Исключения · по одному домену на строку</label><textarea id="exclusions" rows="6" placeholder="example.com">${esc(c.exclusions.join("\n"))}</textarea><small>Исключённые домены не обрабатываются движком.</small></div></div></div><div class="form-actions"><button type="submit" class="primary" ${state.busy ? "disabled" : ""}>Сохранить настройки ↗</button><small>Изменение параметров обработки трафика перезапустит движок. Параметры фоновых проверок применяются сразу.</small></div></form>`
+    `<form id="settings-form"><div class="settings-grid"><div class="panel"><div class="panel-head"><h2>Подключение</h2></div><div class="field"><label for="wan">WAN-интерфейс</label><input id="wan" value="${esc(c.wan)}" placeholder="Например: ppp0"><small>Имя активного интерфейса провайдера на роутере.</small></div>${toggle("ipv6", "Обрабатывать IPv6", "Включайте при наличии работающего IPv6 у провайдера.", c.ipv6)}${toggle("ppe", "Сохранять видимость handshake", "Первые пакеты без аппаратного ускорения: окно 48 при автоподборе по трафику, иначе 30.", c.ppe)}${toggle("quic", "Обрабатывать QUIC", "Статическая стратегия UDP/443. Подбор HTTPS её не проверяет.", c.quic)}${toggle("discord_voice", "Discord Voice · экспериментально", "Обработка UDP 50000–50099. Нужна проверка реального звонка.", c.discord_voice)}${toggle("youtube_stable", "YouTube · сохранить выбранную стратегию", "Выбранный метод профиля YouTube не будет автоматически заменяться по HTTPS-пробе. Для восстановления используйте кнопку в «Сервисах и доменах».", c.youtube_stable)}</div><div class="panel"><div class="panel-head"><h2>Автоматический подбор</h2></div>${toggle("adaptive", "Автоподбор по трафику", "Обнаруживать повторные ошибки HTTPS и менять метод отдельно для каждого сайта. Сохранённый метод используется первым.", c.adaptive)}<div class="info-note">Новые наблюдения и выбранные методы — в разделе «Коробки обхода». Сетевые ошибки не всегда означают блокировку.</div>${toggle("adaptive_fast_start","Быстрый старт автоподбора","Первые три смены метода в каждом 10-минутном окне: пауза 10 секунд вместо обычной. Затем действует заданная ниже пауза. Два сбоя перед сменой и общие лимиты сохраняются.",c.adaptive_fast_start)}${toggle("adaptive_active","Полный автоподбор","После повторных сбоев самостоятельно проверить прямое подключение и весь каталог на изолированных пробах. Применять только подтверждённый HTTPS-результат без перезапуска движка.",c.adaptive_active)}${toggle("background_paused","Пауза фоновых проверок","Приостановить автоматические проверки и подбор, не перезапуская nfqws2, QUIC и текущие стратегии.",Boolean(c.background_paused))}${toggle("background_other_domains","Проверять посторонние сайты автоматически","По умолчанию выключено для снижения нагрузки. Полный автоподбор работает на настроенных сервисах; неизвестные сайты можно поставить на проверку вручную. Включайте только на мощном роутере.",Boolean(c.background_other_domains))}${toggle("adaptive_reuse", "Использовать опыт коробок", "После повторных сбоев сначала пробовать до трёх методов, давших ответ в похожем контексте за последние семь дней.", c.adaptive_reuse)}<div class="two-fields"><div class="field"><label for="adaptive-cooldown">Пауза между сменами, с</label><input id="adaptive-cooldown" type="number" min="10" max="300" value="${c.adaptive_cooldown_seconds}"></div><div class="field"><label for="adaptive-max-switches">Максимум смен за 10 минут</label><input id="adaptive-max-switches" type="number" min="1" max="20" value="${c.adaptive_max_switches}"></div></div><div class="field"><label for="adaptive-global-max">Общий лимит смен движка за 10 минут</label><input id="adaptive-global-max" type="number" min="1" max="300" value="${c.adaptive_global_max_switches??30}"><small>Для всех коробок вместе. Рабочие методы сохраняются; при достижении лимита смена ждёт окончания окна.</small></div>${toggle("probe_load_guard","Защита фоновых проверок","Откладывать плановые проверки, подбор и загрузку каталогов при CPU ≥65%, load ≥ числу ядер или нехватке памяти. Работающий обход продолжается.",c.probe_load_guard!==false)}${toggle("auto_catalog", "Обновлять каталог стратегий", "Подписанный каталог Pilot: проверка раз в сутки. Новые варианты проверяются при подборе.", c.auto_catalog)}<div class="form-actions"><button type="button" id="catalog-update">Загрузить стратегии сейчас</button></div>${toggle("auto", "Следить за доступностью", "После двух неудачных циклов проверок начинается новый подбор.", c.auto)}<div class="field"></div><div class="two-fields"><div class="field"><label for="interval">Интервал, мин</label><input id="interval" type="number" min="5" max="1440" value="${c.interval_minutes}"></div><div class="field"><label for="timeout">Таймаут запроса, с</label><input id="timeout" type="number" min="2" max="20" value="${c.timeout_seconds}"></div></div><div class="field"><label for="attempts">Попыток на протокол и адрес</label><input id="attempts" type="number" min="1" max="3" value="${c.attempts}"></div><div class="field"><label for="exclusions">Исключения · по одному домену на строку</label><textarea id="exclusions" rows="6" placeholder="example.com">${esc(c.exclusions.join("\n"))}</textarea><small>Исключённые домены не обрабатываются движком.</small></div></div></div><div class="form-actions"><button type="submit" class="primary" ${state.busy ? "disabled" : ""}>Сохранить настройки ↗</button><small>Изменение параметров обработки трафика перезапустит движок. Параметры фоновых проверок применяются сразу.</small></div></form>`
   );
 }
 function lines(value) {
@@ -729,7 +619,7 @@ function geoPage(){
  <form id="geo-form"><div class="field"><label for="geo-interface">Имя интерфейса KeeneticOS</label><input id="geo-interface" required maxlength="32" placeholder="OpkgTun10" value="OpkgTun10" autocomplete="off"></div>
  <div class="field"><label for="geo-policy">Имя существующей политики доступа (CLI)</label><input id="geo-policy" required maxlength="32" placeholder="Policy0" autocomplete="off"><small>Проверь имя в конфигурации Keenetic. Не название Wi-Fi.</small></div>
  <div id="geo-services">Загрузка списка…</div><div class="form-actions"><button type="submit" id="geo-build" disabled>Создать план</button></div></form>
- <p class="subtle">Ни одна служба не направляется в VPN до ручного применения. Список доменов стартовый и не гарантирует охват всех CDN/авторизации. Учитывай правила доступности сервисов. DNS клиентов должен обслуживать Keenetic.</p>
+ <p class="subtle">Ни одна служба не направляется в VPN до ручного применения. Список доменов стартовый и не гарантирует охват всех CDN/авторизации. Учитывай правила доступности сервисов. DNS клиентов должен обслуживать Keenetic. Telegram дополнительно использует официальные IP-сети; проверь поддержку IPv6 в туннеле и назначение политики всем нужным клиентам.</p>
  <div id="geo-output" hidden><label for="geo-commands">Предпросмотр команд CLI</label><textarea id="geo-commands" readonly rows="12" spellcheck="false"></textarea><button id="geo-download" type="button">Скачать команды TXT</button>
  <p>Проверь отсутствие существующих групп pilot-geo-*, резервную копию конфигурации, туннель и политику. Применяй в CLI самой KeeneticOS, не в Entware shell. Проверь доступ из клиента политики перед сохранением конфигурации. Для отката удали только созданные маршруты и группы в настройках Keenetic. Автоматического отката нет.</p></div>
  </section>`;
@@ -743,7 +633,7 @@ function bindGeo(){
  api("geo").then(d=>{
   if(!current())return;
   status.textContent=d.tunnels.length?"Обнаружены активные интерфейсы Linux: "+d.tunnels.join(", ")+". Это не подтверждение доступности VPN.":"Поддерживаемые активные интерфейсы не обнаружены. Проверь AWG Manager и имя CLI.";
-  target.innerHTML=d.services.map(s=>`<div class="toggle-row"><div><label for="geo-${esc(s.id)}">${esc(s.name)}</label><p>${s.domains.map(esc).join(", ")}</p></div><input id="geo-${esc(s.id)}" type="checkbox" value="${esc(s.id)}"></div>`).join("");
+  target.innerHTML=d.services.map(s=>`<div class="toggle-row"><div><label for="geo-${esc(s.id)}">${esc(s.name)}</label><p>${s.domains.map(esc).join(", ")}${s.networks?.length?` · ${s.networks.length} IP-сетей (IPv4/IPv6)`:""}</p></div><input id="geo-${esc(s.id)}" type="checkbox" value="${esc(s.id)}"></div>`).join("");
   button.disabled=false;
  }).catch(e=>{if(current())status.textContent="Не удалось загрузить: "+e.message;});
  let serial=0;
@@ -803,7 +693,6 @@ function renderPage() {
                     '<div class="panel"><pre id="log-view" class="log-view">Загрузка…</pre></div>';
   bindActions();
   if(page==="geo")bindGeo();
-  if(page==="profiles")loadTelegramRelayDraft();
   if(page==="overview"){loadTelemetry();loadOverviewBoxes();}
   if(page==="device")loadDevice();
   if(page==="updates"){loadUpdates();loadSourceUpdates();}
@@ -827,7 +716,7 @@ async function action(fn) {
 }
 function bindDomainRetry(){const button=$("#domain-retry");if(!button||button.dataset.bound)return;button.dataset.bound="true";button.addEventListener("click",()=>action(async()=>{await api("domain-search","POST",state.domain_job.scope);notify("Домен поставлен в очередь полного автоподбора");}));}
 function bindActions() {
-  bindDomainRetry();bindMethodViews();bindTrials();bindCheckActions();bindYoutubeVideoCheck();bindYoutubeRestore();bindTelegramNative();bindPerformanceRescue();bindTelegramRelayDraft();bindTelegramProxy();
+  bindDomainRetry();bindMethodViews();bindTrials();bindCheckActions();bindYoutubeVideoCheck();bindYoutubeRestore();bindTelegramNative();bindPerformanceRescue();
   $("#method-search")?.addEventListener("input",e=>{methodQuery=e.target.value;$("#method-results").innerHTML=methodResults();bindMethodViews();});
   $("#method-family")?.addEventListener("change",e=>{methodFamily=e.target.value;$("#method-results").innerHTML=methodResults();bindMethodViews();});
   $("#update-check")?.addEventListener("click",async e=>{const button=e.currentTarget;button.disabled=true;try{await api("updates/check","POST",{});await loadUpdates(true);}catch(error){notify(error.message,true);button.disabled=false;}});
@@ -972,7 +861,6 @@ function bindActions() {
         "ppe",
         "quic",
         "discord_voice",
-        "telegram_mtproto",
         "youtube_stable",
         "auto",
         "auto_catalog",

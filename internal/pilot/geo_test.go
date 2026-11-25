@@ -36,3 +36,13 @@ func TestHybridLightStrategies(t *testing.T){
  }
  if count!=16{t.Fatal(count)}
 }
+
+func TestTelegramTransparentGeoPlan(t *testing.T){
+ p,e:=buildGeoPlan(GeoPlanRequest{Interface:"OpkgTun10",Policy:"Policy0",Services:[]string{"telegram"}})
+ if e!=nil||p.Applied{t.Fatal(p,e)}
+ if strings.Count(p.Commands,"ip policy Policy0 route ")!=9||strings.Count(p.Commands,"ip policy Policy0 ipv6 route ")!=5{t.Fatal(p.Commands)}
+ for _,line:=range []string{"ip policy Policy0 route 149.154.160.0 255.255.240.0 OpkgTun10 auto reject","ip policy Policy0 ipv6 route 2001:b28:f23d::/48 OpkgTun10 auto reject","ip policy Policy0 dns-proxy route object-group pilot-geo-telegram OpkgTun10 auto reject"}{if !strings.Contains(p.Commands,line){t.Fatal(line,p.Commands)}}
+ for _,forbidden:=range []string{"ip route default","tg://","mtproto","system configuration save","iptables"}{if strings.Contains(p.Commands,forbidden){t.Fatal(forbidden)}}
+ other,e:=buildGeoPlan(GeoPlanRequest{Interface:"OpkgTun10",Policy:"Policy0",Services:[]string{"openai"}})
+ if e!=nil||strings.Contains(other.Commands,"149.154.160.0"){t.Fatal(other,e)}
+}
