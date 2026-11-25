@@ -1,14 +1,14 @@
 name: Publish independent ChatGPT / Codex SSH release
 
-# The existing Ed25519-signed panel updater and 'packages' branch are untouched.\n# Source release publishes alpha.24 [ChatGPT] only after safe background pause, non-disruptive repair and full five-architecture tests.
 on:
   push:
     branches:
-      - feature/keenetic-reliability-alpha24
+      - feature/keenetic-stability-alpha25
     paths:
       - .github/workflows/publish-ssh.yml
       - scripts/publish-ssh-release.py
       - release-source.txt
+      - VERSION
   workflow_dispatch:
     inputs:
       source:
@@ -16,8 +16,8 @@ on:
         required: true
         type: choice
         options:
-          - ChatGPT
           - Codex
+          - ChatGPT
 
 permissions:
   contents: write
@@ -28,7 +28,7 @@ concurrency:
 
 jobs:
   independent-ssh-release:
-    if: github.repository == 'punisher89/my.kn-test-' && github.ref == 'refs/heads/feature/keenetic-reliability-alpha24'
+    if: github.repository == 'punisher89/my.kn-test-' && github.ref == 'refs/heads/feature/keenetic-stability-alpha25'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -43,7 +43,13 @@ jobs:
       - name: Lua runtime for native tests
         run: sudo apt-get update && sudo apt-get install -y liblua5.4-0 libluajit-5.1-2
       - name: Check all tests, pinned nfqws2 and build all five architectures
-        run: sh scripts/check.sh
+        env:
+          PILOT_TEST_BROWSER: "1"
+        run: |
+          npm install --prefix "$RUNNER_TEMP/pilot-browser" --no-save --no-audit --ignore-scripts playwright@1.62.1
+          export NODE_PATH="$RUNNER_TEMP/pilot-browser/node_modules"
+          export PILOT_CHROMIUM="$(command -v google-chrome)"
+          sh scripts/check.sh
       - name: Verify and publish independent SSH release
         shell: bash
         env:

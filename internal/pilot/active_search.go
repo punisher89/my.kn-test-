@@ -471,17 +471,17 @@ func (m *Manager) activeTick(parent context.Context) {
 		m.log.Add("Подтверждённые методы: " + err.Error())
 		return
 	}
-	data := ReadAdaptive(c)
-	if data.Error != "" {
-		return
-	}
+	// The scheduler consumes recorded events only. Build the dashboard views on demand.
+	data := readAdaptiveState(c)
 	now := time.Now()
-	signals := map[DomainScope]int{}
 	latest := map[DomainScope]int64{}
 	for _, r := range data.History {
+		if r.Status != "failed" || r.Network != c.WAN || r.Updated > now.Unix() || now.Unix()-r.Updated > 600 {
+			continue
+		}
 		b := boxContext(r)
 		s := DomainScope{r.Host, b.TLS, b.Family, r.Port}
-		if !autoSearchEligible(c,s,false) || stableYouTubeHost(c, s.Host) || r.Status != "failed" || !s.valid() || r.Network != c.WAN || r.Updated > now.Unix() || now.Unix()-r.Updated > 600 || c.excludedBy(s.Host) != "" || c.pinFor(s.Host, s.TLS, s.Family, s.Port) != "" || s.Family == "ipv6" && !c.IPv6 {
+		if !autoSearchEligible(c,s,false) || stableYouTubeHost(c, s.Host) || !s.valid() || c.excludedBy(s.Host) != "" || c.pinFor(s.Host, s.TLS, s.Family, s.Port) != "" || s.Family == "ipv6" && !c.IPv6 {
 			continue
 		}
 		live := profileForDomain(c, s.Host).Strategy
@@ -490,10 +490,6 @@ func (m *Manager) activeTick(parent context.Context) {
 		}
 		if r.Strategy != live {
 			continue
-		}
-		signals[s]++
-		if r.EventCount > 1 {
-			signals[s]++
 		}
 		if r.Updated > latest[s] {
 			latest[s] = r.Updated
@@ -512,8 +508,8 @@ func (m *Manager) activeTick(parent context.Context) {
             }
         }
     }
-    scopes := make([]DomainScope, 0, len(signals))
-	for s := range signals {
+	scopes := make([]DomainScope, 0, len(latest))
+	for s := range latest {
 		scopes = append(scopes, s)
 	}
 	sort.Slice(scopes, func(i, j int) bool {
@@ -554,7 +550,7 @@ func (m *Manager) activeTick(parent context.Context) {
 	}
 	pending := []*domainTask{}
 	for s, task := range m.domainTasks {
-		if now.Unix()-task.Signal > 6*3600 {
+		if now.Unix()-task.Signal > 6*3600 || (s.Family == "ipv6" && !c.IPv6) {
 			delete(m.domainTasks, s)
 			continue
 		}

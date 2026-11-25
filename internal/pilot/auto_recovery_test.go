@@ -1,6 +1,7 @@
 package pilot
 
 import (
+ "context"
  "testing"
  "time"
 )
@@ -70,4 +71,24 @@ func TestBackgroundCheckSchedulingAvoidsConcurrentProbes(t *testing.T){
  if automaticTuneCooldown<30*time.Minute || catalogStartDelay<5*time.Minute {
     t.Fatal("unsafe recovery or boot maintenance interval")
  }
+}
+
+func TestLegacyRecoveryRequiresConsecutiveChecksInTheSameContext(t *testing.T) {
+	c := DefaultConfig()
+	p := c.Profiles[1]
+	fail := syntheticRecoveryResults(c, p, "connection reset by peer", 0)
+	now := time.Now()
+	tick := func() time.Time { now = now.Add(time.Minute); return now }
+	f := make(recoveryFailures)
+	if f.confirm(p, c, fail, nil, tick()) || f.confirm(p, c, fail, context.DeadlineExceeded, tick()) || f.confirm(p, c, fail, nil, tick()) {
+		t.Fatal("an interrupted check contributed to automatic recovery")
+	}
+	c.WAN = "wan2"
+	if f.confirm(p, c, fail, nil, tick()) {
+		t.Fatal("evidence was carried across a WAN change")
+	}
+	now = now.Add(48 * time.Hour)
+	if f.confirm(p, c, fail, nil, tick()) || !f.confirm(p, c, fail, nil, tick()) || f.confirm(p, c, fail, nil, tick()) {
+		t.Fatal("only a fresh pair of complete failures may trigger recovery")
+	}
 }

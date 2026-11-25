@@ -509,3 +509,21 @@ func TestActiveSearchDeadlineYieldsWithoutResettingCandidate(t *testing.T) {
         t.Fatal("deadline damaged running engine or attempted immediate unbounded retry")
     }
 }
+
+func TestActiveSchedulerDiscardsQueuedIPv6AfterDisablingIt(t *testing.T) {
+	m, _, _, scope := activeFixture(t)
+	m.c.IPv6 = true
+	scope.Family = "ipv6"
+	if err := m.QueueDomain(scope); err != nil {
+		t.Fatal(err)
+	}
+	m.c.IPv6 = false
+	m.activeProbeHook = func(context.Context, Config, DomainScope, Target, string) activeEvidence {
+		t.Fatal("scheduler probed a disabled address family")
+		return activeEvidence{}
+	}
+	m.activeTick(context.Background())
+	if _, ok := m.domainTasks[scope]; ok || m.Snapshot().DomainQueue != 0 {
+		t.Fatal("disabled IPv6 task remained queued")
+	}
+}

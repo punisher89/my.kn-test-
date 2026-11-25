@@ -122,7 +122,7 @@ let relay={worker_host:'',status:'draft_only',can_route:false,source:'t0fox/d2o 
   assert.ok(!demo.config.profiles.some(p=>p.id==="telegram-web"));
   const nativePanel=page.locator("#telegram-native-panel");
   await nativePanel.waitFor();
-  assert.match(await nativePanel.innerText(),/приложение \(MTProto TCP\)/);
+  assert.match(await nativePanel.locator("h2").textContent(),/приложение \(MTProto TCP\)/);
   const profilesBefore=JSON.stringify(demo.config.profiles);
   await page.locator("#telegram-native-toggle").click();
   await page.waitForFunction(()=>state.config.telegram_mtproto===true);
@@ -141,7 +141,7 @@ let relay={worker_host:'',status:'draft_only',can_route:false,source:'t0fox/d2o 
   await page.waitForFunction(()=>telegramRelayDraftData?.worker_host==="my-telegram.example.workers.dev");
   assert.equal(relayWrites,1,"expected only a draft save");
   assert.equal(JSON.stringify(demo.config.profiles),profilesBefore,"Relay template must not modify native routing");
-  assert.match(await relayPanel.innerText(),/Прокси НЕ запущен|Прокси и перенаправление выключены/);
+  assert.match(await relayPanel.innerText(),/прокси не запущен|прокси и перенаправление выключены/i);
 
   // A quick pause cannot change any live packet settings or profiles.
   const before=JSON.stringify(demo.config.profiles);
