@@ -31,6 +31,7 @@ type Job struct {
 	Trials   []Trial    `json:"trials"`
 }
 type Snapshot struct {
+	LastVideo *VideoMeasurement `json:"last_video_check,omitempty"`
 	DomainJob       *DomainSearch           `json:"domain_job,omitempty"`
 	DomainQueue     int                     `json:"domain_queue"`
 	VerifiedDomains int                     `json:"verified_domains"`
@@ -57,6 +58,7 @@ type Manager struct {
 	activeHello      *helloSample
 	checks           map[string]ServiceCheck
 	lastVideoProbeAt time.Time
+	lastVideo VideoMeasurement
 	backgroundHold   string
 	guardDevice      deviceReader
 	domainCacheError error
@@ -141,7 +143,19 @@ func (m *Manager) Snapshot() Snapshot {
 		}
 		domainJob = &j
 	}
-	return Snapshot{DomainJob: domainJob, DomainQueue: m.domainQueue, VerifiedDomains: len(m.domainPlans.Plans), Checks: m.checksLocked(), BackgroundHold: m.backgroundHold, ServicePresets: ServicePresets(), Version: Version, Mode: m.backend.Kind(), Running: m.backend.Running(), Busy: busy, Config: cloneConfig(m.c), Job: job, Error: m.lastError, Strategies: StrategiesFor(m.c)}
+	running := m.backend.Running()
+	hold := m.backgroundHold
+	if m.c.BackgroundPaused {
+		hold = holdByUser
+	} else if hold == holdByUser || !m.c.ProbeLoadGuard {
+		hold = ""
+	}
+	var lastVideo *VideoMeasurement
+	if !m.lastVideo.Finished.IsZero() {
+		copied := m.lastVideo
+		lastVideo = &copied
+	}
+	return Snapshot{LastVideo: lastVideo, DomainJob: domainJob, DomainQueue: m.domainQueue, VerifiedDomains: len(m.domainPlans.Plans), Checks: m.checksLocked(running), BackgroundHold: hold, ServicePresets: ServicePresets(), Version: Version, Mode: m.backend.Kind(), Running: running, Busy: busy, Config: cloneConfig(m.c), Job: job, Error: m.lastError, Strategies: StrategiesFor(m.c)}
 }
 func (m *Manager) setError(err error) error {
 	m.mu.Lock()

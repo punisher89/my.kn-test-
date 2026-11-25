@@ -31,6 +31,21 @@ type VideoProbeResult struct {
     Error string `json:"error,omitempty"`
 }
 
+// Only numeric measurements are retained for the status page and diagnostic export.
+type VideoMeasurement struct {
+	Finished   time.Time `json:"finished"`
+	OK         bool      `json:"ok"`
+	Status     int       `json:"status"`
+	Bytes      int       `json:"bytes"`
+	DurationMS int64     `json:"duration_ms"`
+}
+
+func (m *Manager) recordVideo(r VideoProbeResult) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.lastVideo = VideoMeasurement{Finished: time.Now().UTC(), OK: r.OK, Status: r.Status, Bytes: r.Bytes, DurationMS: r.DurationMS}
+}
+
 // A generic HTTPS response from a YouTube CDN host does not prove video playback.
 func isYouTubeCDNHost(host string) bool {
     return strings.HasSuffix(strings.ToLower(host), ".googlevideo.com")
@@ -45,7 +60,9 @@ func parseVideoURL(raw string, now time.Time) (*url.URL, error) {
         return nil, errors.New("разрешена только HTTPS-ссылка на YouTube CDN")
     }
     host := strings.ToLower(u.Hostname())
-    if !isYouTubeCDNHost(host) || u.Port() != "" && u.Port() != "443" || !strings.HasPrefix(u.EscapedPath(), "/videoplayback") || u.RawQuery == "" {
+    path := u.EscapedPath()
+    playbackPath := path == "/videoplayback" || strings.HasPrefix(path, "/videoplayback/")
+    if !isYouTubeCDNHost(host) || u.Port() != "" && u.Port() != "443" || !playbackPath || u.RawQuery == "" {
         return nil, errors.New("нужен адрес videoplayback на поддомене googlevideo.com")
     }
     expires := u.Query().Get("expire")
@@ -185,5 +202,7 @@ func (m *Manager) CheckYouTubeVideo(ctx context.Context, raw string) (VideoProbe
     }
     m.lastVideoProbeAt = now
     m.mu.Unlock()
-    return probeVideoFragment(ctx, u), nil
+    result := probeVideoFragment(ctx, u)
+    m.recordVideo(result)
+    return result, nil
 }

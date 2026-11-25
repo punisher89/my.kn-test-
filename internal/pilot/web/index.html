@@ -97,7 +97,7 @@
             <span class="subtle">Система</span
             ><span class="slash">/</span><strong id="breadcrumb">Обзор</strong>
           </div>
-          <span class="local-indicator"><i></i> Локальное подключение</span>
+          <span class="local-indicator"><i></i> <span id="connection-indicator">Локальное подключение</span></span>
           <details id="pilot-music" class="music-widget">
             <summary id="music-summary-label" aria-label="Открыть музыкальный плеер">♫ Музыка</summary>
             <div class="music-popover">
@@ -132,6 +132,10 @@
           </details>
         </header>
         <main>
+          <div id="connection-banner" class="notice" role="status" hidden>
+            <span id="connection-info"></span>
+            <button type="button" id="retry-connection">Повторить</button>
+          </div>
           <div id="dev-banner" class="notice hidden">
             Режим разработки. Панель и проверки доступны; обработка трафика
             выключена.

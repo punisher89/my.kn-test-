@@ -30,21 +30,32 @@ let signedIn = false,
   authInfo = { configured: true },
   networkInfo;
 
-async function api(path, method = "GET", data) {
-  const response = await fetch(`/api/${path}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: data === undefined ? undefined : JSON.stringify(data),
-  });
-  const result = await response.json();
-  if (!response.ok) {
-    if (response.status === 401) logout();
-    throw new Error(result.error || `HTTP ${response.status}`);
+const pollingEndpoints = new Set(["device", "adaptive", "preflight", "updates", "updates/sources"]);
+async function api(path, method = "GET", data, signal) {
+  const session = panelSession;
+  const deadline = !signal && method === "GET" && pollingEndpoints.has(path) ? new AbortController() : null;
+  const timeout = deadline ? setTimeout(() => deadline.abort(), 30000) : null;
+  try {
+    const response = await fetch(`/api/${path}`, {
+      method,
+      signal: signal || deadline?.signal,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: data === undefined ? undefined : JSON.stringify(data),
+    });
+    if (!response.ok) {
+      if (response.status === 401 && session === panelSession) logout();
+      const body = await response.json().catch(() => ({}));
+      const error = new Error(body.error || `HTTP ${response.status}`);
+      error.status = response.status;
+      throw error;
+    }
+    return await response.json();
+  } finally {
+    if (deadline) clearTimeout(timeout);
   }
-  return result;
 }
 function notify(message, error = false) {
   const toast = $("#toast");
@@ -56,6 +67,13 @@ function notify(message, error = false) {
 async function logout() {
   document.dispatchEvent(new Event("pilot-logout"));
   signedIn = false;
+  panelSession++;
+  refreshSerial++;
+  cancelBatch();
+  batchMessage = "";
+  lastContact = 0;
+  lostContact = false;
+  $("#connection-banner").hidden = true;
   adaptiveData = null;
   adaptiveDrafts.clear();
   adaptiveDetails.clear();
@@ -164,15 +182,69 @@ function overview() {
     `<div class="status-card"><div class="status-main"><span class="dot"></span><strong>${state.running?"ОБХОД ВКЛЮЧЁН":"ОБХОД ОСТАНОВЛЕН"}</strong><small>WAN · ${esc(c.wan||"не задан")}</small></div><button id="service-toggle" ${state.busy?"disabled":""}>${state.running?"Остановить":"Запустить обход"}</button></div>
     ${!c.enabled&&!state.job?'<div class="panel welcome"><h2>Первый запуск</h2><a class="button-link primary" href="#connect">Настроить подключение</a></div>':""}
     <div id="network-telemetry" class="network-telemetry" aria-live="off">${deviceData?telemetryMarkup(deviceData):"Загрузка показателей роутера…"}</div>
-    ${domainSearchMini()}<div class="dashboard-columns"><section class="panel"><div class="panel-head"><h2>Сервисы</h2><a href="#profiles">Управление →</a></div><div class="service-check-list">${c.profiles.map(p=>`<div class="service-row">${logo(p)}<div class="service-meta"><h3>${esc(p.name)}</h3><span>${esc(strategyName(p.strategy))} · ${p.domains.length} доменов</span></div><div class="service-check-status" data-check-status="${esc(p.id)}">${checkStatus(p)}</div><button data-check-profile="${esc(p.id)}">Проверить</button></div><div data-check-report="${esc(p.id)}">${checkReport(p)}</div>`).join("")}</div><p class="info-note">Проверяются контрольные HTTPS-адреса сервиса. Ответ не подтверждает видео, звонки и работу всех доменов.</p></section><aside>${loadControlPanel()}<p class="subtle"><a href="#tune">Последний подбор: ${esc(jobSummary())} →</a></p></aside></div>
+    ${domainSearchMini()}<div class="dashboard-columns"><section class="panel"><div class="panel-head"><h2>Сервисы</h2><a href="#profiles">Управление →</a></div><div class="form-actions"><button id="check-all">Проверить все сервисы</button><button id="check-stop" hidden>Остановить проверку</button><small id="batch-status" role="status"></small></div><div class="service-check-list">${c.profiles.map(p=>`<div class="service-row">${logo(p)}<div class="service-meta"><h3>${esc(p.name)}</h3><span>${esc(strategyName(p.strategy))} · ${p.domains.length} доменов</span></div><div class="service-check-status" data-check-status="${esc(p.id)}">${checkStatus(p)}</div><button data-check-profile="${esc(p.id)}">Проверить</button></div><div data-check-report="${esc(p.id)}">${checkReport(p)}</div>`).join("")}</div><p class="info-note">Проверяются контрольные HTTPS-адреса сервиса. Ответ не подтверждает видео, звонки и работу всех доменов.</p></section><aside>${loadControlPanel()}<p class="subtle"><a href="#tune">Последний подбор: ${esc(jobSummary())} →</a></p></aside></div>
     <section class="panel"><div class="panel-head"><h2>Коробки обхода</h2><a href="#adaptive">Открыть →</a></div><div id="overview-boxes">Загрузка наблюдений…</div></section>`;
 }
 function loadControlPanel(){const c=state.config;return `<section class="panel load-control"><div class="panel-head"><h2>Контроль нагрузки</h2><a href="#settings">Настроить →</a></div><div id="cpu-chart">${cpuChart()}</div><div class="info-line"><span>Пауза между сменами</span><strong>${c.adaptive_cooldown_seconds} с</strong></div><div class="info-line"><span>Быстрый старт</span><strong>${c.adaptive_fast_start?"Первые 3 смены · 10 с":"Выключен"}</strong></div><div class="info-line"><span>Лимит на домен и контекст</span><strong>${c.adaptive_max_switches} / 10 мин</strong></div><div class="info-line"><span>Общий лимит движка</span><strong>${c.adaptive_global_max_switches??30} / 10 мин</strong></div><div class="info-line"><span>Защита фоновых проверок</span>${badge(c.probe_load_guard!==false?"Включена":"Выключена",c.probe_load_guard!==false?"":"warn")}</div><p>${state.background_hold?"Фоновые проверки отложены: "+esc(state.background_hold)+". Состояние ресурсов проверяется повторно.":"Проверки идут последовательно. Работающий обход продолжается при паузе фоновых задач."}</p><small>CPU и память общие для роутера. Коробки не являются отдельными процессами.</small></section>`;}
 const checkPending=new Set(),checkOpen=new Map();
 function checkStatus(p){const r=state.checks?.[p.id];if(checkPending.has(p.id))return badge("Проверяется","warn");if(!r)return badge("Не проверялся","neutral");return badge(r.stale?"Проверка устарела":!r.complete?"Не завершена":r.passed?"Есть HTTPS-ответ":"Есть ошибки",r.stale?"neutral":r.passed?"":"warn");}
 function checkReport(p){const r=state.checks?.[p.id];if(!r)return "";const hosts=new Set(r.results.map(v=>new URL(v.url).hostname));const uncovered=p.domains.filter(d=>![...hosts].some(h=>h===d||h.endsWith("."+d)));return `<details class="check-report" data-check-view="${esc(p.id)}" ${checkOpen.get(p.id)?"open":""}><summary>Последняя проверка · ${esc(new Date(r.finished).toLocaleString("ru-RU"))} · ${r.results.filter(v=>v.ok).length}/${r.results.length} проб</summary><p>${r.stale?"Конфигурация или состояние службы изменились — повторите проверку. ":""}${!r.running?"Проверка при остановленном обходе. ":""}Профиль: ${esc(strategyName(r.strategy))}${r.adaptive?"; автоподбор по трафику включён, метод может отличаться по доменам и протоколам":""}.</p>${r.error?`<p class="fail-text">${esc(r.error)}</p>`:""}<div class="table-scroll"><table class="probe-table"><thead><tr><th>HTTPS-адрес</th><th>TLS / IP</th><th>Ответ / время</th><th>Результат</th></tr></thead><tbody>${r.results.map(v=>`<tr><td>${esc(v.url)}</td><td>${esc(v.tls)} / ${esc(v.family)}</td><td>${v.status||"—"} · ${v.duration_ms} мс</td><td class="${v.ok?"ok-text":"fail-text"}">${v.ok?"Есть ответ":esc(v.error||"Ошибка")}</td></tr>`).join("")}</tbody></table></div><small>Контрольные адреса не покрывают весь сервис.${uncovered.length?" Домены без отдельной HTTPS-пробы: "+esc(uncovered.join(", "))+".":""} Отчёт хранится до перезапуска Pilot. Проверка не запускает подбор; её трафик может наблюдаться включённым адаптивным движком.</small><a class="button-link" href="#adaptive">Наблюдаемые методы доменов →</a></details>`;}
-function bindCheckActions(root=document){root.querySelectorAll("[data-check-view]").forEach(el=>el.addEventListener("toggle",()=>checkOpen.set(el.dataset.checkView,el.open)));root.querySelectorAll("[data-check-profile]").forEach(button=>{button.disabled=state.busy||checkPending.size>0;button.addEventListener("click",async()=>{const id=button.dataset.checkProfile;if(checkPending.size)return;checkPending.add(id);updateCheckReports();try{await api("check","POST",{profile:id});}catch(e){notify(e.message,true);}finally{checkPending.delete(id);if(signedIn){try{await refresh();}catch(e){notify(e.message,true);}updateCheckReports();}}});});}
-function updateCheckReports(){document.querySelectorAll("[data-check-profile]").forEach(el=>{el.disabled=state.busy||checkPending.size>0;el.textContent=checkPending.has(el.dataset.checkProfile)?"Проверяется…":"Проверить";});for(const p of state.config.profiles){const status=$(`[data-check-status="${p.id}"]`),report=$(`[data-check-report="${p.id}"]`);if(status)status.innerHTML=checkStatus(p);if(report){report.innerHTML=checkReport(p);report.querySelectorAll("[data-check-view]").forEach(el=>el.addEventListener("toggle",()=>checkOpen.set(el.dataset.checkView,el.open)));}}}
+let batch = null, batchMessage = "";
+function cancelBatch() {
+  if (batch) batch.abort();
+}
+function updateBatchButtons() {
+  const start = $("#check-all");
+  if (!start) return;
+  start.disabled = !!batch || checkPending.size > 0 || state.busy || lostContact || !state.config.profiles.length;
+  $("#check-stop").hidden = !batch;
+  $("#batch-status").textContent = batchMessage;
+}
+async function checkAllServices() {
+  if (batch || checkPending.size || state.busy || lostContact) return;
+  const controller = new AbortController();
+  const profiles = state.config.profiles.slice();
+  const session = panelSession;
+  let completed = 0, skipped = 0;
+  batch = controller;
+  try {
+    for (const profile of profiles) {
+      if (controller.signal.aborted) break;
+      batchMessage = `Проверяется ${profile.name} · ${completed + skipped + 1} из ${profiles.length}`;
+      checkPending.add(profile.id);
+      updateCheckReports();
+      try {
+        await api("check", "POST", {profile: profile.id}, controller.signal);
+        completed++;
+      } catch (error) {
+        if (error.status !== 429) throw error;
+        skipped++;
+      } finally {
+        checkPending.delete(profile.id);
+      }
+    }
+    batchMessage = `Проверено сервисов: ${completed} из ${profiles.length}.` +
+      (skipped ? ` Недавно проверены: ${skipped}.` : "");
+  } catch (error) {
+    batchMessage = controller.signal.aborted
+      ? `Проверка остановлена. Завершено: ${completed} из ${profiles.length}.`
+      : `Проверка прервана. Завершено: ${completed} из ${profiles.length}. ${error.message}`;
+  } finally {
+    batch = null;
+    if (session === panelSession && signedIn) {
+      updateCheckReports();
+      try { await refresh(); } catch (error) { notify(error.message, true); }
+    } else {
+      batchMessage = "";
+    }
+  }
+}
+function bindCheckActions(root=document){
+  root.querySelector("#check-all")?.addEventListener("click", checkAllServices);
+  root.querySelector("#check-stop")?.addEventListener("click", cancelBatch);
+  updateBatchButtons();
+  root.querySelectorAll("[data-check-view]").forEach(el=>el.addEventListener("toggle",()=>checkOpen.set(el.dataset.checkView,el.open)));root.querySelectorAll("[data-check-profile]").forEach(button=>{button.disabled=state.busy||!!batch||checkPending.size>0;button.addEventListener("click",async()=>{const id=button.dataset.checkProfile;if(batch||checkPending.size)return;checkPending.add(id);updateCheckReports();try{await api("check","POST",{profile:id});}catch(e){notify(e.message,true);}finally{checkPending.delete(id);if(signedIn){try{await refresh();}catch(e){notify(e.message,true);}updateCheckReports();}}});});}
+function updateCheckReports(){updateBatchButtons();document.querySelectorAll("[data-check-profile]").forEach(el=>{el.disabled=state.busy||!!batch||checkPending.size>0;el.textContent=checkPending.has(el.dataset.checkProfile)?"Проверяется…":"Проверить";});for(const p of state.config.profiles){const status=$(`[data-check-status="${p.id}"]`),report=$(`[data-check-report="${p.id}"]`);if(status)status.innerHTML=checkStatus(p);if(report){report.innerHTML=checkReport(p);report.querySelectorAll("[data-check-view]").forEach(el=>el.addEventListener("toggle",()=>checkOpen.set(el.dataset.checkView,el.open)));}}}
 const profileDrafts = new Map(), profileOpen = new Map();
 let serviceCatalogOpen = false, serviceCatalogQuery = "", selectedTuneProfile = "", serviceMutationPending = false;
 function presetNote(id) {
@@ -238,9 +310,14 @@ function customServiceForm(){return `<details class="panel custom-service"><summ
 let videoProbeBusy=false, videoProbeReport=null;
 function videoProbeMarkup(){
   const r=videoProbeReport;
+  if (!r && state.last_video_check) {
+    const last = state.last_video_check;
+    return `<p>${badge(last.ok ? "Фрагмент видео получен" : "Видео не подтверждено", last.ok ? "neutral" : "warn")}</p>
+      <small>Последний замер · ${esc(new Date(last.finished).toLocaleString("ru-RU"))} · HTTP ${Number(last.status) || "—"} · ${Number(last.bytes)} Б · ${Number(last.duration_ms)} мс</small>`;
+  }
   if(!r)return '<small>Видео ещё не проверялось. Успех HTTPS-страницы не подтверждает загрузку видеопотока.</small>';
   return `<p>${badge(r.ok?"Фрагмент видео получен":"Видео не подтверждено",r.ok?"neutral":"warn")}</p>
-  <p>${r.error?esc(r.error):"Ответ содержит полный видеофрагмент с проверенным диапазоном."}</p>
+  <p>${r.error?esc(r.error):r.ok?"Ответ содержит полный видеофрагмент с проверенным диапазоном.":"Фрагмент не получен."}</p>
   <small>HTTP: ${r.status||"—"} · MIME: ${esc(r.media_type||"—")} · диапазон: ${esc(r.content_range||"—")}<br>
   Получено: ${Number(r.bytes||0)} Б · заголовки: ${Number(r.headers_ms||0)} мс · первый блок: ${r.first_byte_ms==null?"—":Number(r.first_byte_ms)+" мс"} · всего: ${Number(r.duration_ms||0)} мс</small>`;
 }
@@ -485,14 +562,47 @@ function connectPage() {
     `<form id="connect-form" class="panel setup-panel"><div class="eyebrow">ШАГ 1 ИЗ 1</div><h2>Подключение к интернету</h2><p>Выбрано автоматически по маршруту роутера. При необходимости выберите другое подключение.</p><div class="field"><label for="connect-wan">Подключение провайдера</label><select id="connect-wan" required><option value="">Выберите подключение</option>${networkInfo.interfaces.map((i) => `<option value="${esc(i.name)}" ${i.name === selected ? "selected" : ""}>${esc(i.name)}${i.addresses.length ? " — " + esc(i.addresses.join(", ")) : ""}</option>`).join("")}</select></div><label class="check-label"><input id="connect-tune" type="checkbox" checked> Сразу подобрать стратегию YouTube</label><div class="info-note">На время подбора возможны краткие перебои соединений. Discord можно подобрать отдельно в разделе «Сервисы и домены».</div><div class="form-actions"><button class="primary" type="submit">Сохранить и включить обход ↗</button></div><p id="connect-error" class="error" role="alert"></p></form>`
   );
 }
-async function refresh(render = false) {
-  state = await api("status");
+let panelSession = 0, refreshSerial = 0, statusReads = 0, lastContact = 0, lostContact = false;
+function showContact(online) {
+  lostContact = !online;
+  $("#connection-banner").hidden = online;
+  $("#connection-indicator").textContent = online ? "Локальное подключение" : "Нет связи";
+  $(".local-indicator").classList.toggle("offline", !online);
+  if (online) lastContact = Date.now();
+  else {
+    $("#connection-info").textContent = "Нет ответа от панели." +
+      (lastContact ? ` Последние данные получены в ${new Date(lastContact).toLocaleTimeString("ru-RU")}.` : "");
+    updateBatchButtons();
+  }
+}
+async function refresh(render = false, poll = false) {
+  const serial = ++refreshSerial;
+  statusReads++;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const next = await api("status", "GET", undefined, controller.signal);
+    if (serial !== refreshSerial) return;
+    state = next;
+    showContact(true);
+  } catch (error) {
+    if (serial !== refreshSerial) return;
+    if (signedIn) showContact(false);
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    statusReads--;
+  }
   updateChrome();
+  if (!signedIn) return;
   updateServiceButtons();
   updateCheckReports();
   if (render) renderPage();
   else if (page === "overview") {
+    // Keep the targets of any slow telemetry requests attached across status polls.
+    const widgets = [$("#network-telemetry"), $("#overview-boxes")].filter(Boolean);
     $("#content").innerHTML = overview();
+    for (const widget of widgets) document.getElementById(widget.id).replaceWith(widget);
     bindActions();
     loadTelemetry();loadOverviewBoxes();
   } else if (page === "tune") {
@@ -501,10 +611,12 @@ async function refresh(render = false) {
     $("#tune-start").disabled = !state.running || state.busy;
     $("#tune-cancel").disabled = !tuneRunning();
     bindDomainRetry();
-  } else if (page === "device") { await loadDevice();
-  } else if (page === "updates") { await loadUpdates();await loadSourceUpdates();
-  } else if (page === "adaptive") {
-    await loadAdaptive();
+  } else {
+    let details;
+    if (page === "device") details = loadDevice();
+    if (page === "updates") details = Promise.all([loadUpdates(), loadSourceUpdates()]);
+    if (page === "adaptive") details = loadAdaptive();
+    if (!poll) await details;
   }
 }
 function updateChrome() {
@@ -524,6 +636,7 @@ function updateChrome() {
   $("#service-error").classList.toggle("hidden", !state.error);
 }
 function renderPage() {
+  if (batch && location.hash && location.hash !== "#overview") cancelBatch();
   page = location.hash.slice(1);
   if (!labels[page]) page = "overview";
   $("#breadcrumb").textContent = labels[page];
@@ -1139,7 +1252,7 @@ async function loadOverviewBoxes(){const target=$("#overview-boxes");if(!target|
 let deviceData=null,deviceLoading=false,updatesData=null,updatesLoading=false,updatesSerial=0;
 let sourceUpdatesData=null,sourceUpdatesLoading=false,sourceUpdatesSerial=0;
 const prettyBytes=n=>n==null?"недоступно":n>=1048576?(n/1048576).toFixed(1)+" МиБ":n>=1024?(n/1024).toFixed(1)+" КиБ":Math.round(n)+" Б";
-function devicePage(){return heading("Роутер","Данные устройства, на котором запущен Pilot. Недоступные датчики не заменяются примерными значениями.")+`<div id="device-data">Загрузка…</div><section class="panel"><h2>Проверка среды Keenetic / Entware</h2><p class="subtle">Пассивная проверка по идеям MY.KN. Никакие службы, правила NFQUEUE и подключённые носители не изменяются.</p><div id="preflight-data">Загрузка…</div></section>`;}
+function devicePage(){return heading("Роутер","Данные устройства, на котором запущен Pilot. Недоступные датчики не заменяются примерными значениями.")+`<p class="panel-address">Адрес этой панели · <a href="#overview">${esc(location.origin)}</a></p><div id="device-data">Загрузка…</div><section class="panel"><h2>Проверка среды Keenetic / Entware</h2><p class="subtle">Пассивная проверка по идеям MY.KN. Никакие службы, правила NFQUEUE и подключённые носители не изменяются.</p><div id="preflight-data">Загрузка…</div></section>`;}
 async function loadDevice(){const target=$("#device-data");if(!target||deviceLoading)return;deviceLoading=true;try{const d=await api("device");if(target!==$("#device-data"))return;deviceData=d;target.innerHTML=`<div class="stats-grid"><div class="panel"><h3>Процессор</h3><strong>${d.cpu_percent==null?(d.cpu_sample_available?"ожидается второй замер":"недоступно"):d.cpu_percent.toFixed(1)+" %"}</strong><p>Ядер: ${d.cpu_cores}</p><small>Load 1/5/15 мин: ${d.load.length?d.load.map(v=>v.toFixed(2)).join(" / "):"недоступно"}</small><p class="subtle">Из общего CPU: Pilot ${d.pilot_cpu_percent==null?"ожидается замер":d.pilot_cpu_percent.toFixed(1)+" %"} · nfqws2 ${d.engine_cpu_percent==null?"не измерено":d.engine_cpu_percent.toFixed(1)+" %"}</p><small>Доли от всех ядер суммарно, не от одного ядра. Остальная нагрузка — системные и другие процессы.</small></div><div class="panel"><h3>Память</h3><strong>${d.memory_available==null?"недоступно":prettyBytes(d.memory_total-d.memory_available)+" занято"}</strong><p>Всего: ${prettyBytes(d.memory_total||null)}</p><small>Доступно: ${prettyBytes(d.memory_available)}</small></div><div class="panel"><h3>Температура</h3>${d.temperatures.length?d.temperatures.map(t=>`<p><strong>${t.celsius.toFixed(1)} °C</strong> · ${esc(t.name)}</p>`).join(""):'<p>Недоступно: прошивка не предоставляет датчик Pilot.</p>'}</div></div><div class="panel"><h3>${esc(d.model||"Модель не предоставлена прошивкой")}</h3><p>${esc(d.platform)} · ядро ${esc(d.kernel||"неизвестно")}</p><p>Время работы: ${d.uptime_seconds==null?"недоступно":Math.floor(d.uptime_seconds/86400)+" д "+Math.floor(d.uptime_seconds%86400/3600)+" ч "+Math.floor(d.uptime_seconds%3600/60)+" мин"}</p><p>WAN ${esc(d.wan||"не задан")}: получено ${prettyBytes(d.rx_bytes)}, передано ${prettyBytes(d.tx_bytes)}</p><p>Сейчас: ↓ ${prettyBytes(d.rx_bytes_per_second)}/с · ↑ ${prettyBytes(d.tx_bytes_per_second)}/с</p></div>`;}catch(e){if(target===$("#device-data"))target.textContent="Не удалось получить данные: "+e.message;}finally{deviceLoading=false;loadPreflight();}}
 let preflightCached="",preflightUpdated=0;
 async function loadPreflight(){
@@ -1217,7 +1330,9 @@ async function loadLogs() {
   }
 }
 async function enter() {
+  const session = panelSession;
   await refresh();
+  if (session !== panelSession) return;
   signedIn = true;
   if (token) sessionStorage.setItem("pilot-token", token);
   $("#login").classList.add("hidden");
@@ -1291,7 +1406,28 @@ loadAuth()
   .catch((e) => {
     $("#login-error").textContent = e.message;
   });
-setInterval(() => {
-  if (signedIn && state && !document.hidden)
-    refresh().catch((e) => notify(e.message, true));
-}, 4000);
+let polling = false, pollDelay = 4000, pollTimer;
+function schedulePoll() {
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(pollStatus, pollDelay);
+}
+async function pollStatus() {
+  if (polling) return;
+  if (!signedIn || document.hidden || statusReads) {
+    schedulePoll();
+    return;
+  }
+  polling = true;
+  try {
+    await refresh(false, true);
+    pollDelay = 4000;
+  } catch {
+    pollDelay = Math.min(32000, pollDelay * 2);
+  } finally {
+    polling = false;
+    schedulePoll();
+  }
+}
+$("#retry-connection").addEventListener("click", pollStatus);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) pollStatus(); });
+schedulePoll();
