@@ -1445,13 +1445,14 @@ async function startMonitoredUpdate(path,payload,source,button){
  const m=updateMonitor;m.pending=true;m.rejected=false;m.last=null;paintUpdateMonitor();
  try{
   await api(path,"POST",payload);
+  await Promise.all([loadUpdates(true),loadSourceUpdates(true)]);
  }catch(e){
   if(updateMonitor!==m)return;
   if(e.status>=400&&e.status<500){m.rejected=true;notify(e.message,true);}
   else{m.connection="lost";notify("Ответ на запуск не получен; проверяем состояние.",true);}
  }finally{
   if(updateMonitor===m){m.pending=false;paintUpdateMonitor();if(!m.rejected)scheduleUpdateMonitor(0);}
-  if(button.isConnected)button.disabled=false;
+  if(button.isConnected)button.disabled=m.rejected?false:Boolean(updatesData?.running||sourceUpdatesData?.running||!m.last||!updateProgressView(m.last).terminal);
  }
 }
 
