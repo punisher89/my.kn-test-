@@ -49,25 +49,31 @@ type UpdateStatus struct {
 	ExitCode     int    `json:"exit_code,omitempty"`
 }
 
-var versionPattern = regexp.MustCompile(`^(\d+)\.(\d+)\.(\d+)-alpha\.(\d+)$`)
+var versionPattern = regexp.MustCompile(`^(\d+)\.(\d+)\.(\d+)-(alpha|beta)\.(\d+)$`)
 
-func newerVersion(a, b string) bool {
-	ma, mb := versionPattern.FindStringSubmatch(a), versionPattern.FindStringSubmatch(b)
-	if ma == nil || mb == nil {
-		return false
-	}
-	for i := 1; i <= 4; i++ {
-		x, ex := strconv.ParseUint(ma[i], 10, 32)
-		y, ey := strconv.ParseUint(mb[i], 10, 32)
-		if ex != nil || ey != nil {
-			return false
-		}
-		if x != y {
-			return x > y
-		}
-	}
-	return false
+func versionTuple(v string) ([5]uint64, bool) {
+ var out [5]uint64
+ m := versionPattern.FindStringSubmatch(v)
+ if m == nil { return out, false }
+ for _, i := range []int{1,2,3,5} {
+  n, err := strconv.ParseUint(m[i],10,32)
+  if err != nil { return out,false }
+  out[i-1] = n
+ }
+ if m[4]=="beta" { out[3]=1 }
+ return out,true
 }
+
+func newerVersion(a,b string) bool {
+ x,ok := versionTuple(a)
+ y,valid := versionTuple(b)
+ if !ok||!valid { return false }
+ for i := range x {
+  if x[i]!=y[i] { return x[i]>y[i] }
+ }
+ return false
+}
+
 func validRelease(d releaseDocument) error {
 	if len(d.EngineSHA256) != 64 || d.EngineVersion == "" {
 		return errors.New("в выпуске нет закреплённого движка")
