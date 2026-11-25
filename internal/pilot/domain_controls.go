@@ -105,6 +105,12 @@ func profileControlReason(c Config, p Profile) string {
 
 func (m *Manager) ControlDomain(a DomainAction) error {
 	a.Host = strings.ToLower(strings.TrimSpace(a.Host))
+	if a.Action == "reset_all" {
+		if a.Host != "" { return errors.New("сброс всех коробок не принимает домен") }
+		if !m.op.TryLock() { return ErrBusy }
+		defer m.op.Unlock()
+		return m.resetDomainLocked(m.Config(), "")
+	}
 	if !ValidDomain(a.Host) {
 		return errors.New("требуется корректный домен")
 	}
