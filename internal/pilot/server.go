@@ -167,6 +167,16 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 		}
 		jsonReply(w, 202, m.Snapshot())
 	})
+	api("GET /api/geo", func(w http.ResponseWriter, r *http.Request) {
+		jsonReply(w,200, map[string]any{"services":geoServices,"tunnels":geoTunnels(),"applied":false})
+	})
+	api("POST /api/geo/plan", func(w http.ResponseWriter, r *http.Request) {
+		var input GeoPlanRequest
+		if !read(w,r,&input){return}
+		plan,err:=buildGeoPlan(input)
+		if err!=nil{replyError(w,err);return}
+		jsonReply(w,200,plan)
+	})
 	api("GET /api/network", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, DetectNetwork()) })
 	api("POST /api/services/custom", func(w http.ResponseWriter, r *http.Request) {
 		var p Profile

@@ -47,6 +47,22 @@ var Strategies = []Strategy{
 	{ID: "fakedsplit-ts-4", Name: "Fake split / TS ×4", Description: "Семейство fakedsplit с TCP timestamp.", Actions: []string{"fakedsplit:pos=midsld:tcp_ts=-600000:tcp_ts_up:repeats=4"}},
 	{ID: "fakedsplit-ts-8", Name: "Fake split / TS ×8", Description: "Семейство fakedsplit с TCP timestamp.", Actions: []string{"fakedsplit:pos=midsld:tcp_ts=-600000:tcp_ts_up:repeats=8"}},
 	{ID: "fakedsplit-ts-11", Name: "Fake split / TS ×11", Description: "Семейство fakedsplit с TCP timestamp.", Actions: []string{"fakedsplit:pos=midsld:tcp_ts=-600000:tcp_ts_up:repeats=11"}},
+	{ID: "hy-split-2", Name: "Split · 2", Description: "Дополнительный лёгкий TLS-кандидат; требуется измерение.", Actions: []string{"multisplit:pos=2"}},
+	{ID: "hy-split-3", Name: "Split · 3", Description: "Дополнительный лёгкий TLS-кандидат; требуется измерение.", Actions: []string{"multisplit:pos=3"}},
+	{ID: "hy-split-5", Name: "Split · 5", Description: "Дополнительный лёгкий TLS-кандидат; требуется измерение.", Actions: []string{"multisplit:pos=5"}},
+	{ID: "hy-split-1-host", Name: "Split · 1,host", Description: "Дополнительный лёгкий TLS-кандидат; требуется измерение.", Actions: []string{"multisplit:pos=1,host"}},
+	{ID: "hy-split-1-endhost", Name: "Split · 1,endhost", Description: "Дополнительный лёгкий TLS-кандидат; требуется измерение.", Actions: []string{"multisplit:pos=1,endhost"}},
+	{ID: "hy-split-2-midsld", Name: "Split · 2,midsld", Description: "Дополнительный лёгкий TLS-кандидат; требуется измерение.", Actions: []string{"multisplit:pos=2,midsld"}},
+	{ID: "hy-split-3-midsld", Name: "Split · 3,midsld", Description: "Дополнительный лёгкий TLS-кандидат; требуется измерение.", Actions: []string{"multisplit:pos=3,midsld"}},
+	{ID: "hy-split-5-midsld", Name: "Split · 5,midsld", Description: "Дополнительный лёгкий TLS-кандидат; требуется измерение.", Actions: []string{"multisplit:pos=5,midsld"}},
+	{ID: "hy-disorder-2", Name: "Disorder · 2", Description: "Дополнительный лёгкий TLS-кандидат; требуется измерение.", Actions: []string{"multidisorder:pos=2"}},
+	{ID: "hy-disorder-3", Name: "Disorder · 3", Description: "Дополнительный лёгкий TLS-кандидат; требуется измерение.", Actions: []string{"multidisorder:pos=3"}},
+	{ID: "hy-disorder-5", Name: "Disorder · 5", Description: "Дополнительный лёгкий TLS-кандидат; требуется измерение.", Actions: []string{"multidisorder:pos=5"}},
+	{ID: "hy-disorder-1-host", Name: "Disorder · 1,host", Description: "Дополнительный лёгкий TLS-кандидат; требуется измерение.", Actions: []string{"multidisorder:pos=1,host"}},
+	{ID: "hy-disorder-1-endhost", Name: "Disorder · 1,endhost", Description: "Дополнительный лёгкий TLS-кандидат; требуется измерение.", Actions: []string{"multidisorder:pos=1,endhost"}},
+	{ID: "hy-disorder-2-midsld", Name: "Disorder · 2,midsld", Description: "Дополнительный лёгкий TLS-кандидат; требуется измерение.", Actions: []string{"multidisorder:pos=2,midsld"}},
+	{ID: "hy-disorder-3-midsld", Name: "Disorder · 3,midsld", Description: "Дополнительный лёгкий TLS-кандидат; требуется измерение.", Actions: []string{"multidisorder:pos=3,midsld"}},
+	{ID: "hy-disorder-5-midsld", Name: "Disorder · 5,midsld", Description: "Дополнительный лёгкий TLS-кандидат; требуется измерение.", Actions: []string{"multidisorder:pos=5,midsld"}},
 }
 
 func StrategyFamily(s Strategy) string {
