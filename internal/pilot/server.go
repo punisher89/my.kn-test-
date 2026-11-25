@@ -153,9 +153,9 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 			replyError(w, err)
 			return
 		}
-		jsonReply(w, 200, ReadAdaptive(m.Config()))
+		jsonReply(w, 200, m.AdaptiveView())
 	})
-	api("GET /api/adaptive", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, ReadAdaptive(m.Config())) })
+	api("GET /api/adaptive", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, m.AdaptiveView()) })
 	api("POST /api/domain-search", func(w http.ResponseWriter, r *http.Request) {
 		var scope DomainScope
 		if !read(w, r, &scope) {
