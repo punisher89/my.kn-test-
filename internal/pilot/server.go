@@ -175,6 +175,17 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 	})
 	// Serialize manual tunnel probes; they must not compete with each other.
 	vpnProbeSlot := make(chan struct{}, 1)
+	api("POST /api/dns/probe", func(w http.ResponseWriter, r *http.Request) {
+		var input struct{}
+		if !read(w,r,&input){return}
+		select {
+		case vpnProbeSlot <- struct{}{}:
+			defer func(){<-vpnProbeSlot}()
+		default:
+			replyError(w,ErrBusy);return
+		}
+		jsonReply(w,200,secureDNSProbe(r.Context()))
+	})
 	api("POST /api/geo/probe", func(w http.ResponseWriter, r *http.Request) {
 		var input struct { Interface string `json:"interface"` }
 		if !read(w,r,&input){return}
