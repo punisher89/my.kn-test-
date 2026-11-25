@@ -527,3 +527,33 @@ func TestActiveSchedulerDiscardsQueuedIPv6AfterDisablingIt(t *testing.T) {
 		t.Fatal("disabled IPv6 task remained queued")
 	}
 }
+
+func TestBoxRetryOldFailureAndRecovery(t *testing.T) {
+ m,c,_,s:=activeFixture(t)
+ now:=time.Now()
+ fail:=AdaptiveHost{EventCount:1,FirstUpdated:now.Add(-2*time.Hour).Unix(),Updated:now.Add(-2*time.Hour).Unix(),Group:"youtube_split-sni_p443_tls13_ipv4",Host:s.Host,Strategy:"split-sni",Status:"failed",Network:c.WAN,Port:s.Port,Symptom:"retransmission",Origin:"initial"}
+ data:=AdaptiveSnapshot{History:[]AdaptiveHost{fail}}
+ live:=func(DomainScope)string{return "split-sni"}
+ if got:=boxRetryOutcomes(data,c,now,live)[s];got.Status!="failed"{t.Fatal("old unresolved failure not eligible",got)}
+ success:=fail;success.Status="connected";success.Updated=now.Add(-time.Hour).Unix();success.FirstUpdated=success.Updated
+ data.History=append(data.History,success)
+ if got:=boxRetryOutcomes(data,c,now,live)[s];got.Status!="connected"{t.Fatal("success did not supersede old failure",got)}
+ data.History=[]AdaptiveHost{fail}
+ if got:=boxRetryOutcomes(data,c,now,func(DomainScope)string{return "none"});len(got)!=0{t.Fatal("obsolete strategy retried",got)}
+ if got:=boxRetryOutcomes(data,c,now.Add(24*time.Hour),live);len(got)!=0{t.Fatal("stale failure retried",got)}
+ if err:=os.WriteFile(filepath.Join(c.RuntimeDir,"state1.tsv"),adaptiveFrame(3,nil,[]AdaptiveHost{fail}),0600);err!=nil{t.Fatal(err)}
+ probes:=0
+ m.activeProbeHook=func(_ context.Context,_ Config,_ DomainScope,_ Target,_ string)activeEvidence{probes++;return activeEvidence{Local:true,Result:ProbeResult{Status:403,Error:"HTTP rejected"}}}
+ m.activeTick(context.Background())
+ if probes==0||m.domainTasks[s]==nil||m.domainTasks[s].Next.IsZero(){t.Fatal("old failure did not enter retry queue")}
+ previous:=probes;m.activeTick(context.Background())
+ if probes!=previous{t.Fatal("retry ignored backoff")}
+ if err:=os.WriteFile(filepath.Join(c.RuntimeDir,"state1.tsv"),adaptiveFrame(4,nil,[]AdaptiveHost{fail,success}),0600);err!=nil{t.Fatal(err)}
+ m.activeTick(context.Background())
+ if m.domainTasks[s].Handled<m.domainTasks[s].Signal||m.Snapshot().DomainQueue!=0{t.Fatal("recovered domain remained in queue")}
+}
+func TestBoxRetryDelayIsBounded(t *testing.T) {
+ for _,tc:=range []struct{round int;want time.Duration}{{1,10*time.Minute},{2,30*time.Minute},{3,time.Hour},{100,time.Hour}}{
+  if got:=boxRetryDelay(tc.round);got!=tc.want{t.Fatalf("round %d: %v",tc.round,got)}
+ }
+}
