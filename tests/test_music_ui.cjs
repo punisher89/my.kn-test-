@@ -7,7 +7,10 @@ const document={getElementById:get,createElement:()=>element(),addEventListener:
 const window={addEventListener:(n,f)=>windowEvents[n]=f};
 vm.runInNewContext(fs.readFileSync(path.resolve(__dirname,"../internal/pilot/web/music.js"),"utf8"),{document,window,URL,localStorage:{getItem:k=>data.get(k)||null,setItem:(k,v)=>data.set(k,v)},setTimeout:(f,ms)=>{const t={f,ms};timers.push(t);return t;},clearTimeout:()=>{}});
 const audio=get("music-audio");
-assert.equal(audio.src,"");assert.equal(audio.paused,true);assert.equal(get("radio-station").options.length,10);
+assert.equal(audio.src,"");assert.equal(audio.paused,true);assert.equal(get("radio-station").options.length,24);
+get("radio-search").value="Москва";get("radio-search").emit("input");assert.equal(get("radio-station").options.length,14);
+get("radio-search").value="максимум";get("radio-search").emit("input");assert.equal(get("radio-station").options.length,1);assert.equal(get("radio-station").value,"maximum");assert.equal(audio.src,"");
+get("radio-play").emit("click");assert.equal(audio.src,"https://maximum.hostingradio.ru/maximum128.mp3");get("music-reset").emit("click");assert.equal(audio.src,"");
 get("radio-search").value="trance";get("radio-search").emit("input");assert.equal(get("radio-station").options.length,1);assert.equal(audio.src,"");
 get("radio-favorite").emit("click");assert.match(data.get("pilot-radio-favorites"),/trance/);
 get("radio-search").value="";get("radio-search").emit("input");get("radio-only-favorites").checked=true;get("radio-only-favorites").emit("change");assert.equal(get("radio-station").options.length,1);
