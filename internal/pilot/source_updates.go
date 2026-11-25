@@ -116,7 +116,7 @@ func verifiedSourcePointer(ctx context.Context,source,path,token string,beta boo
     if err=dec.Decode(&doc);err!=nil{return doc,err}
     if err=dec.Decode(new(any));err!=io.EOF {return doc,errors.New("лишние данные о выпуске")}
     if err=validSourceRelease(doc,source);err!=nil{return doc,err}
-    if beta!=strings.Contains(doc.Version,"-beta.") {return doc,errors.New("неверный этап выпуска")}
+    if beta&&!strings.Contains(doc.Version,"-beta.") {return doc,errors.New("неверный этап выпуска")}
     // The mutable discovery pointer must refer to an existing immutable
     // release folder. Both bytewise-equal metadata copies are HTTPS-fetched
     // from our specific GitHub repository, not from arbitrary URLs.
