@@ -3,7 +3,7 @@ name: Publish independent ChatGPT / Codex SSH release
 on:
   push:
     branches:
-      - feature/keenetic-health-alpha26
+      - feature/keenetic-polish-alpha27
     paths:
       - .github/workflows/publish-ssh.yml
       - scripts/publish-ssh-release.py
@@ -15,8 +15,8 @@ on:
         description: "Build author label (recorded in metadata and filename)"
         required: true
         type: choice
+        default: ChatGPT
         options:
-          - Codex
           - ChatGPT
 
 permissions:
@@ -28,7 +28,7 @@ concurrency:
 
 jobs:
   independent-ssh-release:
-    if: github.repository == 'punisher89/my.kn-test-' && github.ref == 'refs/heads/feature/keenetic-health-alpha26'
+    if: github.repository == 'punisher89/my.kn-test-' && github.ref == 'refs/heads/feature/keenetic-polish-alpha27'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -58,7 +58,7 @@ jobs:
           set -euo pipefail
           origin="${REQUESTED_SOURCE:-}"
           if [ -z "$origin" ]; then origin="$(tr -d '\r\n' < release-source.txt)"; fi
-          case "$origin" in ChatGPT|Codex) ;; *) echo "::error::Unknown release source"; exit 1 ;; esac
+          case "$origin" in ChatGPT) ;; *) echo "::error::Unknown release source"; exit 1 ;; esac
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           python3 scripts/publish-ssh-release.py --source "$origin" --push
@@ -69,7 +69,7 @@ jobs:
           version="$(cat VERSION)"
           url="https://raw.githubusercontent.com/punisher89/my.kn-test-/refs/heads/ssh-releases/v$version"
           curl --proto '=https' -fsSL --retry 2 --max-time 40 "$url/release-info.json" -o /tmp/pilot-info.json
-          python3 -c 'import json,os; i=json.load(open("/tmp/pilot-info.json")); assert i["version"] == open("VERSION").read().strip(); assert i["channel"]=="ssh" and i["source"] in ("ChatGPT","Codex") and i["signed_panel_updater_modified"] is False'
+          python3 -c 'import json,os; i=json.load(open("/tmp/pilot-info.json")); assert i["version"] == open("VERSION").read().strip(); assert i["channel"]=="ssh" and i["source"] == "ChatGPT" and i["signed_panel_updater_modified"] is False'
           curl --proto '=https' -fsSL --retry 2 --max-time 40 "$url/SHA256SUMS" -o /tmp/pilot-manifest
           python3 -c 'import json,hashlib; i=json.load(open("/tmp/pilot-info.json")); assert hashlib.sha256(open("/tmp/pilot-manifest","rb").read()).hexdigest()==i["manifest_sha256"]'
           echo "Published independent SSH release; signed panel updater unchanged."
