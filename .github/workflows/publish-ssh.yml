@@ -9,6 +9,10 @@ on:
       - scripts/publish-ssh-release.py
       - release-source.txt
       - VERSION
+      - internal/pilot/**
+      - tests/**
+      - scripts/check.sh
+      - lua/**
   workflow_dispatch:
     inputs:
       source:
