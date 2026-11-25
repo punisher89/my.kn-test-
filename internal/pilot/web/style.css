@@ -1582,3 +1582,16 @@ meter::-moz-meter-bar { background:var(--accent); }
 .geo-fold > summary { cursor:pointer; font-weight:600; font-size:15px; color:var(--accent); padding:6px 0; }
 .geo-fold > summary:focus-visible { outline:2px solid var(--accent); outline-offset:4px; border-radius:3px; }
 .geo-fold[open] > summary { margin-bottom:12px; border-bottom:1px solid var(--border); padding-bottom:12px; }
+
+/* Keep dashboard geometry stable as live values and labels change. */
+html { scrollbar-gutter: stable; }
+.stats-grid,.network-telemetry,.profile-grid,.settings-grid { align-items:stretch; }
+.stats-grid > *, .network-telemetry > *, .profile-grid > *, .settings-grid > * { min-width:0; }
+.stat-value,.telemetry-cell>strong,.sensor-value strong,.box-overview-table td,.probe-table td,time { font-variant-numeric:tabular-nums; }
+.stat-value { min-height:1.35em; line-height:1.35; }
+.telemetry-cell>strong { min-height:1.35em; line-height:1.35; }
+.panel-head { gap:12px; flex-wrap:wrap; }
+.panel-head h2 { min-width:0; overflow-wrap:anywhere; }
+.panel-head button,.panel-head .button-link { flex-shrink:0; }
+.form-actions { flex-wrap:wrap; gap:8px; }
+@media (max-width:480px) { .stats-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .panel-head { gap:8px; } }
