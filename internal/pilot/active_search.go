@@ -36,6 +36,8 @@ type domainTask struct {
 	Next            time.Time
 	Attempted       time.Time
 	ProofFailures   int
+	RetryRounds     int
+	Network         string
 	Manual          bool // explicit user queue item, not subject to automatic scope filtering
 }
 
@@ -205,6 +207,7 @@ func (m *Manager) searchDomain(ctx context.Context, c Config, s DomainScope) (st
 		task.Pool = nil
 		task.Cursor = 0
 		task.ProofFailures = 0
+		task.RetryRounds = 0
 		task.Fingerprint = fingerprint
 	}
 	interrupted := func() (string, time.Time) {
@@ -409,7 +412,8 @@ func (m *Manager) searchDomain(ctx context.Context, c Config, s DomainScope) (st
 	}
 	task.Cursor = 0
 	task.Pool = nil
-	return finish("exhausted", "", "Все доступные методы проверены; прежний метод сохранён", retry)
+	task.RetryRounds++
+	return finish("exhausted", "", "Все доступные методы проверены; прежний метод сохранён. Повтор запланирован", time.Now().Add(boxRetryDelay(task.RetryRounds)))
 }
 
 func (m *Manager) watchActive(ctx context.Context) {
@@ -446,6 +450,49 @@ func servicePriority(c Config, s DomainScope) int {
 	}
 	return 1
 }
+// Only recheck recent unresolved observations in the same live route context.
+// History is evidence, never a reason to reapply an old method.
+const boxRetryLifetime = 24 * time.Hour
+
+func boxRetryDelay(round int) time.Duration {
+	switch {
+	case round <= 1:
+		return 10 * time.Minute
+	case round == 2:
+		return 30 * time.Minute
+	default:
+		return time.Hour
+	}
+}
+
+func boxRetryOutcomes(data AdaptiveSnapshot, c Config, now time.Time, live func(DomainScope) string) map[DomainScope]AdaptiveHost {
+	out := map[DomainScope]AdaptiveHost{}
+	methods := map[DomainScope]string{}
+	observe := func(r AdaptiveHost, history bool) {
+		if (r.Status != "failed" && r.Status != "connected") || r.Network != c.WAN ||
+			r.Updated <= 0 || r.Updated > now.Unix() || now.Unix()-r.Updated >= int64(boxRetryLifetime/time.Second) {
+			return
+		}
+		tls, family := observationProtocol(r.Group)
+		s := DomainScope{r.Host, tls, family, r.Port}
+		if !s.valid() || !autoSearchEligible(c, s, false) || stableYouTubeHost(c, s.Host) ||
+			c.excludedBy(s.Host) != "" || c.pinFor(s.Host, s.TLS, s.Family, s.Port) != "" ||
+			(s.Family == "ipv6" && !c.IPv6) {
+			return
+		}
+		id, ok := methods[s]
+		if !ok { id = live(s); methods[s] = id }
+		if r.Strategy != id { return }
+		old, ok := out[s]
+		if !ok || r.Updated > old.Updated || (history && r.Updated == old.Updated) {
+			out[s] = r
+		}
+	}
+	for _, r := range data.Hosts { observe(r, false) }
+	for _, r := range data.History { observe(r, true) }
+	return out
+}
+
 func (m *Manager) activeTick(parent context.Context) {
 	if m.updateRequested.Load() {
 		return
@@ -487,25 +534,12 @@ func (m *Manager) activeTick(parent context.Context) {
 	eligible := func(s DomainScope, manual bool) bool {
 		return manual || c.BackgroundOtherDomains || priority(s) == 0
 	}
-	for _, r := range data.History {
-		if r.Status != "failed" || r.Network != c.WAN || r.Updated > now.Unix() || now.Unix()-r.Updated > 600 {
-			continue
-		}
-		tls, family := observationProtocol(r.Group)
-		s := DomainScope{r.Host, tls, family, r.Port}
-		if !eligible(s,false) || stableYouTubeHost(c, s.Host) || !s.valid() || c.excludedBy(s.Host) != "" || c.pinFor(s.Host, s.TLS, s.Family, s.Port) != "" || s.Family == "ipv6" && !c.IPv6 {
-			continue
-		}
-		live := profileForDomain(c, s.Host).Strategy
-		if plan, ok := m.planFor(c, s); ok {
-			live = plan.Strategy
-		}
-		if r.Strategy != live {
-			continue
-		}
-		if r.Updated > latest[s] {
-			latest[s] = r.Updated
-		}
+	outcomes := boxRetryOutcomes(data, c, now, func(s DomainScope) string {
+		if plan, ok := m.planFor(c, s); ok { return plan.Strategy }
+		return profileForDomain(c, s.Host).Strategy
+	})
+	for s, r := range outcomes {
+		if r.Status == "failed" { latest[s] = r.Updated }
 	}
 	if m.domainTasks == nil {
         m.domainTasks = map[DomainScope]*domainTask{}
@@ -558,13 +592,22 @@ func (m *Manager) activeTick(parent context.Context) {
 		}
 		if task != nil && latest[s] > task.Signal {
 			task.Signal = latest[s]
+			task.Network = c.WAN
 		}
 	}
 	pending := []*domainTask{}
 	for s, task := range m.domainTasks {
-		if now.Unix()-task.Signal > 6*3600 || (s.Family == "ipv6" && !c.IPv6) {
+		if now.Unix()-task.Signal >= int64(boxRetryLifetime/time.Second) || (task.Network != "" && task.Network != c.WAN) || (s.Family == "ipv6" && !c.IPv6) {
 			delete(m.domainTasks, s)
 			continue
+		}
+		if task.Network == "" { task.Network = c.WAN }
+		if r, ok := outcomes[s]; ok && r.Status == "connected" && r.Updated >= task.Signal && !task.Manual {
+			task.Handled = task.Signal
+			task.Next = time.Time{}
+			task.Cursor = 0
+			task.Pool = nil
+			task.RetryRounds = 0
 		}
 		if task.Signal > task.Handled && eligible(s,task.Manual) && !stableYouTubeHost(c, s.Host) && c.excludedBy(s.Host) == "" && c.pinFor(s.Host, s.TLS, s.Family, s.Port) == "" {
 			pending = append(pending, task)
@@ -615,6 +658,7 @@ func (m *Manager) activeTick(parent context.Context) {
 		task.Cursor = 0
 		task.Pool = nil
 		task.Handled = now.Unix()
+		task.RetryRounds = 0
 	}
 	m.mu.Lock()
 	m.cancel = nil
@@ -646,7 +690,7 @@ func (m *Manager) QueueDomain(s DomainScope) error {
 	if _, exists := m.domainTasks[s]; !exists && len(m.domainTasks) >= 64 {
 		return errors.New("очередь заполнена; дождитесь завершения поиска")
 	}
-	m.domainTasks[s] = &domainTask{Scope: s, Signal: time.Now().Unix(), Manual: true}
+	m.domainTasks[s] = &domainTask{Scope: s, Signal: time.Now().Unix(), Manual: true, Network: c.WAN}
 	queued := 0
 	for _, task := range m.domainTasks {
 		if task.Signal > task.Handled {
