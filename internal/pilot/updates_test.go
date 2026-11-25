@@ -365,3 +365,19 @@ func TestNativeUpdatePackagePreflight(t *testing.T) {
 		t.Fatal("real native package preflight failed", e)
 	}
 }
+
+func TestBetaVersionOrdering(t *testing.T) {
+ cases := []struct{a,b string; want bool}{
+  {"0.2.0-beta.1","0.2.0-alpha.999",true},
+  {"0.2.0-alpha.999","0.2.0-beta.1",false},
+  {"0.2.0-beta.10","0.2.0-beta.9",true},
+  {"0.2.0-beta.1","0.2.0-beta.1",false},
+  {"0.3.0-alpha.1","0.2.0-beta.999",true},
+  {"0.2.0-beta.4294967296","0.2.0-alpha.1",false},
+  {"0.2.0-beta.1/../x","0.2.0-alpha.1",false},
+  {"0.2.0-rc.1","0.2.0-alpha.1",false},
+ }
+ for _,tc:=range cases {
+  if got:=newerVersion(tc.a,tc.b);got!=tc.want {t.Errorf("%s > %s: %v, want %v",tc.a,tc.b,got,tc.want)}
+ }
+}
