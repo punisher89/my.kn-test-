@@ -96,6 +96,7 @@ func PrepareAdaptive(c Config) error {
 }
 
 type AdaptiveHost struct {
+	RetryAt int64 `json:"retry_at,omitempty"`
 	Applied      string `json:"applied_strategy,omitempty"`
 	Measured     bool   `json:"https_measured,omitempty"`
 	EventCount   int64  `json:"event_count"`
@@ -426,4 +427,31 @@ func adaptiveBoxes(hosts, events []AdaptiveHost, c Config, now int64) []Adaptive
 		return result[i].ID < result[j].ID
 	})
 	return result
+}
+
+ // AdaptiveView adds the controller's actual pending retry schedule without
+ // changing the stored observations or their historical outcome.
+func (m *Manager) AdaptiveView() AdaptiveSnapshot {
+ c:=m.Config()
+ result:=ReadAdaptive(c)
+ if !c.Enabled || !c.Adaptive || !c.AdaptiveActive {return result}
+ m.mu.Lock()
+ view:=m.domainRetryView
+ m.mu.Unlock()
+ annotate:=func(rows []AdaptiveHost) {
+  for i:=range rows {
+   r:=&rows[i]
+   if r.Network!=c.WAN || r.Status=="connected" || c.excludedBy(r.Host)!="" {continue}
+   tls,family:=observationProtocol(r.Group)
+   if c.pinFor(r.Host,tls,family,r.Port)!="" || (family=="ipv6"&&!c.IPv6) {continue}
+   r.RetryAt=view[DomainScope{r.Host,tls,family,r.Port}]
+  }
+ }
+ annotate(result.Hosts)
+ annotate(result.History)
+ for i:=range result.Boxes {
+  annotate(result.Boxes[i].Hosts)
+  annotate(result.Boxes[i].History)
+ }
+ return result
 }
