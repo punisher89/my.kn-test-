@@ -129,11 +129,11 @@ func (m *Manager) resetDomainLocked(c Config, host string) (result error) {
 	if snapshot.Generation >= (1<<53)-2 {
 		return errors.New("исчерпан счётчик кадров опыта")
 	}
-	hosts := slices.DeleteFunc(snapshot.Hosts, func(r AdaptiveHost) bool { return r.Host == host })
-	events := slices.DeleteFunc(snapshot.History, func(r AdaptiveHost) bool { return r.Host == host })
+	hosts := slices.DeleteFunc(snapshot.Hosts, func(r AdaptiveHost) bool { return host == "" || r.Host == host })
+	events := slices.DeleteFunc(snapshot.History, func(r AdaptiveHost) bool { return host == "" || r.Host == host })
 	discovered := []string{}
 	for _, line := range strings.Split(string(backups["autohosts.txt"]), "\n") {
-		if ValidDomain(line) && line != host && !slices.Contains(discovered, line) && len(discovered) < 1000 {
+		if host != "" && ValidDomain(line) && line != host && !slices.Contains(discovered, line) && len(discovered) < 1000 {
 			discovered = append(discovered, line)
 		}
 	}
@@ -156,6 +156,10 @@ func (m *Manager) resetDomainLocked(c Config, host string) (result error) {
 			return err
 		}
 	}
-	m.log.Add("Обучение домена сброшено: " + host + "; ручные правила сохранены")
+	if host == "" {
+		m.log.Add("Обучение всех доменов сброшено; ручные правила сохранены")
+	} else {
+		m.log.Add("Обучение домена сброшено: " + host + "; ручные правила сохранены")
+	}
 	return nil
 }
