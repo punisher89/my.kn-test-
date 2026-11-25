@@ -37,6 +37,9 @@ type domainTask struct {
 	Attempted       time.Time
 	ProofFailures   int
 	RetryRounds     int
+	CycleStarted    time.Time
+	FreshPending    bool
+	FreshCycle      bool
 	Network         string
 	Manual          bool // explicit user queue item, not subject to automatic scope filtering
 }
@@ -208,8 +211,12 @@ func (m *Manager) searchDomain(ctx context.Context, c Config, s DomainScope) (st
 		task.Cursor = 0
 		task.ProofFailures = 0
 		task.RetryRounds = 0
+		task.CycleStarted = time.Time{}
+		task.FreshPending = false
+		task.FreshCycle = false
 		task.Fingerprint = fingerprint
 	}
+	task.beginRetryCycle(time.Now())
 	interrupted := func() (string, time.Time) {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			m.domainReason("time_slice")
@@ -348,7 +355,14 @@ func (m *Manager) searchDomain(ctx context.Context, c Config, s DomainScope) (st
 	p.Domains = []string{s.Host}
 	p.Targets = []Target{target}
 	if len(task.Pool) == 0 {
-		for _, candidate := range tuningStrategies(c, p, ReadAdaptive(c), time.Now().Unix()) {
+		var candidates []Strategy
+		if task.FreshCycle {
+			// A fresh cycle deliberately ignores learned ranking, not the safety checks.
+			candidates = StrategiesFor(c)
+		} else {
+			candidates = tuningStrategies(c, p, ReadAdaptive(c), time.Now().Unix())
+		}
+		for _, candidate := range candidates {
 			if candidate.ID != "none" {
 				task.Pool = append(task.Pool, candidate.ID)
 			}
@@ -410,10 +424,12 @@ func (m *Manager) searchDomain(ctx context.Context, c Config, s DomainScope) (st
 		task.Pool = nil
 		return finish("applied", candidate.ID, "HTTPS подтверждён отдельными соединениями", time.Time{})
 	}
-	task.Cursor = 0
-	task.Pool = nil
-	task.RetryRounds++
-	return finish("exhausted", "", "Все доступные методы проверены; прежний метод сохранён. Повтор запланирован", time.Now().Add(boxRetryDelay(task.RetryRounds)))
+	next := task.scheduleBoxRetry(time.Now())
+	message = "Все доступные методы проверены; прежний метод сохранён. Повтор запланирован"
+	if task.FreshPending {
+		message = "Три полных перебора без результата. После паузы начнётся новый цикл без учёта старого ранжирования; рабочий метод сохранён"
+	}
+	return finish("exhausted", "", message, next)
 }
 
 func (m *Manager) watchActive(ctx context.Context) {
@@ -463,6 +479,42 @@ func boxRetryDelay(round int) time.Duration {
 	default:
 		return time.Hour
 	}
+}
+
+const boxFreshCycleInterval = 4 * time.Hour
+const boxMaxFailedRounds = 3
+
+// Clear only the transient search state. Never delete observations, pins or
+// verified live plans, and never bypass proof or resource guards.
+func (t *domainTask) beginRetryCycle(now time.Time) {
+	if t.FreshPending {
+		t.FreshPending = false
+		t.FreshCycle = true
+		t.RetryRounds = 0
+		t.ProofFailures = 0
+		t.Cursor = 0
+		t.Pool = nil
+		t.CycleStarted = now
+	}
+	if t.CycleStarted.IsZero() || now.Before(t.CycleStarted) {
+		t.CycleStarted = now
+	}
+}
+
+func (t *domainTask) scheduleBoxRetry(now time.Time) time.Time {
+	t.Cursor = 0
+	t.Pool = nil
+	t.RetryRounds++
+	next := now.Add(boxRetryDelay(t.RetryRounds))
+	if t.RetryRounds >= boxMaxFailedRounds {
+		t.FreshPending = true
+		// Keep the one-hour minimum and allow a new cycle no sooner than
+		// four hours from the start of the current cycle.
+		if earliest := t.CycleStarted.Add(boxFreshCycleInterval); earliest.After(next) {
+			next = earliest
+		}
+	}
+	return next
 }
 
 func boxRetryOutcomes(data AdaptiveSnapshot, c Config, now time.Time, live func(DomainScope) string) map[DomainScope]AdaptiveHost {
@@ -626,6 +678,9 @@ func (m *Manager) activeTick(parent context.Context) {
 			task.Cursor = 0
 			task.Pool = nil
 			task.RetryRounds = 0
+			task.CycleStarted = time.Time{}
+			task.FreshPending = false
+			task.FreshCycle = false
 		}
 		if task.Signal > task.Handled && eligible(s,task.Manual) && !stableYouTubeHost(c, s.Host) && c.excludedBy(s.Host) == "" && c.pinFor(s.Host, s.TLS, s.Family, s.Port) == "" {
 			pending = append(pending, task)
@@ -678,6 +733,9 @@ func (m *Manager) activeTick(parent context.Context) {
 		task.Pool = nil
 		task.Handled = now.Unix()
 		task.RetryRounds = 0
+		task.CycleStarted = time.Time{}
+		task.FreshPending = false
+		task.FreshCycle = false
 	}
 	m.mu.Lock()
 	m.cancel = nil
