@@ -764,7 +764,7 @@ function renderPage() {
                     "Коробки обхода",
                     "Группы наблюдений, найденные методы и история их проверки.",
                   ) +
-                  `<div class="adaptive-heading"><details><summary>Как работают коробки</summary><p>Сходные признаки помогают выбирать кандидатов. Каждое новое соединение проверяется отдельно; группа не означает опознанное устройство провайдера.</p><p>«Скачать диагностику» сохраняет полный снимок методов и истории в JSON, независимо от фильтров. Файл содержит домены и имя WAN-интерфейса; пароли, токены, журналы и контрольные URL не включаются. На роутере ничего не меняется.</p></details><div class="adaptive-actions"><button id="adaptive-download" title="JSON с доменами и историей; без паролей и токенов">Скачать диагностику</button><button id="adaptive-refresh">Обновить</button></div></div>${adaptiveToolbar()}<div id="adaptive-results">Загрузка…</div>`
+                  `<div class="adaptive-heading"><details><summary>Как работают коробки</summary><p>Сходные признаки помогают выбирать кандидатов. Каждое новое соединение проверяется отдельно; группа не означает опознанное устройство провайдера.</p><p>«Скачать диагностику» сохраняет полный снимок методов и истории в JSON, независимо от фильтров. Файл содержит домены и имя WAN-интерфейса; пароли, токены, журналы и контрольные URL не включаются. На роутере ничего не меняется.</p></details><div class="adaptive-actions"><button id="adaptive-download" title="JSON с доменами и историей; без паролей и токенов">Скачать диагностику</button><button id="adaptive-refresh">Обновить</button><button id="adaptive-reset-all" class="danger-button" type="button">Очистить все коробки</button></div></div>${adaptiveToolbar()}<div id="adaptive-results">Загрузка…</div>`
                 : page === "connect"
                   ? connectPage()
                   : heading(
@@ -826,6 +826,19 @@ function bindActions() {
 
   $("#adaptive-refresh")?.addEventListener("click", loadAdaptive);
   $("#adaptive-download")?.addEventListener("click", downloadDiagnostics);
+  $("#adaptive-reset-all")?.addEventListener("click", (event) => {
+    if (!window.confirm("Удалить накопленное обучение и историю всех коробок? Ручные правила сохранятся. Возможен краткий перерыв обхода. Новые подключения начнут обучение заново.")) return;
+    const button = event.currentTarget;
+    button.disabled = true;
+    action(async () => {
+      try {
+        await api("adaptive/domain", "POST", {host:"", action:"reset_all"});
+        adaptiveDetails.clear(); adaptiveDrafts.clear();
+        await loadAdaptive();
+        notify("Обучение всех коробок очищено; ручные правила сохранены");
+      } finally { button.disabled = false; }
+    });
+  });
   $("#adaptive-search")?.addEventListener("input", (event) => {
     adaptiveQuery = event.target.value;
     adaptiveRevealSaved = true;
