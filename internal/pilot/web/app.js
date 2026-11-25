@@ -85,6 +85,7 @@ async function logout() {
   serviceCatalogQuery = ""; serviceCatalogOpen = false; selectedTuneProfile = "";
   preflightCached="";preflightUpdated=0;
   telegramRelayDraftData=null;telegramRelayLoading=false;
+  clearTelegramProxyForm();
   token = "";
   sessionStorage.removeItem("pilot-token");
   $("#shell").classList.add("hidden");
@@ -489,6 +490,62 @@ function bindTelegramRelayDraft(){
     finally{button.disabled=false;}
   });
 }
+function telegramProxyLink(server,port,secret){
+  server=server.trim().toLowerCase();port=port.trim();secret=secret.trim();
+  if(!server||server.length>253||server.split("").some(c=>"/@?#%\\".includes(c)||c.trim()===""))throw Error("Укажи IP или домен MTProxy без схемы, порта и пути.");
+  let host;
+  try{
+    const ipv6=server.includes(":")&&!server.startsWith("[")?"["+server+"]":server;
+    const u=new URL("https://"+ipv6);
+    if(u.port||u.username||u.password||u.pathname!=="/"||!u.hostname)throw Error();
+    host=u.hostname.replace(/^\[|\]$/g,"");
+    if(!host.includes(":")&&!/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(host))throw Error();
+  }catch(_){throw Error("Некорректный адрес MTProxy.");}
+  if(!/^\d{1,5}$/.test(port)||Number(port)<1||Number(port)>65535)throw Error("Порт должен быть от 1 до 65535.");
+  let bytes;
+  if(/^[0-9a-f]+$/i.test(secret)&&secret.length%2===0&&secret.length<=542){
+    bytes=Array.from(secret.match(/../g),v=>parseInt(v,16));
+  }else{
+    try{if(!/^[A-Za-z0-9_-]+={0,2}$/.test(secret)||secret.length>512)throw Error();bytes=Array.from(atob(secret.replace(/-/g,"+").replace(/_/g,"/")),v=>v.charCodeAt(0));}catch(_){throw Error("Некорректный секрет MTProxy.");}
+  }
+  if(!(bytes.length===16||(bytes.length===17&&bytes[0]===0xdd)||(bytes.length>17&&bytes.length<=271&&bytes[0]===0xee)))throw Error("Секрет MTProxy должен содержать 16 байт, dd-секрет или ee-секрет Fake TLS.");
+  return "tg://proxy?"+new URLSearchParams({server:host,port:String(Number(port)),secret}).toString();
+}
+function clearTelegramProxyForm(){
+  const form=$("#telegram-proxy-form"),link=$("#telegram-proxy-open");
+  if(form)form.reset();
+  if(link){link.removeAttribute("href");link.classList.add("hidden");}
+  const status=$("#telegram-proxy-message");
+  if(status)status.textContent="Секрет не отправляется на роутер и не записывается в браузерное хранилище.";
+}
+function bindTelegramProxy(){
+  const form=$("#telegram-proxy-form");
+  if(!form)return;
+  const link=$("#telegram-proxy-open"),status=$("#telegram-proxy-message");
+  form.addEventListener("input",()=>{link.removeAttribute("href");link.classList.add("hidden");status.textContent="Данные изменены. Подготовь подключение заново.";});
+  form.addEventListener("submit",e=>{
+    e.preventDefault();link.removeAttribute("href");link.classList.add("hidden");
+    try{
+      link.href=telegramProxyLink($("#telegram-proxy-server").value,$("#telegram-proxy-port").value,$("#telegram-proxy-secret").value);
+      link.classList.remove("hidden");status.textContent="Ссылка подготовлена. Открой Telegram и подтверди подключение.";
+    }catch(err){status.textContent=err.message;}
+  });
+  $("#telegram-proxy-clear").addEventListener("click",clearTelegramProxyForm);
+}
+function telegramProxyPanel(){
+return `<section class="panel" id="telegram-proxy-panel">
+<div class="panel-head"><h2>Telegram · подключение к своему MTProxy</h2></div>
+<p>Укажи данные уже работающего MTProto-прокси. Pilot сформирует локальную ссылку для Telegram Desktop или телефона. Это настройка приложения, не запуск сервера на Keenetic.</p>
+<form id="telegram-proxy-form" autocomplete="off">
+<div class="field"><label for="telegram-proxy-server">Сервер</label><input id="telegram-proxy-server" required maxlength="253" placeholder="proxy.example.com" autocomplete="off" spellcheck="false"></div>
+<div class="field"><label for="telegram-proxy-port">Порт</label><input id="telegram-proxy-port" required inputmode="numeric" maxlength="5" value="443"></div>
+<div class="field"><label for="telegram-proxy-secret">Секрет MTProxy</label><input id="telegram-proxy-secret" type="password" required maxlength="512" autocomplete="off" spellcheck="false"></div>
+<div class="form-actions"><button type="submit">Подготовить подключение</button><button id="telegram-proxy-clear" type="button">Очистить</button></div>
+</form><p id="telegram-proxy-message" role="status">Секрет не отправляется на роутер и не записывается в браузерное хранилище.</p>
+<p><a id="telegram-proxy-open" class="button-link hidden" rel="noreferrer">Открыть в Telegram ↗</a></p>
+<small>В Telegram подтвердите подключение и проверьте статус прокси и отправку сообщения. Данные Worker ниже не являются MTProxy. Не вводите пароль аккаунта, код входа или API hash.</small>
+</section>`;
+}
 function telegramNativePanel(){
   const enabled=Boolean(state.config.telegram_mtproto);
   return `<section class="panel" id="telegram-native-panel">
@@ -510,7 +567,7 @@ function bindTelegramNative(){
 }
 
 function profiles() {
-  return heading("Сервисы и домены", "Выберите сервис из каталога. Раскройте профиль для стратегии, доменов и проверок.") + youtubeVideoCheckPanel() + performanceRescuePanel() + telegramNativePanel() + telegramRelayPanel() + serviceCatalog() + customServiceForm() + `<div class="service-profile-list">${state.config.profiles.map(profileCard).join("")}</div>`;
+  return heading("Сервисы и домены", "Выберите сервис из каталога. Раскройте профиль для стратегии, доменов и проверок.") + youtubeVideoCheckPanel() + performanceRescuePanel() + telegramNativePanel() + telegramProxyPanel() + telegramRelayPanel() + serviceCatalog() + customServiceForm() + `<div class="service-profile-list">${state.config.profiles.map(profileCard).join("")}</div>`;
 }
 function readProfileDraft(id) {
   const p = structuredClone(state.config.profiles.find((p) => p.id === id));
@@ -725,7 +782,7 @@ async function action(fn) {
 }
 function bindDomainRetry(){const button=$("#domain-retry");if(!button||button.dataset.bound)return;button.dataset.bound="true";button.addEventListener("click",()=>action(async()=>{await api("domain-search","POST",state.domain_job.scope);notify("Домен поставлен в очередь полного автоподбора");}));}
 function bindActions() {
-  bindDomainRetry();bindMethodViews();bindTrials();bindCheckActions();bindYoutubeVideoCheck();bindYoutubeRestore();bindTelegramNative();bindPerformanceRescue();bindTelegramRelayDraft();
+  bindDomainRetry();bindMethodViews();bindTrials();bindCheckActions();bindYoutubeVideoCheck();bindYoutubeRestore();bindTelegramNative();bindPerformanceRescue();bindTelegramRelayDraft();bindTelegramProxy();
   $("#method-search")?.addEventListener("input",e=>{methodQuery=e.target.value;$("#method-results").innerHTML=methodResults();bindMethodViews();});
   $("#method-family")?.addEventListener("change",e=>{methodFamily=e.target.value;$("#method-results").innerHTML=methodResults();bindMethodViews();});
   $("#update-check")?.addEventListener("click",async e=>{const button=e.currentTarget;button.disabled=true;try{await api("updates/check","POST",{});await loadUpdates(true);}catch(error){notify(error.message,true);button.disabled=false;}});
@@ -1285,14 +1342,17 @@ let sourceUpdatesData=null,sourceUpdatesLoading=false,sourceUpdatesSerial=0;
 const prettyBytes=n=>n==null?"недоступно":n>=1048576?(n/1048576).toFixed(1)+" МиБ":n>=1024?(n/1024).toFixed(1)+" КиБ":Math.round(n)+" Б";
 function devicePage(){return heading("Роутер","Данные устройства, на котором запущен Pilot. Недоступные датчики не заменяются примерными значениями.")+`<p class="panel-address">Адрес этой панели · <a href="#overview">${esc(location.origin)}</a></p><div id="device-data">Загрузка…</div><section class="panel"><h2>Проверка среды Keenetic / Entware</h2><p class="subtle">Пассивная проверка по идеям MY.KN. Никакие службы, правила NFQUEUE и подключённые носители не изменяются.</p><div id="preflight-data">Загрузка…</div></section>`;}
 async function loadDevice(){const target=$("#device-data");if(!target||deviceLoading)return;deviceLoading=true;try{const d=await api("device");if(target!==$("#device-data"))return;deviceData=d;target.innerHTML=`<div class="stats-grid"><div class="panel"><h3>Процессор</h3><strong>${d.cpu_percent==null?(d.cpu_sample_available?"ожидается второй замер":"недоступно"):d.cpu_percent.toFixed(1)+" %"}</strong><p>Ядер: ${d.cpu_cores}</p><small>Load 1/5/15 мин: ${d.load.length?d.load.map(v=>v.toFixed(2)).join(" / "):"недоступно"}</small><p class="subtle">Из общего CPU: Pilot ${d.pilot_cpu_percent==null?"ожидается замер":d.pilot_cpu_percent.toFixed(1)+" %"} · nfqws2 ${d.engine_cpu_percent==null?"не измерено":d.engine_cpu_percent.toFixed(1)+" %"}</p><small>Доли от всех ядер суммарно, не от одного ядра. Остальная нагрузка — системные и другие процессы.</small></div><div class="panel"><h3>Память</h3><strong>${d.memory_available==null?"недоступно":prettyBytes(d.memory_total-d.memory_available)+" занято"}</strong><p>Всего: ${prettyBytes(d.memory_total||null)}</p><small>Доступно: ${prettyBytes(d.memory_available)}</small></div><div class="panel"><h3>Температура</h3>${d.temperatures.length?d.temperatures.map(t=>`<p><strong>${t.celsius.toFixed(1)} °C</strong> · ${esc(t.name)}</p>`).join(""):'<p>Недоступно: прошивка не предоставляет датчик Pilot.</p>'}</div></div><div class="panel"><h3>${esc(d.model||"Модель не предоставлена прошивкой")}</h3><p>${esc(d.platform)} · ядро ${esc(d.kernel||"неизвестно")}</p><p>Время работы: ${d.uptime_seconds==null?"недоступно":Math.floor(d.uptime_seconds/86400)+" д "+Math.floor(d.uptime_seconds%86400/3600)+" ч "+Math.floor(d.uptime_seconds%3600/60)+" мин"}</p><p>WAN ${esc(d.wan||"не задан")}: получено ${prettyBytes(d.rx_bytes)}, передано ${prettyBytes(d.tx_bytes)}</p><p>Сейчас: ↓ ${prettyBytes(d.rx_bytes_per_second)}/с · ↑ ${prettyBytes(d.tx_bytes_per_second)}/с</p></div>`;}catch(e){if(target===$("#device-data"))target.textContent="Не удалось получить данные: "+e.message;}finally{deviceLoading=false;loadPreflight();}}
-let preflightCached="",preflightUpdated=0;
+let preflightCached="",preflightUpdated=0,preflightLoading=false;
 async function loadPreflight(){
   const el=$("#preflight-data");
-  if(!el)return;
-  if(preflightCached&&Date.now()-preflightUpdated<60000){el.innerHTML=preflightCached;return;}
+  if(!el||document.hidden)return;
+  if(preflightCached&&Date.now()-preflightUpdated<60000){if(el.innerHTML!==preflightCached)el.innerHTML=preflightCached;return;}
+  if(preflightLoading)return;
+  preflightLoading=true;
+  const session=panelSession;
   try{
     const d=await api("preflight");
-    if(el!==$("#preflight-data"))return;
+    if(el!==$("#preflight-data")||session!==panelSession||!signedIn)return;
     const other=(d.other_engines||[]);
     const installed=(d.installed_services||[]);
     const free=d.opt_free_bytes==null?"нет замера":prettyBytes(d.opt_free_bytes);
@@ -1306,7 +1366,8 @@ async function loadPreflight(){
       <small>Наличие файла службы не означает её запуск. Тип накопителя не доказывает, что это внутренняя память.</small>`;
     preflightCached=el.innerHTML;
     preflightUpdated=Date.now();
-  }catch(err){if(el===$("#preflight-data"))el.textContent="Проверка среды недоступна: "+err.message;}
+  }catch(err){if(el===$("#preflight-data")&&session===panelSession&&signedIn)el.textContent="Проверка среды недоступна: "+err.message;}
+  finally{preflightLoading=false;}
 }
 function updatesPage(){return heading("Обновления","Обновление Pilot, панели и закреплённого nfqws2 с сохранением настроек.")+`<div class="panel"><div id="update-info">Загрузка…</div><div class="form-actions"><button id="update-check">Проверить версию</button><button id="update-install" class="primary" disabled>Установить обновление</button></div><p class="subtle">Выпуск проверяется по подписи и SHA-256. Перед остановкой службы проверяются пакет и конфигурация; установщик сохраняет прежнюю версию для отката при ошибке. Текущий подбор будет отменён перед установкой. Будет краткий перерыв. После перезапуска войдите с прежним паролем.</p></div><div class="panel"><h3>ChatGPT / Codex · отдельные обновления</h3><p class="subtle">Это дополнительный канал GitHub HTTPS + SHA-256, без независимой подписи Ed25519. Автор указан издателем в GitHub, а не подтверждён криптографически. Старый подписанный канал выше оставлен без изменений.</p><div id="source-update-info">Загрузка сведений об источниках…</div></div><div class="panel"><h3>Каталог методов</h3><p>Подписанные стратегии можно загрузить отдельно от приложения.</p><button id="catalog-update">Загрузить стратегии сейчас</button></div>`;}
 async function loadSourceUpdates(force=false){
