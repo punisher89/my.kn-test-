@@ -118,45 +118,25 @@ let relay={worker_host:'',status:'draft_only',can_route:false,source:'t0fox/d2o 
   assert.equal(demo.config.profiles.find(p=>p.id==='youtube').strategy,'fake-host-md5');
   assert.ok(demo.config.profiles.find(p=>p.id==='youtube').domains.includes('googlevideo.com'),'Restore must cover YouTube video CDN');
   assert.deepEqual(demo.config.profiles.filter(p=>p.id!=='youtube').map(p=>({id:p.id,strategy:p.strategy})),otherBefore);
-  // Native Telegram must be available without creating the Telegram Web profile.
-  assert.ok(!demo.config.profiles.some(p=>p.id==="telegram-web"));
-  const nativePanel=page.locator("#telegram-native-panel");
-  await nativePanel.waitFor();
-  assert.match(await nativePanel.locator("h2").textContent(),/приложение \(MTProto TCP\)/);
-  const profilesBefore=JSON.stringify(demo.config.profiles);
-  await page.locator("#telegram-native-toggle").click();
-  await page.waitForFunction(()=>state.config.telegram_mtproto===true);
-  assert.equal(demo.config.telegram_mtproto,true);
-  assert.equal(JSON.stringify(demo.config.profiles),profilesBefore,"MTProto enable must not rewrite YouTube or Web profiles");
-  assert.match(await nativePanel.innerText(),/MTProto TCP включён/);
-  await page.locator("#telegram-native-toggle").click();
-  await page.waitForFunction(()=>state.config.telegram_mtproto===false);
-  assert.equal(JSON.stringify(demo.config.profiles),profilesBefore);
-   const proxyPanel=page.locator("#telegram-proxy-panel");
-   await proxyPanel.waitFor();
-   await page.locator("#telegram-proxy-server").fill("proxy.example.com");
-   await page.locator("#telegram-proxy-secret").fill("0123456789abcdef0123456789abcdef");
-   await page.locator("#telegram-proxy-form button[type=submit]").click();
-   assert.equal(await page.locator("#telegram-proxy-open").getAttribute("href"),"tg://proxy?server=proxy.example.com&port=443&secret=0123456789abcdef0123456789abcdef");
-   assert.equal(await page.evaluate(()=>JSON.stringify(localStorage).includes("0123456789abcdef")),false);
-   await page.locator("#telegram-proxy-server").fill("https://proxy.example.com");
-   await page.locator("#telegram-proxy-form button[type=submit]").click();
-   assert.equal(await page.locator("#telegram-proxy-open").getAttribute("href"),null);
-   await page.locator("#telegram-proxy-clear").click();
-   assert.equal(await page.locator("#telegram-proxy-secret").inputValue(),"");
+  // Transparent Telegram must not require a proxy or Worker configuration.
+   assert.ok(!demo.config.profiles.some(p=>p.id==="telegram-web"));
+   const profilesBefore=JSON.stringify(demo.config.profiles);
+   const nativePanel=page.locator("#telegram-native-panel");
+   await nativePanel.waitFor();
+   assert.match(await nativePanel.locator("h2").textContent(),/сквозная маршрутизация/);
+   assert.equal(await page.locator("#telegram-proxy-panel").count(),0);
+   assert.equal(await page.locator("#telegram-relay-panel").count(),0);
+   assert.equal(await page.locator("#telegram-native-toggle").count(),0);
+   assert.equal(relayWrites,0);
    assert.equal(JSON.stringify(demo.config.profiles),profilesBefore);
-  const relayPanel=page.locator("#telegram-relay-panel");
-  await relayPanel.waitFor();
-  assert.match(await relayPanel.innerText(),/Не активен/);
-  assert.equal(await page.locator("#telegram-relay-host").inputValue(),"");
-  await page.locator("#telegram-relay-host").fill("my-telegram.example.workers.dev");
-  await page.locator("#telegram-relay-draft-form button[type=submit]").click();
-  await page.waitForFunction(()=>telegramRelayDraftData?.worker_host==="my-telegram.example.workers.dev");
-  assert.equal(relayWrites,1,"expected only a draft save");
-  assert.equal(JSON.stringify(demo.config.profiles),profilesBefore,"Relay template must not modify native routing");
-  assert.match(await relayPanel.innerText(),/прокси не запущен|прокси и перенаправление выключены/i);
+   demo.config.telegram_mtproto=true;
+   await page.evaluate(()=>refresh(true));
+   await page.locator("#telegram-native-toggle").click();
+   await page.waitForFunction(()=>state.config.telegram_mtproto===false);
+   assert.equal(JSON.stringify(demo.config.profiles),profilesBefore);
+   await page.locator("#telegram-native-toggle").waitFor({state:"detached"});
 
-  // A quick pause cannot change any live packet settings or profiles.
+   // A quick pause cannot change any live packet settings or profiles.
   const before=JSON.stringify(demo.config.profiles);
   const networkSettings=Object.fromEntries(["quic","adaptive","adaptive_active","auto","youtube_stable","telegram_mtproto","ppe","wan"].map(k=>[k,demo.config[k]]));
   await page.locator("#performance-rescue-apply").click();
