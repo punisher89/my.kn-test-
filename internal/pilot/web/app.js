@@ -1023,10 +1023,15 @@ function groupedHistory(rows) {
   });
   return groups.sort((a, b) => b.index - a.index).map((g) => g.row);
 }
+function retryObservationText(r,enabled=true,now=Date.now()/1000){
+  if(!enabled||!state?.config?.adaptive_active||!r.retry_at||r.paused||r.pinned||!observationHasContext(r))return "";
+  return r.retry_at>now?"Повтор домена не раньше "+new Date(r.retry_at*1000).toLocaleString("ru-RU"):"Домен в очереди повторной проверки";
+}
 function currentObservationStatus(r, enabled = true) {
   if (r.paused) return "Приостановлен";
   if (r.pinned && r.pinned !== r.strategy) return "Ожидает наблюдений";
   if (r.https_measured) return "HTTPS подтверждён";
+  if (retryObservationText(r,enabled)) return "Повторная проверка";
   if (r.applied_strategy && r.applied_strategy !== r.strategy) return "Ожидает новых подключений";
   if (currentHold(r, enabled)) return "Смена отложена";
   if (observationStale(r)) return "Нет свежих наблюдений";
@@ -1046,14 +1051,14 @@ function currentObservationReason(r, enabled = true) {
 }
 function observationTone(r, history, enabled) {
   if (!history) {
-    if (r.paused || currentHold(r, enabled) || (r.pinned && r.pinned !== r.strategy)) return "warn";
+    if (r.paused || currentHold(r, enabled) || retryObservationText(r,enabled) || (r.pinned && r.pinned !== r.strategy)) return "warn";
     if (observationStale(r) || !observationHasContext(r)) return "neutral";
   }
   return r.status === "failed" ? "fail" : r.status === "connected" ? "" : "warn";
 }
 function observationTable(rows, history = false, enabled = true) {
   if (!rows.length) return '<p class="subtle">Наблюдений пока нет.</p>';
-  return `<table class="probe-table"><thead><tr><th>Сайт / метод</th><th>Результат</th><th>Причина / источник</th><th>Время</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${esc(r.host)}<br><small>${esc(strategyName(history ? r.strategy : r.pinned || r.applied_strategy || r.strategy))}</small></td><td>${badge(history ? observedStatus(r.status) : currentObservationStatus(r, enabled), observationTone(r, history, enabled))}${history && r.event_count > 1 ? `<br><small>Событий: ${r.event_count}</small>` : ""}${!history && r.https_measured ? '<br><small>HTTPS подтверждён роутером</small>' : ""}${!history && r.pinned ? '<br><small>Закреплён вручную</small>' : ""}</td><td>${esc(history ? eventReason(r) : currentObservationReason(r, enabled))}<br><small>${esc(originLabels[r.origin] || originLabels.restored)}</small></td><td>${history && r.event_count > 1 && r.first_updated !== r.updated ? `${esc(new Date(r.first_updated * 1000).toLocaleString("ru-RU"))}<br>— ` : ""}${esc(new Date(r.updated * 1000).toLocaleString("ru-RU"))}</td></tr>`).join("")}</tbody></table>`;
+  return `<table class="probe-table"><thead><tr><th>Сайт / метод</th><th>Результат</th><th>Причина / источник</th><th>Время</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${esc(r.host)}<br><small>${esc(strategyName(history ? r.strategy : r.pinned || r.applied_strategy || r.strategy))}</small></td><td>${badge(history ? observedStatus(r.status) : currentObservationStatus(r, enabled), observationTone(r, history, enabled))}${history && r.event_count > 1 ? `<br><small>Событий: ${r.event_count}</small>` : ""}${!history && r.https_measured ? '<br><small>HTTPS подтверждён роутером</small>' : ""}${!history && r.pinned ? '<br><small>Закреплён вручную</small>' : ""}${retryObservationText(r,enabled)?`<br><small>${esc(retryObservationText(r,enabled))}</small>`:""}</td><td>${esc(history ? eventReason(r) : currentObservationReason(r, enabled))}<br><small>${esc(originLabels[r.origin] || originLabels.restored)}</small></td><td>${history && r.event_count > 1 && r.first_updated !== r.updated ? `${esc(new Date(r.first_updated * 1000).toLocaleString("ru-RU"))}<br>— ` : ""}${esc(new Date(r.updated * 1000).toLocaleString("ru-RU"))}</td></tr>`).join("")}</tbody></table>`;
 }
 function controlScope(b) {
   return {
