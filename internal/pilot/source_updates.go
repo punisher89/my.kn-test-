@@ -93,28 +93,39 @@ func (m *Manager) CheckSourceUpdate(ctx context.Context, source string) error {
     m.mu.Unlock()
     token,err:=githubReadToken(m.path)
     if err!=nil{return err}
-    path:="/latest-"+strings.ToLower(source)+".json"
-    raw,err:=fetchCatalog(ctx,sourceReleaseBase+path,token)
-    if err!=nil{return fmt.Errorf("не удалось проверить выпуск %s: %w",source,err)}
-    var doc sourceReleaseDocument
-    dec:=json.NewDecoder(bytes.NewReader(raw))
-    dec.DisallowUnknownFields()
-    if err=dec.Decode(&doc);err!=nil{return err}
-    if err=dec.Decode(new(any));err!=io.EOF {return errors.New("лишние данные о выпуске")}
-    if err=validSourceRelease(doc,source);err!=nil{return err}
-    // The mutable discovery pointer must refer to an existing immutable
-    // release folder. Both bytewise-equal metadata copies are HTTPS-fetched
-    // from our specific GitHub repository, not from arbitrary URLs.
-    original,err:=fetchCatalog(ctx,sourceReleaseBase+"/v"+doc.Version+"/release-info.json",token)
-    if err!=nil{return err}
-    if !bytes.Equal(bytes.TrimSpace(original),bytes.TrimSpace(raw)) {
-        return errors.New("указатель источника не совпадает с выпуском")
-    }
+    base:="/latest-"+strings.ToLower(source)
+    // Older panels still see the alpha bridge. Beta-aware panels validate
+    // both pointers independently and select the highest verified version.
+    doc,legacyErr:=verifiedSourcePointer(ctx,source,base+".json",token,false)
+    beta,betaErr:=verifiedSourcePointer(ctx,source,base+"-beta.json",token,true)
+    if legacyErr!=nil&&betaErr!=nil{return fmt.Errorf("не удалось проверить выпуск %s: %w",source,errors.Join(legacyErr,betaErr))}
+    if legacyErr!=nil||(betaErr==nil&&newerVersion(beta.Version,doc.Version)){doc=beta}
     m.mu.Lock()
     if m.sourceReleases==nil {m.sourceReleases=map[string]sourceReleaseDocument{}}
     m.sourceReleases[source]=doc
     m.mu.Unlock()
     return nil
+}
+
+func verifiedSourcePointer(ctx context.Context,source,path,token string,beta bool)(sourceReleaseDocument,error){
+    var doc sourceReleaseDocument
+    raw,err:=fetchCatalog(ctx,sourceReleaseBase+path,token)
+    if err!=nil{return doc,err}
+    dec:=json.NewDecoder(bytes.NewReader(raw))
+    dec.DisallowUnknownFields()
+    if err=dec.Decode(&doc);err!=nil{return doc,err}
+    if err=dec.Decode(new(any));err!=io.EOF {return doc,errors.New("лишние данные о выпуске")}
+    if err=validSourceRelease(doc,source);err!=nil{return doc,err}
+    if beta!=strings.Contains(doc.Version,"-beta.") {return doc,errors.New("неверный этап выпуска")}
+    // The mutable discovery pointer must refer to an existing immutable
+    // release folder. Both bytewise-equal metadata copies are HTTPS-fetched
+    // from our specific GitHub repository, not from arbitrary URLs.
+    original,err:=fetchCatalog(ctx,sourceReleaseBase+"/v"+doc.Version+"/release-info.json",token)
+    if err!=nil{return doc,err}
+    if !bytes.Equal(bytes.TrimSpace(original),bytes.TrimSpace(raw)) {
+        return doc,errors.New("указатель источника не совпадает с выпуском")
+    }
+    return doc,nil
 }
 
 // This does not call StartUpdate, change the signed channel or relax its
