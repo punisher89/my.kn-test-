@@ -9,6 +9,20 @@
     label=byId("music-summary-label"), message=byId("music-message"), custom=byId("music-url");
   // Public direct HTTPS streams; catalog is local, no requests before explicit play.
   const stations=[
+    ["maximum","Радио MAXIMUM","Москва рок alternative максимум","https://maximum.hostingradio.ru/maximum128.mp3"],
+    ["nashe","Наше Радио","Москва русский рок","https://nashe1.hostingradio.ru/nashe-128.mp3"],
+    ["rusradio","Русское Радио","Москва поп русская музыка","https://rusradio.hostingradio.ru/rusradio128.mp3"],
+    ["dfm","DFM","Москва танцевальная dance","https://dfm.hostingradio.ru/dfm96.aacp"],
+    ["montecarlo","Радио Monte Carlo","Москва lounge поп джаз монте карло","https://montecarlo.hostingradio.ru/montecarlo96.aacp"],
+    ["hitfm","Хит FM","Москва поп хиты","https://hitfm.hostingradio.ru/hitfm96.aacp"],
+    ["europa","Европа Плюс","Москва поп хиты","https://ep256.hostingradio.ru:8052/europaplus256.mp3"],
+    ["retrofm","Ретро FM","Москва ретро хиты","https://retro.hostingradio.ru:8014/retro320.mp3"],
+    ["avtoradio","Авторадио","Москва поп ретро","https://srv21.gpmradio.ru:8443/stream/air/aac/64/100"],
+    ["mayak","Радио Маяк","Москва разговорное музыка","https://icecast-vgtrk.cdnvideo.ru/mayakfm_aac_64kbps"],
+    ["govoritmoskva","Говорит Москва","Москва новости разговорное","https://media.govoritmoskva.ru/rufm.mp3"],
+    ["orpheus","Радио Орфей","Москва классическая музыка","https://orfeyfm.hostingradio.ru:8034/orfeyfm128.mp3"],
+    ["chocolate","Радио Шоколад","Москва каверы поп","https://choco.hostingradio.ru:10010/fm"],
+    ["businessfm","Business FM","Москва бизнес новости","https://bfm.hostingradio.ru:9075/fm"],
     ["record","Радио Record","dance электронная","https://radiorecord.hostingradio.ru/rr_main96.aacp"],
     ["gold","Record Gold","dance ретро","https://radiorecord.hostingradio.ru/gold96.aacp"],
     ["eurodance","Record Eurodance","dance ретро","https://radiorecord.hostingradio.ru/eurodance96.aacp"],
