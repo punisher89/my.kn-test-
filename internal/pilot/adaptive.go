@@ -329,15 +329,17 @@ type AdaptiveBox struct {
 	History []AdaptiveHost   `json:"history"`
 }
 
-func boxContext(r AdaptiveHost) AdaptiveBox {
-	tls, family := "unknown", "unknown"
+func observationProtocol(group string) (tls, family string) {
+	tls, family = "unknown", "unknown"
 	for _, v := range []string{"tls12", "tls13", "legacy", "unknown"} {
 		for _, f := range []string{"ipv4", "ipv6"} {
-			if strings.HasSuffix(r.Group, "_"+v+"_"+f) {
-				tls, family = v, f
-			}
+			if strings.HasSuffix(group, "_"+v+"_"+f) { return v, f }
 		}
 	}
+	return
+}
+func boxContext(r AdaptiveHost) AdaptiveBox {
+	tls, family := observationProtocol(r.Group)
 	key := fmt.Sprintf("%s/%s/%s/%d/%s", tls, family, r.Network, r.Port, r.Symptom)
 	sum := sha256.Sum256([]byte(key))
 	return AdaptiveBox{ID: fmt.Sprintf("box-%x", sum[:8]), TLS: tls, Family: family, Network: r.Network, Port: r.Port, Symptom: r.Symptom, Hosts: []AdaptiveHost{}, Methods: []AdaptiveMethod{}, History: []AdaptiveHost{}}
