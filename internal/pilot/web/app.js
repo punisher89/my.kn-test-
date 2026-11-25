@@ -20,6 +20,7 @@ const labels = {
   connect: "Первый запуск",
   adaptive: "Коробки обхода",
   strategies: "Каталог методов",
+  geo: "Geo Routing",
 };
 let state,
   page = "overview",
@@ -30,7 +31,7 @@ let signedIn = false,
   authInfo = { configured: true },
   networkInfo;
 
-const pollingEndpoints = new Set(["device", "adaptive", "preflight", "updates", "updates/sources"]);
+const pollingEndpoints = new Set(["geo", "device", "adaptive", "preflight", "updates", "updates/sources"]);
 async function api(path, method = "GET", data, signal) {
   const session = panelSession;
   const deadline = !signal && method === "GET" && pollingEndpoints.has(path) ? new AbortController() : null;
@@ -722,6 +723,48 @@ function updateChrome() {
   $("#service-error").textContent = state.error || "";
   $("#service-error").classList.toggle("hidden", !state.error);
 }
+function geoPage(){
+ return heading("Geo Routing","План выборочной маршрутизации KeeneticOS 5.2 через собственный VPN. Pilot не применяет команды автоматически.")+`<section class="panel">
+ <h2>Туннель и политика</h2><p id="geo-tunnels" class="subtle">Поиск VPN-интерфейсов…</p>
+ <form id="geo-form"><div class="field"><label for="geo-interface">Имя интерфейса KeeneticOS</label><input id="geo-interface" required maxlength="32" placeholder="OpkgTun10" value="OpkgTun10" autocomplete="off"></div>
+ <div class="field"><label for="geo-policy">Имя существующей политики доступа (CLI)</label><input id="geo-policy" required maxlength="32" placeholder="Policy0" autocomplete="off"><small>Проверь имя в конфигурации Keenetic. Не название Wi-Fi.</small></div>
+ <div id="geo-services">Загрузка списка…</div><div class="form-actions"><button type="submit" id="geo-build" disabled>Создать план</button></div></form>
+ <p class="subtle">Ни одна служба не направляется в VPN до ручного применения. Список доменов стартовый и не гарантирует охват всех CDN/авторизации. Учитывай правила доступности сервисов. DNS клиентов должен обслуживать Keenetic.</p>
+ <div id="geo-output" hidden><label for="geo-commands">Предпросмотр команд CLI</label><textarea id="geo-commands" readonly rows="12" spellcheck="false"></textarea><button id="geo-download" type="button">Скачать команды TXT</button>
+ <p>Проверь отсутствие существующих групп pilot-geo-*, резервную копию конфигурации, туннель и политику. Применяй в CLI самой KeeneticOS, не в Entware shell. Проверь доступ из клиента политики перед сохранением конфигурации. Для отката удали только созданные маршруты и группы в настройках Keenetic. Автоматического отката нет.</p></div>
+ </section>`;
+}
+function bindGeo(){
+ const form=$("#geo-form");
+ if(!form)return;
+ const target=$("#geo-services"),status=$("#geo-tunnels"),button=$("#geo-build"),output=$("#geo-output"),commands=$("#geo-commands");
+ const session=panelSession;
+ const current=()=>signedIn&&panelSession===session&&form===$("#geo-form");
+ api("geo").then(d=>{
+  if(!current())return;
+  status.textContent=d.tunnels.length?"Обнаружены активные интерфейсы Linux: "+d.tunnels.join(", ")+". Это не подтверждение доступности VPN.":"Поддерживаемые активные интерфейсы не обнаружены. Проверь AWG Manager и имя CLI.";
+  target.innerHTML=d.services.map(s=>`<div class="toggle-row"><div><label for="geo-${esc(s.id)}">${esc(s.name)}</label><p>${s.domains.map(esc).join(", ")}</p></div><input id="geo-${esc(s.id)}" type="checkbox" value="${esc(s.id)}"></div>`).join("");
+  button.disabled=false;
+ }).catch(e=>{if(current())status.textContent="Не удалось загрузить: "+e.message;});
+ let serial=0;
+ form.addEventListener("input",()=>{serial++;output.hidden=true;commands.value="";button.disabled=false;});
+ form.addEventListener("submit",async e=>{
+  e.preventDefault();
+  const selected=[...target.querySelectorAll("input:checked")].map(n=>n.value);
+  const attempt=++serial;button.disabled=true;output.hidden=true;commands.value="";
+  try{
+   const d=await api("geo/plan","POST",{interface:$("#geo-interface").value.trim(),policy:$("#geo-policy").value.trim(),services:selected});
+   if(!current()||attempt!==serial)return;
+   commands.value=d.commands;output.hidden=false;notify("План готов. Маршрутизация не изменена.");
+  }catch(err){if(current()&&attempt===serial)notify(err.message,true);}
+  finally{if(current()&&attempt===serial)button.disabled=false;}
+ });
+ $("#geo-download").addEventListener("click",()=>{
+  if(!commands.value)return;
+  const url=URL.createObjectURL(new Blob([commands.value],{type:"text/plain;charset=utf-8"}));
+  const a=document.createElement("a");a.href=url;a.download="keenetic-pilot-geo-plan.txt";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+ });
+}
 function renderPage() {
   if (batch && location.hash && location.hash !== "#overview") cancelBatch();
   page = location.hash.slice(1);
@@ -741,6 +784,7 @@ function renderPage() {
             ? settings()
             : page === "device" ? devicePage()
             : page === "updates" ? updatesPage()
+            : page === "geo" ? geoPage()
             : page === "strategies"
               ? strategyCatalog()
               : page === "adaptive"
@@ -758,6 +802,7 @@ function renderPage() {
                     ) +
                     '<div class="panel"><pre id="log-view" class="log-view">Загрузка…</pre></div>';
   bindActions();
+  if(page==="geo")bindGeo();
   if(page==="profiles")loadTelegramRelayDraft();
   if(page==="overview"){loadTelemetry();loadOverviewBoxes();}
   if(page==="device")loadDevice();
