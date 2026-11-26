@@ -47,6 +47,7 @@ type Config struct {
 	BackgroundPaused bool `json:"background_paused"`
  Lightweight bool `json:"lightweight"`
  HistoryRetentionDays int `json:"history_retention_days"`
+ SubscriptionAutoRefresh bool `json:"subscription_auto_refresh"`
 	AdaptiveFastStart         bool        `json:"adaptive_fast_start"`
 	AdaptiveReuse             bool        `json:"adaptive_reuse"`
 	AdaptiveCooldownSeconds   int         `json:"adaptive_cooldown_seconds"`

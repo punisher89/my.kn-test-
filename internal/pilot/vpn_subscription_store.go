@@ -43,6 +43,9 @@ func (m *Manager) SubscriptionState()(subscriptionState,error){
 func (m *Manager) SaveSubscription(ctx context.Context,raw string,refresh bool)(subscriptionState,error){
  if !m.op.TryLock(){return subscriptionState{},ErrBusy};defer m.op.Unlock()
  if m.updateRequested.Load(){return subscriptionState{},ErrBusy}
+ return m.saveSubscriptionLocked(ctx,raw,refresh)
+}
+func (m *Manager) saveSubscriptionLocked(ctx context.Context,raw string,refresh bool)(subscriptionState,error){
  if refresh {
   old,e:=readSavedSubscription(m.subscriptionPath());if e!=nil{return subscriptionState{},errors.New("нет сохранённой подписки")}
   raw=old.URL
@@ -57,4 +60,15 @@ func (m *Manager) DeleteSubscription()error{
  e:=os.Remove(m.subscriptionPath())
  if e!=nil&&!os.IsNotExist(e){return errors.New("не удалось удалить подписку")}
  return nil
+}
+
+// Called only while Watch owns the operation lock, at most once per day.
+// No subscription is created implicitly; a previously imported one is required.
+func (m *Manager) refreshSubscriptionIfDue(ctx context.Context,now time.Time) error {
+ old,e:=readSavedSubscription(m.subscriptionPath())
+ if os.IsNotExist(e){return nil}
+ if e!=nil{return errors.New("сохранённая подписка недоступна")}
+ if !old.Updated.IsZero()&&now.Sub(old.Updated)<24*time.Hour{return nil}
+ _,e=m.saveSubscriptionLocked(ctx,"",true)
+ return e
 }
