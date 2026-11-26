@@ -666,7 +666,7 @@ function geoPage(){
  <form id="vpn-prepare"><div class="field"><label for="vpn-type">Тип подключения</label><select id="vpn-type"><option value="ssh">VPS по SSH</option><option value="wg">WireGuard</option><option value="awg">AmneziaWG</option><option value="openvpn">OpenVPN</option></select></div>
  <div id="vpn-ssh-fields"><div class="field"><label for="vpn-host">IP или домен сервера</label><input id="vpn-host" maxlength="253" autocomplete="off"></div><div class="field"><label for="vpn-port">Порт SSH</label><input id="vpn-port" type="number" min="1" max="65535" value="22"></div><div class="field"><label for="vpn-user">Логин</label><input id="vpn-user" maxlength="64" autocomplete="off"></div></div>
  <div id="vpn-config-fields" hidden><label for="vpn-config">Локальный файл конфигурации</label><input id="vpn-config" type="file" accept=".conf,.ovpn,.txt"><p class="subtle">Файл проверяется только в браузере, не отправляется на роутер.</p></div>
- <button type="submit">Проверить формат</button><p id="vpn-prepare-result" aria-live="polite"></p></form></details></section><section class="panel"><h2>VPN-подписки · предпросмотр</h2><p>Загрузка по HTTPS с роутера. Показываются только число записей и типы протоколов; ссылка и ключи не сохраняются. Подключение не создаётся. В HTTP-панели не вводите приватные ссылки с токеном.</p><form id="vpn-subscription-form"><label>HTTPS-ссылка <input id="vpn-subscription-url" type="password" autocomplete="off" maxlength="4096" required></label><button type="submit">Загрузить и проверить формат</button></form><p id="vpn-subscription-result" aria-live="polite"></p></section>`;
+ <button type="submit">Проверить формат</button><p id="vpn-prepare-result" aria-live="polite"></p></form></details></section><section class="panel"><h2>VPN-подписки · импорт и обновление</h2><p>Загрузка по HTTPS с роутера. Предпросмотр не сохраняет данные. Импорт сохраняет одну подписку в закрытом файле роутера; обновление заменяет её только после успешной загрузки. Подключение не создаётся. В HTTP-панели не вводите приватные ссылки с токеном.</p><form id="vpn-subscription-form"><label>HTTPS-ссылка <input id="vpn-subscription-url" type="password" autocomplete="off" maxlength="4096" required></label><button type="submit" value="preview">Предпросмотр</button><button type="submit" value="save">Импортировать</button></form><div class="form-actions"><button id="vpn-subscription-refresh" type="button">Обновить сохранённую</button><button id="vpn-subscription-delete" type="button">Удалить сохранённую</button></div><p id="vpn-subscription-saved" aria-live="polite"></p><p id="vpn-subscription-result" aria-live="polite"></p></section>`;
 }
 function bindGeo(){
  const form=$("#geo-form");
@@ -682,12 +682,27 @@ function bindGeo(){
   finally{if(current())dnsButton.disabled=false;}
  });
  const subscription=$("#vpn-subscription-form");
+ const describeSubscription=d=>"Записей: "+d.total+" · "+Object.entries(d.types||{}).map(([k,v])=>k+": "+v).join(", ")+" · неизвестных: "+d.unknown+". Доступность серверов не проверена.";
+ const renderSaved=d=>{if(!current())return;$("#vpn-subscription-saved").textContent=d.saved?"Сохранена: "+new Date(d.updated).toLocaleString("ru-RU")+" · "+describeSubscription(d.preview):"Сохранённой подписки нет.";$("#vpn-subscription-refresh").disabled=!d.saved;$("#vpn-subscription-delete").disabled=!d.saved;};
+ if(subscription){
+  $("#vpn-subscription-refresh").disabled=true;$("#vpn-subscription-delete").disabled=true;
+  api("vpn/subscription").then(renderSaved).catch(e=>{if(current())$("#vpn-subscription-saved").textContent=e.message;});
+  for(const [id,act] of [["vpn-subscription-refresh","refresh"],["vpn-subscription-delete","delete"]]){
+   $("#"+id).addEventListener("click",async e=>{
+    if(act==="delete"&&!window.confirm("Удалить сохранённую подписку?"))return;
+    const b=e.currentTarget;b.disabled=true;
+    try{renderSaved(await api("vpn/subscription","POST",{action:act}));}catch(err){if(current()){$("#vpn-subscription-result").textContent=err.message;b.disabled=false;}}
+   });
+  }
+ }
+
  subscription?.addEventListener("submit",async e=>{
   e.preventDefault();const field=$("#vpn-subscription-url"),out=$("#vpn-subscription-result"),button=subscription.querySelector("button");
   const url=field.value.trim();if(!url)return;
-  if(!window.confirm("Получить подписку с роутера? Данные не будут применены."))return;
+  const save=e.submitter?.value==="save";
+  if(!window.confirm(save?"Сохранить подписку на роутере, заменив предыдущую? Маршруты не изменятся.":"Получить подписку с роутера? Данные не будут применены."))return;
   field.value="";button.disabled=true;out.textContent="Загрузка…";
-  try{const d=await api("vpn/subscription/preview","POST",{url});if(current())out.textContent="Записей: "+d.total+" · "+Object.entries(d.types||{}).map(([k,v])=>k+": "+v).join(", ")+" · неизвестных: "+d.unknown+". Формат распознан, доступность серверов не проверена.";}
+  try{const d=await api(save?"vpn/subscription":"vpn/subscription/preview","POST",save?{url,action:"save"}:{url});if(current()){if(save){renderSaved(d);out.textContent="Подписка импортирована.";}else out.textContent=describeSubscription(d);}}
   catch(e){if(current())out.textContent=e.message;}finally{if(current())button.disabled=false;}
  });
  const prep=$("#vpn-prepare"),type=$("#vpn-type"),result=$("#vpn-prepare-result"),file=$("#vpn-config");

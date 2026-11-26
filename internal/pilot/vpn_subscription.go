@@ -59,10 +59,14 @@ func subscriptionPublicIP(ip net.IP) bool {
  return true
 }
 func fetchSubscriptionPreview(parent context.Context, raw string) (subscriptionPreview,error) {
+ _, preview, err := fetchSubscription(parent,raw)
+ return preview,err
+}
+func fetchSubscription(parent context.Context, raw string) ([]byte,subscriptionPreview,error) {
  empty:=subscriptionPreview{}
  u,err:=url.Parse(strings.TrimSpace(raw))
  if err!=nil||len(raw)>4096||u.Scheme!="https"||u.User!=nil||u.Hostname()==""||u.Fragment!=""||(u.Port()!=""&&u.Port()!="443"){
-  return empty,errors.New("нужна HTTPS-ссылка подписки на порту 443 без логина и пароля в адресе")
+  return nil,empty,errors.New("нужна HTTPS-ссылка подписки на порту 443 без логина и пароля в адресе")
  }
  ctx,cancel:=context.WithTimeout(parent,12*time.Second);defer cancel()
  transport:=&http.Transport{DisableKeepAlives:true,ResponseHeaderTimeout:5*time.Second,MaxResponseHeaderBytes:16384,
@@ -76,11 +80,13 @@ func fetchSubscriptionPreview(parent context.Context, raw string) (subscriptionP
  }}
  defer transport.CloseIdleConnections()
  client:=&http.Client{Transport:transport,CheckRedirect:func(*http.Request,[]*http.Request)error{return http.ErrUseLastResponse}}
- req,e:=http.NewRequestWithContext(ctx,http.MethodGet,u.String(),nil);if e!=nil{return empty,errors.New("некорректный запрос")}
- response,e:=client.Do(req);if e!=nil{return empty,errors.New("не удалось получить подписку по защищённому HTTPS")}
+ req,e:=http.NewRequestWithContext(ctx,http.MethodGet,u.String(),nil);if e!=nil{return nil,empty,errors.New("некорректный запрос")}
+ response,e:=client.Do(req);if e!=nil{return nil,empty,errors.New("не удалось получить подписку по защищённому HTTPS")}
  defer response.Body.Close()
- if response.StatusCode!=200{return empty,errors.New("сервер подписки не вернул HTTP 200; перенаправления запрещены")}
+ if response.StatusCode!=200{return nil,empty,errors.New("сервер подписки не вернул HTTP 200; перенаправления запрещены")}
  data,e:=io.ReadAll(io.LimitReader(response.Body,maxSubscriptionBytes+1))
- if e!=nil{return empty,errors.New("не удалось прочитать подписку")}
- return previewSubscription(data)
+ if e!=nil{return nil,empty,errors.New("не удалось прочитать подписку")}
+ preview,err:=previewSubscription(data)
+ if err!=nil{return nil,empty,err}
+ return data,preview,nil
 }

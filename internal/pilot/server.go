@@ -185,6 +185,18 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 	})
 	// Serialize manual tunnel probes; they must not compete with each other.
 	vpnProbeSlot := make(chan struct{}, 1)
+ api("GET /api/vpn/subscription",func(w http.ResponseWriter,r *http.Request){
+  state,err:=m.SubscriptionState();if err!=nil{replyError(w,err);return};jsonReply(w,200,state)
+ })
+ api("POST /api/vpn/subscription",func(w http.ResponseWriter,r *http.Request){
+  var input struct{URL string `json:"url"`;Action string `json:"action"`}
+  if !read(w,r,&input){return}
+  if input.Action=="delete"{if err:=m.DeleteSubscription();err!=nil{replyError(w,err);return};jsonReply(w,200,subscriptionState{});return}
+  if input.Action!="save"&&input.Action!="refresh"{jsonReply(w,400,map[string]string{"error":"неизвестное действие"});return}
+  select{case vpnProbeSlot<-struct{}{}:defer func(){<-vpnProbeSlot}();default:replyError(w,ErrBusy);return}
+  state,err:=m.SaveSubscription(r.Context(),input.URL,input.Action=="refresh")
+  if err!=nil{replyError(w,err);return};jsonReply(w,200,state)
+ })
  api("POST /api/vpn/subscription/preview",func(w http.ResponseWriter,r *http.Request){
   var input struct{URL string `json:"url"`};if !read(w,r,&input){return}
   select{case vpnProbeSlot<-struct{}{}:defer func(){<-vpnProbeSlot}();default:replyError(w,ErrBusy);return}
