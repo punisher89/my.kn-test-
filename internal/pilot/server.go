@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -55,7 +56,7 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 				"POST /api/check", "POST /api/domain-search", "POST /api/adaptive/domain",
 				"POST /api/services", "POST /api/services/custom", "DELETE /api/services/{id}",
 				"POST /api/services/{id}/domains", "POST /api/settings-backup/restore",
-				"POST /api/catalog/update", "POST /api/youtube/video-test", "POST /api/vpn/subscription":
+				"POST /api/catalog/update", "POST /api/youtube/video-test", "POST /api/vpn/subscription", "POST /api/vpn/subscription/file":
 				foreground = true
 			}
 			if foreground {
@@ -212,6 +213,19 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
   select{case vpnProbeSlot<-struct{}{}:defer func(){<-vpnProbeSlot}();default:replyError(w,ErrBusy);return}
   state,err:=m.SaveSubscription(r.Context(),input.URL,input.Action=="refresh")
   if err!=nil{replyError(w,err);return};jsonReply(w,200,state)
+ })
+ // A file can contain credentials: accept it over TLS or an explicit local
+ // loopback connection (e.g. an SSH port forward), not unencrypted LAN HTTP.
+ api("POST /api/vpn/subscription/file",func(w http.ResponseWriter,r *http.Request){
+  remote,_,_:=net.SplitHostPort(r.RemoteAddr)
+  host:=r.Host
+  if h,_,e:=net.SplitHostPort(host);e==nil {host=h}
+  loopback:=net.ParseIP(remote).IsLoopback()&&(host=="localhost"||net.ParseIP(strings.Trim(host,"[]")).IsLoopback())
+  if r.TLS==nil&&!loopback{jsonReply(w,403,map[string]string{"error":"Для импорта секретов используйте HTTPS или SSH-проброс панели на localhost"});return}
+  if r.Header.Get("Content-Type")!="application/octet-stream"{jsonReply(w,415,map[string]string{"error":"ожидается файл"});return}
+  data,err:=io.ReadAll(http.MaxBytesReader(w,r.Body,maxSubscriptionBytes))
+  if err!=nil{jsonReply(w,400,map[string]string{"error":"файл слишком большой или не читается"});return}
+  state,err:=m.ImportSubscriptionFile(data);if err!=nil{replyError(w,err);return};jsonReply(w,200,state)
  })
  api("POST /api/vpn/subscription/preview",func(w http.ResponseWriter,r *http.Request){
   var input struct{URL string `json:"url"`};if !read(w,r,&input){return}
