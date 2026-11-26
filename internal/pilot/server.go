@@ -216,6 +216,14 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
  })
  // A file can contain credentials: accept it over TLS or an explicit local
  // loopback connection (e.g. an SSH port forward), not unencrypted LAN HTTP.
+ api("POST /api/vpn/ssh-check",func(w http.ResponseWriter,r *http.Request){
+  if !sshSecretTransport(r){jsonReply(w,403,map[string]string{"error":"Для ввода пароля требуется HTTPS или SSH-проброс на localhost"});return}
+  var input sshPasswordRequest
+  if !read(w,r,&input){return}
+  if err:=validateSSHPassword(input);err!=nil{replyError(w,err);return}
+  select{case vpnProbeSlot<-struct{}{}:defer func(){<-vpnProbeSlot}();default:replyError(w,ErrBusy);return}
+  jsonReply(w,200,checkSSHPassword(r.Context(),m.path,input))
+ })
  api("POST /api/vpn/subscription/file",func(w http.ResponseWriter,r *http.Request){
   remote,_,_:=net.SplitHostPort(r.RemoteAddr)
   host:=r.Host

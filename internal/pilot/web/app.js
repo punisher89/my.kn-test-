@@ -700,10 +700,10 @@ function geoPage(){
  <p>Проверь отсутствие существующих групп pilot-geo-*, резервную копию конфигурации, туннель и политику. Применяй в CLI самой KeeneticOS, не в Entware shell. Проверь доступ из клиента политики перед сохранением конфигурации. Для отката удали только созданные маршруты и группы в настройках Keenetic. Автоматического отката нет.</p></div>
  </details></section><section class="panel" id="vpn-standalone">
  <details class="geo-fold"><summary>Smart VPN Auto · независимое подключение (разработка)</summary>
- <p class="subtle">Проверка формата на устройстве пользователя. Туннель, автоматическая маршрутизация и сохранение секретов пока не реализованы. Не вводи пароль в HTTP-панель.</p>
+ <p class="subtle">Проверка формата на устройстве пользователя. SSH-проверка проверяет вход на VPS, но не запускает туннель. Пароль не сохраняется. Для ввода пароля открой панель через HTTPS или защищённый SSH-проброс на localhost.</p>
  <p id="vpn-engines" class="subtle">Поиск VPN-движков…</p>
  <form id="vpn-prepare"><div class="field"><label for="vpn-type">Тип подключения</label><select id="vpn-type"><option value="ssh">VPS по SSH</option><option value="wg">WireGuard</option><option value="awg">AmneziaWG</option><option value="openvpn">OpenVPN</option></select></div>
- <div id="vpn-ssh-fields"><div class="field"><label for="vpn-host">IP или домен сервера</label><input id="vpn-host" maxlength="253" autocomplete="off"></div><div class="field"><label for="vpn-port">Порт SSH</label><input id="vpn-port" type="number" min="1" max="65535" value="22"></div><div class="field"><label for="vpn-user">Логин</label><input id="vpn-user" maxlength="64" autocomplete="off"></div></div>
+ <div id="vpn-ssh-fields"><div class="field"><label for="vpn-host">IP или домен сервера</label><input id="vpn-host" maxlength="253" autocomplete="off"></div><div class="field"><label for="vpn-port">Порт SSH</label><input id="vpn-port" type="number" min="1" max="65535" value="22"></div><div class="field"><label for="vpn-user">Логин</label><input id="vpn-user" maxlength="64" autocomplete="off"></div><div class="field"><label for="vpn-password">Пароль VPS</label><input id="vpn-password" type="password" maxlength="512" autocomplete="new-password" spellcheck="false" disabled><div class="form-actions"><button id="vpn-password-toggle" type="button" disabled>Показать пароль</button><button id="vpn-ssh-test" type="button" disabled>Проверить вход на VPS</button></div><small id="vpn-password-hint">Для проверки пароля требуется защищённое подключение к панели.</small></div></div>
  <div id="vpn-config-fields" hidden><label for="vpn-config">Локальный файл конфигурации</label><input id="vpn-config" type="file" accept=".conf,.ovpn,.txt"><p class="subtle">Файл проверяется только в браузере, не отправляется на роутер.</p></div>
  <button type="submit">Проверить формат</button><p id="vpn-prepare-result" aria-live="polite"></p></form></details></section><section class="panel"><h2>VPN-подписки · импорт и обновление</h2><p>Предпросмотр не меняет маршруты и не запускает VPN. Поддерживаются TXT и base64 со списком URI. Для передачи приватных данных используйте HTTPS или SSH-проброс панели на localhost.</p><form id="vpn-subscription-form"><label>HTTPS-ссылка <input id="vpn-subscription-url" type="password" autocomplete="off" maxlength="4096" required></label><div class="form-actions"><button type="submit" value="preview">Предпросмотр ссылки</button><button type="submit" value="save">Сохранить ссылку</button></div></form><div class="field"><label for="vpn-subscription-file">Импорт с компьютера</label><input id="vpn-subscription-file" type="file" accept=".txt,.conf,.b64,.base64,text/plain"><div class="form-actions"><button id="vpn-file-preview" type="button">Предпросмотр файла</button><button id="vpn-file-import" type="button">Импортировать файл</button></div></div><div class="form-actions"><button id="vpn-subscription-show" type="button">Открыть последнее окно</button><button id="vpn-subscription-refresh" type="button">Обновить сохранённую</button><button id="vpn-subscription-delete" type="button">Удалить сохранённую</button></div><p id="vpn-subscription-saved" aria-live="polite"></p><p id="vpn-subscription-result" aria-live="polite"></p></section>`;
 }
@@ -752,7 +752,27 @@ function bindGeo(){
  }
  const prep=$("#vpn-prepare"),type=$("#vpn-type"),result=$("#vpn-prepare-result"),file=$("#vpn-config");
  let prepSerial=0;
- const changeVPN=()=>{prepSerial++;result.textContent="";$("#vpn-ssh-fields").hidden=type.value!=="ssh";$("#vpn-config-fields").hidden=type.value==="ssh";file.value="";};
+ const password=$("#vpn-password"), showPassword=$("#vpn-password-toggle"), sshTest=$("#vpn-ssh-test");
+ const secureSSH=location.protocol==="https:"||["localhost","127.0.0.1","[::1]"].includes(location.hostname);
+ password.disabled=showPassword.disabled=sshTest.disabled=!secureSSH;
+ if(secureSSH)$("#vpn-password-hint").textContent="Пароль передаётся только для проверки входа, после проверки очищается. Нужен предварительно проверенный ключ сервера.";
+ showPassword.onclick=()=>{const visible=password.type==="password";password.type=visible?"text":"password";showPassword.textContent=visible?"Скрыть пароль":"Показать пароль";};
+ sshTest.onclick=async()=>{
+  if(!secureSSH||type.value!=="ssh")return;
+  const serial=++prepSerial;
+  sshTest.disabled=true;result.textContent="Проверяем SSH-вход с роутера…";
+  try{
+   const data={host:$("#vpn-host").value.trim(),user:$("#vpn-user").value.trim(),port:$("#vpn-port").value,password:password.value};
+   validateIndependentVPN("ssh",data);
+   if(!data.password)throw Error("Введи пароль VPS.");
+   const promise=api("vpn/ssh-check","POST",data);
+   data.password="";password.value="";password.type="password";showPassword.textContent="Показать пароль";
+   const answer=await promise;
+   if(current()&&serial===prepSerial)result.textContent=answer.status==="authenticated"?"SSH-вход подтверждён. Туннель не запущен.": "Вход не подтверждён: "+(answer.message||"ошибка");
+  }catch(err){if(current()&&serial===prepSerial)result.textContent=err.message;}
+  finally{if(current()){password.value="";password.type="password";showPassword.textContent="Показать пароль";sshTest.disabled=!secureSSH;}}
+ };
+ const changeVPN=()=>{prepSerial++;result.textContent="";$("#vpn-ssh-fields").hidden=type.value!=="ssh";$("#vpn-config-fields").hidden=type.value==="ssh";file.value="";password.value="";password.type="password";showPassword.textContent="Показать пароль";};
  type.addEventListener("change",changeVPN);
  prep.addEventListener("input",()=>{prepSerial++;result.textContent="";});
  prep.addEventListener("submit",async e=>{
