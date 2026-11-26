@@ -109,7 +109,8 @@ function strategyName(id) {
 }
 const familyLabels = {
   direct: "Без вмешательства",
-  split: "Разделение и порядок",
+  split: "Разделение (Split)",
+  disorder: "Изменение порядка (Disorder)",
   fake: "Fake",
   hostfake: "HostFake",
   overlap: "SEQ overlap",
@@ -121,7 +122,7 @@ function methodGroups() {
       id,
       name,
       methods: state.strategies.filter(
-        (s) => (s.family || (s.id === "none" ? "direct" : "other")) === id,
+        (s) => (s.family === "split" && s.actions?.some(a=>a.startsWith("multidisorder:")) ? "disorder" : (s.family || (s.id === "none" ? "direct" : "other"))) === id,
       ),
     }))
     .filter((g) => g.methods.length);
@@ -140,7 +141,7 @@ function methodResults(){
  const query=methodQuery.trim().toLowerCase();
  return methodGroups().filter(g=>methodFamily==="all"||methodFamily===g.id).map(g=>({...g,methods:g.methods.filter(m=>[m.id,m.name,m.description,g.name].join(" ").toLowerCase().includes(query))})).filter(g=>g.methods.length).map(g=>`<details class="panel method-family" data-method-view="family/${esc(g.id)}" ${methodOpen.get("family/"+g.id)||query?"open":""}><summary>${esc(g.name)} · ${g.methods.length}</summary>${g.methods.map(m=>`<details class="method-item" data-method-view="method/${esc(m.id)}" ${methodOpen.get("method/"+m.id)?"open":""}><summary>${esc(m.name)}</summary><p>${esc(m.description)}</p>${m.actions?.length?`<pre>${esc(m.actions.join("\n"))}</pre>`:'<p>Обычное соединение без изменения пакетов.</p>'}</details>`).join("")}</details>`).join("")||'<p class="subtle">Методы не найдены.</p>';
 }
-function strategyCatalog(){return heading("Каталог методов","Семейства и параметры раскрываются по нажатию. Наличие метода не гарантирует доступ.")+`<div class="panel method-toolbar"><label>Поиск<input id="method-search" type="search" value="${esc(methodQuery)}" placeholder="Название или семейство"></label><label>Семейство<select id="method-family"><option value="all">Все семейства</option>${methodGroups().map(g=>`<option value="${esc(g.id)}" ${methodFamily===g.id?"selected":""}>${esc(g.name)}</option>`).join("")}</select></label></div><div class="method-list" id="method-results">${methodResults()}</div>`;}
+function strategyCatalog(){return heading("Каталог методов","Семейства и параметры раскрываются по нажатию. Наличие метода не гарантирует доступ.")+`<div class="panel"><strong>Всего вариантов: ${state.strategies.length}</strong><p class="subtle">Встроенные: ${state.strategies.filter(m=>!m.id.startsWith("net-")).length} · из загруженного каталога: ${state.strategies.filter(m=>m.id.startsWith("net-")).length}. Без вмешательства — контрольный вариант, не обход.</p><p>${methodGroups().map(g=>`${esc(g.name)}: ${g.methods.length}`).join(" · ")}</p></div><div class="panel method-toolbar"><label>Поиск<input id="method-search" type="search" value="${esc(methodQuery)}" placeholder="Название или семейство"></label><label>Семейство<select id="method-family"><option value="all">Все семейства (${state.strategies.length})</option>${methodGroups().map(g=>`<option value="${esc(g.id)}" ${methodFamily===g.id?"selected":""}>${esc(g.name)} (${g.methods.length})</option>`).join("")}</select></label></div><div class="method-list" id="method-results">${methodResults()}</div>`;}
 function bindMethodViews(){document.querySelectorAll("[data-method-view]").forEach(el=>el.addEventListener("toggle",()=>methodOpen.set(el.dataset.methodView,el.open)));}
 function bindTrials(){document.querySelectorAll("[data-trial]").forEach(el=>el.addEventListener("toggle",()=>trialOpen.set(el.dataset.trial,el.open)));}
 function badge(text, kind = "") {
