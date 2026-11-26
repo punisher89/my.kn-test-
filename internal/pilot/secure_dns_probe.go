@@ -28,7 +28,9 @@ var dnsProbeLabel = regexp.MustCompile(`^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z
 func normalizeDNSProbe(in secureDNSRequest) (secureDNSRequest,error) {
  in.Server=strings.TrimSuffix(strings.TrimSpace(in.Server),".")
  in.Address=strings.TrimSpace(in.Address)
- if in.Server=="" {in.Server="dns.adguard-dns.com";if in.Address=="" {in.Address="94.140.14.14"}}
+ if in.Protocol=="" {if in.Server==""&&in.Address=="" {in.Protocol="router"} else {in.Protocol="all"}}
+ if in.Protocol=="router"||in.Protocol=="system" {if in.Server!=""||in.Address!="" {return in,errors.New("Для проверки DNS роутера не вводите внешний сервер")};return in,nil}
+ if in.Server=="" {return in,errors.New("Для ручного теста укажите имя DNS-сервера")}
  if len(in.Server)>253 || net.ParseIP(in.Server)!=nil {return in,errors.New("Укажите DNS-имя сертификата, IP — отдельно")}
  for _,label:=range strings.Split(in.Server,".") {if !dnsProbeLabel.MatchString(label){return in,errors.New("Некорректное DNS-имя")}}
  if in.Address!="" {ip:=net.ParseIP(in.Address);if ip==nil||ip.IsUnspecified()||ip.IsMulticast(){return in,errors.New("Некорректный IP DNS-сервера")};in.Address=ip.String()}
@@ -41,6 +43,7 @@ func secureDNSProbe(ctx context.Context, inputs ...secureDNSRequest) []secureDNS
  if len(inputs)>0 {in=inputs[0]}
  in,err:=normalizeDNSProbe(in)
  if err!=nil {return []secureDNSResult{{Status:"failed",Error:err.Error()}}}
+ if in.Protocol=="router" {return routerDNSProbe(ctx)}
  out:=[]secureDNSResult{}
  if in.Protocol=="system"||in.Protocol=="all" {
   r:=secureDNSResult{Protocol:"System",Server:"Системный резолвер ОС",Status:"failed"}
