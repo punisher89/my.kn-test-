@@ -19,6 +19,7 @@ const dnsRequests=[];
    return json(request.protocol==='router'
     ? [{protocol:'DNS роутера',server:'192.168.44.1',status:'ok',milliseconds:12},
        {protocol:'Прокси KeeneticOS',server:'127.0.0.1:40500',status:'configured',error:'Резолвер из текущего состояния DNS-прокси',milliseconds:0}]
+    : request.protocol==='system' ? [{protocol:'System',server:'Системный резолвер ОС',status:'ok',milliseconds:2}]
     : [{protocol:'DoT',server:request.server,status:'unavailable',error:'kdig не найден в PATH'}]);
   }
   if(url.pathname==='/api/vpn/subscription')return json({saved:false});
@@ -187,5 +188,11 @@ const dnsRequests=[];
  await page.locator('#dns-probe').click();
  await page.locator('#dns-probe-result').getByText(/Есть DNS-ответ/).waitFor();
  assert.deepEqual(dnsRequests.at(-1),{protocol:'router'});
+ await page.locator('summary').filter({hasText:'Системный DNS процесса Pilot'}).click();
+ await page.locator('#dns-system-probe').click();
+ await page.locator('#dns-system-result').getByText(/Системный резолвер ОС.*Есть DNS-ответ/).waitFor();
+ assert.deepEqual(dnsRequests.at(-1),{protocol:'system'});
+ assert.match(await page.locator('#dns-probe-result').innerText(),/192.168.44.1/);
+
  assert.deepEqual(errors,[]);console.log('PASS: router telemetry, missing temperature, signed-update UI flow, custom services, domain sources, Telegram Web, compact trials/methods, preserved expansion, mobile menus, Matrix overview, read-only service reports, safe error rendering, animated rain, reduced motion, hidden-tab pause, fast-start opt-out');
 }finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1});

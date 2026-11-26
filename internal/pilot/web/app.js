@@ -678,6 +678,10 @@ function dnsProbePanel(){
  <p>Проверяет DNS на самом Keenetic и показывает серверы, которые удалось прочитать из KeeneticOS. Для этой проверки kdig не нужен.</p>
  <button id="dns-probe" type="button">Проверить DNS роутера</button>
  <pre id="dns-probe-result" aria-live="polite">Проверка ещё не запускалась</pre>
+ <details><summary>Системный DNS процесса Pilot</summary>
+ <button id="dns-system-probe" type="button">Проверить системный резолвер</button>
+ <pre id="dns-system-result" aria-live="polite">Проверка ещё не запускалась</pre>
+ </details>
  <details><summary>Ручная проверка внешнего DoH, DoT или DoQ</summary>
  <p>Эта проверка обращается напрямую к указанному серверу. DNS-настройки роутера сохраняются.</p>
  <label>Имя DNS-сервера (TLS)<input id="dns-server" maxlength="253"></label>
@@ -729,9 +733,9 @@ function bindGeo(){
  const target=$("#geo-services"),status=$("#geo-tunnels"),button=$("#geo-build"),output=$("#geo-output"),commands=$("#geo-commands");
  const session=panelSession;
  const current=()=>signedIn&&panelSession===session&&form===$("#geo-form");
- const routerDNS=$("#dns-probe"), manualDNS=$("#dns-manual-probe");
+ const routerDNS=$("#dns-probe"), systemDNS=$("#dns-system-probe"), manualDNS=$("#dns-manual-probe");
  const runDNS=async(result,input)=>{
-  routerDNS.disabled=manualDNS.disabled=true;
+  routerDNS.disabled=systemDNS.disabled=manualDNS.disabled=true;
   result.textContent="Проверяется…";
   try{
    const rows=await api("dns/probe","POST",input);
@@ -742,9 +746,10 @@ function bindGeo(){
     return `${row.protocol} · ${row.server} · ${label}${latency}`;
    }).join("\n");
   }catch(error){if(current())result.textContent=error.message;}
-  finally{if(current())routerDNS.disabled=manualDNS.disabled=false;}
+  finally{if(current())routerDNS.disabled=systemDNS.disabled=manualDNS.disabled=false;}
  };
  routerDNS.addEventListener("click",()=>runDNS($("#dns-probe-result"),{protocol:"router"}));
+ systemDNS.addEventListener("click",()=>runDNS($("#dns-system-result"),{protocol:"system"}));
  manualDNS.addEventListener("click",()=>runDNS($("#dns-manual-result"),{
   server:$("#dns-server").value,address:$("#dns-address").value,protocol:$("#dns-protocol").value,
  }));
@@ -1547,6 +1552,7 @@ const releaseNotes={
  "0.2.0-beta.5":["Самодиагностика, предупреждения и диапазоны количества событий","Закрытие всплывающих окон вне области и по Esc; описание версии сохраняет раскрытие","Ручная очистка старой истории и восстановление наблюдений из копии; срок хранения 1–365 суток, по умолчанию выключено","Резервное копирование и восстановление настроек; облегчённый режим фоновых проверок","Импорт одной VPN-подписки, ручное и опциональное ежедневное обновление; без запуска туннелей","Уведомления текущего сеанса","Защитный откат при отказе службы или повторной потере двух контрольных HTTPS-подключений во время обновления; не проверяет скорость"],
  "0.2.0-beta.6":["Импорт и экспорт HostList для каждого сервиса; применение только после сохранения","Импорт локального файла VPN-подписки и предварительный просмотр TXT/base64; без запуска VPN","Приоритет ручных операций над фоновым поиском","Geo Routing: план маршрутов Telegram через существующий туннель; независимый VPS-туннель пока не реализован"],
  "0.2.0-beta.7":["Smart VPN Auto: поле пароля, проверка SSH-входа через защищённую панель; туннель автоматически не запускается","Экспериментальный CLI-помощник WireGuard для IPv4-сетей Telegram; требуется настроенный VPS и проверка на роутере","Ограниченный API Telegram-бота: состояние, управление обходом, проверка и подбор YouTube; отдельный ключ, доступ только через localhost"],
+ "0.2.0-beta.11":["Обновления Codex для общей бета-ветки Pilot","Отдельная проверка системного DNS процесса Pilot для сравнения с ответом Keenetic"],
  "0.2.0-beta.10":["Отдельная проверка DNS самого роутера по адресу панели","Текущие резолверы KeeneticOS из show dns-proxy","Ручные DoH, DoT и DoQ в отдельном разделе"],
  "0.2.0-beta.8":["Убран встроенный AdGuard: по умолчанию проверяется реальный DNS роутера без kdig","Чтение глобальных upstream DoH/DoT/DoQ из KeeneticOS, без изменения настроек и раскрытия URL-путей","Smart VPN Auto: ввод и вставка пароля доступны в HTTP-панели; отправка только через защищённый канал"],
  "0.2.0-beta.9":["DNS: точные команды установки kdig и CA-сертификатов для Keenetic с Entware; инструкция в примечании панели","Все исправления DNS и ввода пароля из beta.8"]
