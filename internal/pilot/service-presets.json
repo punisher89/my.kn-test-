@@ -430,4 +430,77 @@
       "телеграм десктоп"
     ]
   }
+,
+{
+  "profile": {
+    "id": "github",
+    "name": "GitHub",
+    "domains": [
+      "github.com",
+      "githubusercontent.com",
+      "githubassets.com"
+    ],
+    "strategy": "none",
+    "targets": [
+      {
+        "url": "https://api.github.com/",
+        "status": 200,
+        "contains": "current_user_url"
+      }
+    ]
+  },
+  "category": "Разработка",
+  "note": "Стартовый список доменов. HTTPS-проверка не подтверждает работу приложения, аккаунта или видео.",
+  "aliases": [
+    "гитхаб"
+  ]
+},
+{
+  "profile": {
+    "id": "twitch",
+    "name": "Twitch",
+    "domains": [
+      "twitch.tv",
+      "ttvnw.net",
+      "jtvnw.net",
+      "twitchcdn.net"
+    ],
+    "strategy": "none",
+    "targets": [
+      {
+        "url": "https://www.twitch.tv/",
+        "status": 200
+      }
+    ]
+  },
+  "category": "Видео",
+  "note": "Стартовый список доменов. HTTPS-проверка не подтверждает работу приложения, аккаунта или видео.",
+  "aliases": [
+    "твич"
+  ]
+},
+{
+  "profile": {
+    "id": "reddit",
+    "name": "Reddit",
+    "domains": [
+      "reddit.com",
+      "redd.it",
+      "redditmedia.com",
+      "redditstatic.com"
+    ],
+    "strategy": "none",
+    "targets": [
+      {
+        "url": "https://www.reddit.com/",
+        "status": 200
+      }
+    ]
+  },
+  "category": "Соцсети",
+  "note": "Стартовый список доменов. HTTPS-проверка не подтверждает работу приложения, аккаунта или видео.",
+  "aliases": [
+    "реддит"
+  ]
+}
 ]

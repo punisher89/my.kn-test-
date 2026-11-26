@@ -2,6 +2,8 @@ package pilot
 
 import (
 	"bytes"
+ "encoding/json"
+ "time"
 	"errors"
 	"fmt"
 	"io"
@@ -76,7 +78,13 @@ func writeAdaptiveFile(path string, data []byte) error {
 	return d.Sync()
 }
 
-func (m *Manager) resetDomainLocked(c Config, host string) (result error) {
+func (m *Manager) resetDomainLocked(c Config, host string) error {
+ return m.rewriteAdaptiveLocked(c, host, false)
+}
+
+func (m *Manager) rewriteAdaptiveLocked(c Config, host string, historyOnly bool, restore ...bool) (result error) {
+ restoring:=len(restore)>0&&restore[0]
+ if m.updateRequested.Load(){return ErrBusy}
 	if _, err := os.Lstat(c.RuntimeDir); os.IsNotExist(err) {
 		return nil
 	} else if err != nil {
@@ -122,18 +130,35 @@ func (m *Manager) resetDomainLocked(c Config, host string) (result error) {
 		}
 		backups[name] = data
 	}
-	snapshot := ReadAdaptive(c)
+	snapshot := readAdaptiveState(c)
 	if snapshot.Generation == 0 && (len(backups["state0.tsv"]) > 0 || len(backups["state1.tsv"]) > 0) {
 		return errors.New("нет завершённого кадра опыта; отказ стирать остальные наблюдения")
 	}
 	if snapshot.Generation >= (1<<53)-2 {
 		return errors.New("исчерпан счётчик кадров опыта")
 	}
-	hosts := slices.DeleteFunc(snapshot.Hosts, func(r AdaptiveHost) bool { return host == "" || r.Host == host })
-	events := slices.DeleteFunc(snapshot.History, func(r AdaptiveHost) bool { return host == "" || r.Host == host })
+	if restoring {
+  saved,err:=loadCleanupBackup(filepath.Join(filepath.Dir(m.path),"history-before-cleanup.json"))
+  if err!=nil{return err}
+  // The current state is itself retained before restoring earlier observations.
+  if err:=WriteJSON(filepath.Join(filepath.Dir(m.path),"history-before-restore.json"),backups);err!=nil{return err}
+  saved.Generation=snapshot.Generation
+  snapshot=saved
+ }
+ hosts := snapshot.Hosts
+ if !historyOnly {hosts = slices.DeleteFunc(hosts, func(r AdaptiveHost) bool { return host == "" || r.Host == host })}
+ if historyOnly && !restoring {
+  // Save both complete original slots, not just the interpreted history.
+  // Fixed private file; retain the last pre-cleanup backup without unbounded growth.
+  if err := WriteJSON(filepath.Join(filepath.Dir(m.path),"history-before-cleanup.json"), backups); err != nil {return err}
+ }
+	events := snapshot.History
+ if !restoring {
+  if historyOnly {events=recentHistory(events,time.Now().Unix())} else {events=slices.DeleteFunc(events,func(r AdaptiveHost)bool{return host==""||r.Host==host})}
+ }
 	discovered := []string{}
 	for _, line := range strings.Split(string(backups["autohosts.txt"]), "\n") {
-		if host != "" && ValidDomain(line) && line != host && !slices.Contains(discovered, line) && len(discovered) < 1000 {
+		if (historyOnly || host != "") && ValidDomain(line) && line != host && !slices.Contains(discovered, line) && len(discovered) < 1000 {
 			discovered = append(discovered, line)
 		}
 	}
@@ -156,10 +181,39 @@ func (m *Manager) resetDomainLocked(c Config, host string) (result error) {
 			return err
 		}
 	}
-	if host == "" {
+	if restoring {
+  m.log.Add("Восстановлены наблюдения и история из последней резервной копии; настройки не изменены")
+ } else if historyOnly {
+  m.log.Add("Старая история попыток очищена; свежие события, наблюдения и ручные правила сохранены")
+ } else if host == "" {
 		m.log.Add("Обучение всех доменов сброшено; ручные правила сохранены")
 	} else {
 		m.log.Add("Обучение домена сброшено: " + host + "; ручные правила сохранены")
 	}
 	return nil
+}
+
+func recentHistory(events []AdaptiveHost,now int64)[]AdaptiveHost{
+ return slices.DeleteFunc(events,func(r AdaptiveHost)bool{return r.Updated<now-600})
+}
+
+// Only the daemon's own bounded local backup is accepted. Validate complete
+// frames using the same parser as the live observation reader.
+func loadCleanupBackup(path string)(AdaptiveSnapshot,error){
+ f,err:=os.Open(path);if err!=nil{return AdaptiveSnapshot{},errors.New("резервная копия истории недоступна")};defer f.Close()
+ info,err:=f.Stat();if err!=nil||!info.Mode().IsRegular()||info.Mode().Perm()&0077!=0{return AdaptiveSnapshot{},errors.New("небезопасная резервная копия истории")}
+ data,err:=io.ReadAll(io.LimitReader(f,2200001));if err!=nil||len(data)>2200000{return AdaptiveSnapshot{},errors.New("резервная копия истории слишком большая")}
+ var slots map[string][]byte
+ if json.Unmarshal(data,&slots)!=nil{return AdaptiveSnapshot{},errors.New("повреждена резервная копия истории")}
+ result:=AdaptiveSnapshot{}
+ for _,name:=range []string{"state0.tsv","state1.tsv"}{
+  raw:=slots[name];if len(raw)==0||len(raw)>524288{continue}
+  tmp,err:=os.CreateTemp(filepath.Dir(path),".pilot-restore-*");if err!=nil{return result,err}
+  n:=tmp.Name();_,err=tmp.Write(raw);closeErr:=tmp.Close()
+  if err==nil{err=closeErr}
+  if err==nil{generation,hosts,events,e:=readAdaptiveSlot(n);if e==nil&&generation>result.Generation{result.Generation=generation;result.Hosts=hosts;result.History=events}}
+  _=os.Remove(n)
+ }
+ if result.Generation==0{return result,errors.New("нет корректного кадра в резервной копии")}
+ return result,nil
 }

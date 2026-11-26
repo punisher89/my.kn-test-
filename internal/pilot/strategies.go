@@ -63,6 +63,32 @@ var Strategies = []Strategy{
 	{ID: "hy-disorder-2-midsld", Name: "Disorder · 2,midsld", Description: "Дополнительный лёгкий TLS-кандидат; требуется измерение.", Actions: []string{"multidisorder:pos=2,midsld"}},
 	{ID: "hy-disorder-3-midsld", Name: "Disorder · 3,midsld", Description: "Дополнительный лёгкий TLS-кандидат; требуется измерение.", Actions: []string{"multidisorder:pos=3,midsld"}},
 	{ID: "hy-disorder-5-midsld", Name: "Disorder · 5,midsld", Description: "Дополнительный лёгкий TLS-кандидат; требуется измерение.", Actions: []string{"multidisorder:pos=5,midsld"}},
+	{ID: "b6-split-10", Name: "Split · 10", Description: "Экспериментальный вариант разделения TLS; доступность проверяется отдельно.", Actions: []string{"multisplit:pos=10"}},
+	{ID: "b6-split-host", Name: "Split · host", Description: "Экспериментальный вариант разделения TLS; доступность проверяется отдельно.", Actions: []string{"multisplit:pos=host"}},
+	{ID: "b6-split-endhost", Name: "Split · endhost", Description: "Экспериментальный вариант разделения TLS; доступность проверяется отдельно.", Actions: []string{"multisplit:pos=endhost"}},
+	{ID: "b6-split-midsld", Name: "Split · midsld", Description: "Экспериментальный вариант разделения TLS; доступность проверяется отдельно.", Actions: []string{"multisplit:pos=midsld"}},
+	{ID: "b6-split-1-2", Name: "Split · 1,2", Description: "Экспериментальный вариант разделения TLS; доступность проверяется отдельно.", Actions: []string{"multisplit:pos=1,2"}},
+	{ID: "b6-split-1-3", Name: "Split · 1,3", Description: "Экспериментальный вариант разделения TLS; доступность проверяется отдельно.", Actions: []string{"multisplit:pos=1,3"}},
+	{ID: "b6-split-2-host", Name: "Split · 2,host", Description: "Экспериментальный вариант разделения TLS; доступность проверяется отдельно.", Actions: []string{"multisplit:pos=2,host"}},
+	{ID: "b6-split-2-endhost", Name: "Split · 2,endhost", Description: "Экспериментальный вариант разделения TLS; доступность проверяется отдельно.", Actions: []string{"multisplit:pos=2,endhost"}},
+	{ID: "b6-split-3-host", Name: "Split · 3,host", Description: "Экспериментальный вариант разделения TLS; доступность проверяется отдельно.", Actions: []string{"multisplit:pos=3,host"}},
+	{ID: "b6-split-3-endhost", Name: "Split · 3,endhost", Description: "Экспериментальный вариант разделения TLS; доступность проверяется отдельно.", Actions: []string{"multisplit:pos=3,endhost"}},
+	{ID: "b6-split-5-host", Name: "Split · 5,host", Description: "Экспериментальный вариант разделения TLS; доступность проверяется отдельно.", Actions: []string{"multisplit:pos=5,host"}},
+	{ID: "b6-split-5-endhost", Name: "Split · 5,endhost", Description: "Экспериментальный вариант разделения TLS; доступность проверяется отдельно.", Actions: []string{"multisplit:pos=5,endhost"}},
+	{ID: "b6-split-host-endhost", Name: "Split · host,endhost", Description: "Экспериментальный вариант разделения TLS; доступность проверяется отдельно.", Actions: []string{"multisplit:pos=host,endhost"}},
+	{ID: "b6-disorder-10", Name: "Disorder · 10", Description: "Экспериментальный вариант разделения TLS; доступность проверяется отдельно.", Actions: []string{"multidisorder:pos=10"}},
+	{ID: "b6-disorder-host", Name: "Disorder · host", Description: "Экспериментальный вариант разделения TLS; доступность проверяется отдельно.", Actions: []string{"multidisorder:pos=host"}},
+	{ID: "b6-disorder-endhost", Name: "Disorder · endhost", Description: "Экспериментальный вариант разделения TLS; доступность проверяется отдельно.", Actions: []string{"multidisorder:pos=endhost"}},
+	{ID: "b6-disorder-midsld", Name: "Disorder · midsld", Description: "Экспериментальный вариант разделения TLS; доступность проверяется отдельно.", Actions: []string{"multidisorder:pos=midsld"}},
+	{ID: "b6-disorder-1-2", Name: "Disorder · 1,2", Description: "Экспериментальный вариант разделения TLS; доступность проверяется отдельно.", Actions: []string{"multidisorder:pos=1,2"}},
+	{ID: "b6-disorder-1-3", Name: "Disorder · 1,3", Description: "Экспериментальный вариант разделения TLS; доступность проверяется отдельно.", Actions: []string{"multidisorder:pos=1,3"}},
+	{ID: "b6-disorder-2-host", Name: "Disorder · 2,host", Description: "Экспериментальный вариант разделения TLS; доступность проверяется отдельно.", Actions: []string{"multidisorder:pos=2,host"}},
+	{ID: "b6-disorder-2-endhost", Name: "Disorder · 2,endhost", Description: "Экспериментальный вариант разделения TLS; доступность проверяется отдельно.", Actions: []string{"multidisorder:pos=2,endhost"}},
+	{ID: "b6-disorder-3-host", Name: "Disorder · 3,host", Description: "Экспериментальный вариант разделения TLS; доступность проверяется отдельно.", Actions: []string{"multidisorder:pos=3,host"}},
+	{ID: "b6-disorder-3-endhost", Name: "Disorder · 3,endhost", Description: "Экспериментальный вариант разделения TLS; доступность проверяется отдельно.", Actions: []string{"multidisorder:pos=3,endhost"}},
+	{ID: "b6-disorder-5-host", Name: "Disorder · 5,host", Description: "Экспериментальный вариант разделения TLS; доступность проверяется отдельно.", Actions: []string{"multidisorder:pos=5,host"}},
+	{ID: "b6-disorder-5-endhost", Name: "Disorder · 5,endhost", Description: "Экспериментальный вариант разделения TLS; доступность проверяется отдельно.", Actions: []string{"multidisorder:pos=5,endhost"}},
+	{ID: "b6-disorder-10-midsld", Name: "Disorder · 10,midsld", Description: "Экспериментальный вариант разделения TLS; доступность проверяется отдельно.", Actions: []string{"multidisorder:pos=10,midsld"}},
 }
 
 func StrategyFamily(s Strategy) string {
@@ -120,7 +146,7 @@ func strategyFor(c Config, id string) (Strategy, bool) {
 func EngineArgs(c Config) []string {
 	args := []string{fmt.Sprintf("--qnum=%d", c.Queue), "--fwmark=0x40000000", "--lua-init=@" + filepath.Join(c.EngineDir, "lua", "zapret-lib.lua.gz"), "--lua-init=@" + filepath.Join(c.EngineDir, "lua", "zapret-antidpi.lua.gz")}
 	if c.usesAdaptiveController() {
-		args = append(args, "--lua-init=@"+filepath.Join(c.EngineDir, "lua", "zapret-auto.lua.gz"), "--lua-init=pilot_runtime="+luaString(c.RuntimeDir), "--lua-init=pilot_network="+luaString(c.WAN), fmt.Sprintf("--lua-init=pilot_reuse=%t", c.AdaptiveReuse), fmt.Sprintf("--lua-init=pilot_adaptive=%t", c.Adaptive && !c.tuning), "--lua-init=pilot_plan_context="+luaString(activeContext(c)), fmt.Sprintf("--lua-init=pilot_active=%t", c.AdaptiveActive && c.Adaptive && !c.tuning), fmt.Sprintf("--lua-init=pilot_fast_start=%t", c.AdaptiveFastStart), fmt.Sprintf("--lua-init=pilot_cooldown=%d", c.AdaptiveCooldownSeconds), fmt.Sprintf("--lua-init=pilot_max_switches=%d", c.AdaptiveMaxSwitches), fmt.Sprintf("--lua-init=pilot_global_max_switches=%d", c.AdaptiveGlobalMaxSwitches), fmt.Sprintf("--lua-init=pilot_youtube_stable=%t", c.YouTubeStable), "--lua-init="+domainControlsLua(c), "--lua-init=@"+filepath.Join(filepath.Dir(c.EngineDir), "lua", "pilot-measure.lua"), "--lua-init=@"+filepath.Join(filepath.Dir(c.EngineDir), "lua", "pilot-auto.lua"))
+		args = append(args, "--lua-init=@"+filepath.Join(c.EngineDir, "lua", "zapret-auto.lua.gz"), "--lua-init=pilot_runtime="+luaString(c.RuntimeDir), "--lua-init=pilot_network="+luaString(c.WAN), fmt.Sprintf("--lua-init=pilot_reuse=%t", c.AdaptiveReuse), fmt.Sprintf("--lua-init=pilot_history_days=%d",c.HistoryRetentionDays), fmt.Sprintf("--lua-init=pilot_adaptive=%t", c.Adaptive && !c.tuning), "--lua-init=pilot_plan_context="+luaString(activeContext(c)), fmt.Sprintf("--lua-init=pilot_active=%t", c.AdaptiveActive && c.Adaptive && !c.tuning), fmt.Sprintf("--lua-init=pilot_fast_start=%t", c.AdaptiveFastStart), fmt.Sprintf("--lua-init=pilot_cooldown=%d", c.AdaptiveCooldownSeconds), fmt.Sprintf("--lua-init=pilot_max_switches=%d", c.AdaptiveMaxSwitches), fmt.Sprintf("--lua-init=pilot_global_max_switches=%d", c.AdaptiveGlobalMaxSwitches), fmt.Sprintf("--lua-init=pilot_youtube_stable=%t", c.YouTubeStable), "--lua-init="+domainControlsLua(c), "--lua-init=@"+filepath.Join(filepath.Dir(c.EngineDir), "lua", "pilot-measure.lua"), "--lua-init=@"+filepath.Join(filepath.Dir(c.EngineDir), "lua", "pilot-auto.lua"))
 	}
 	haveProfile := false
 	profile := func(a ...string) {

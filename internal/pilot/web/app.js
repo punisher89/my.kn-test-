@@ -27,6 +27,7 @@ let state,
   token = sessionStorage.getItem("pilot-token") || "",
   toastTimer;
 document.addEventListener("visibilitychange",()=>document.documentElement.classList.toggle("page-hidden",document.hidden));
+const panelNotifications=[];
 let signedIn = false,
   authInfo = { configured: true },
   networkInfo;
@@ -59,6 +60,8 @@ async function api(path, method = "GET", data, signal) {
   }
 }
 function notify(message, error = false) {
+  const msg=String(message).slice(0,500);
+  if(signedIn&&(panelNotifications[0]?.message!==msg||panelNotifications[0]?.error!==error)){panelNotifications.unshift({message:msg,error,at:new Date().toLocaleTimeString("ru-RU")});if(panelNotifications.length>50)panelNotifications.pop();renderNotifications();}
   const toast = $("#toast");
   toast.textContent = message;
   toast.className = `toast${error ? " error" : ""}`;
@@ -67,6 +70,7 @@ function notify(message, error = false) {
 }
 async function logout() {
   stopUpdateMonitor();
+  panelNotifications.length=0;
   document.dispatchEvent(new Event("pilot-logout"));
   signedIn = false;
   panelSession++;
@@ -105,7 +109,8 @@ function strategyName(id) {
 }
 const familyLabels = {
   direct: "Без вмешательства",
-  split: "Разделение и порядок",
+  split: "Разделение (Split)",
+  disorder: "Изменение порядка (Disorder)",
   fake: "Fake",
   hostfake: "HostFake",
   overlap: "SEQ overlap",
@@ -117,7 +122,7 @@ function methodGroups() {
       id,
       name,
       methods: state.strategies.filter(
-        (s) => (s.family || (s.id === "none" ? "direct" : "other")) === id,
+        (s) => (s.family === "split" && s.actions?.some(a=>a.startsWith("multidisorder:")) ? "disorder" : (s.family || (s.id === "none" ? "direct" : "other"))) === id,
       ),
     }))
     .filter((g) => g.methods.length);
@@ -136,7 +141,7 @@ function methodResults(){
  const query=methodQuery.trim().toLowerCase();
  return methodGroups().filter(g=>methodFamily==="all"||methodFamily===g.id).map(g=>({...g,methods:g.methods.filter(m=>[m.id,m.name,m.description,g.name].join(" ").toLowerCase().includes(query))})).filter(g=>g.methods.length).map(g=>`<details class="panel method-family" data-method-view="family/${esc(g.id)}" ${methodOpen.get("family/"+g.id)||query?"open":""}><summary>${esc(g.name)} · ${g.methods.length}</summary>${g.methods.map(m=>`<details class="method-item" data-method-view="method/${esc(m.id)}" ${methodOpen.get("method/"+m.id)?"open":""}><summary>${esc(m.name)}</summary><p>${esc(m.description)}</p>${m.actions?.length?`<pre>${esc(m.actions.join("\n"))}</pre>`:'<p>Обычное соединение без изменения пакетов.</p>'}</details>`).join("")}</details>`).join("")||'<p class="subtle">Методы не найдены.</p>';
 }
-function strategyCatalog(){return heading("Каталог методов","Семейства и параметры раскрываются по нажатию. Наличие метода не гарантирует доступ.")+`<div class="panel method-toolbar"><label>Поиск<input id="method-search" type="search" value="${esc(methodQuery)}" placeholder="Название или семейство"></label><label>Семейство<select id="method-family"><option value="all">Все семейства</option>${methodGroups().map(g=>`<option value="${esc(g.id)}" ${methodFamily===g.id?"selected":""}>${esc(g.name)}</option>`).join("")}</select></label></div><div class="method-list" id="method-results">${methodResults()}</div>`;}
+function strategyCatalog(){return heading("Каталог методов","Семейства и параметры раскрываются по нажатию. Наличие метода не гарантирует доступ.")+`<div class="panel"><strong>Всего вариантов: ${state.strategies.length}</strong><p class="subtle">Встроенные: ${state.strategies.filter(m=>!m.id.startsWith("net-")).length} · из загруженного каталога: ${state.strategies.filter(m=>m.id.startsWith("net-")).length}. Без вмешательства — контрольный вариант, не обход.</p><p>${methodGroups().map(g=>`${esc(g.name)}: ${g.methods.length}`).join(" · ")}</p></div><div class="panel method-toolbar"><label>Поиск<input id="method-search" type="search" value="${esc(methodQuery)}" placeholder="Название или семейство"></label><label>Семейство<select id="method-family"><option value="all">Все семейства (${state.strategies.length})</option>${methodGroups().map(g=>`<option value="${esc(g.id)}" ${methodFamily===g.id?"selected":""}>${esc(g.name)} (${g.methods.length})</option>`).join("")}</select></label></div><div class="method-list" id="method-results">${methodResults()}</div>`;}
 function bindMethodViews(){document.querySelectorAll("[data-method-view]").forEach(el=>el.addEventListener("toggle",()=>methodOpen.set(el.dataset.methodView,el.open)));}
 function bindTrials(){document.querySelectorAll("[data-trial]").forEach(el=>el.addEventListener("toggle",()=>trialOpen.set(el.dataset.trial,el.open)));}
 function badge(text, kind = "") {
@@ -167,7 +172,7 @@ function domainSearchMini(){const d=state.domain_job;return `<div class="panel d
 function domainSearchPanel(){
  const d=state.domain_job;if(!d)return '<div class="panel"><h3>Полный автоподбор доменов</h3><p>После повторных сбоев запускает собственные HTTPS-пробы. Очередь: '+(state.domain_queue||0)+'. Пробные методы изолированы от обычного трафика.</p></div>';
  const key="domain/"+d.started;
- return `<div class="panel domain-search-report"><div class="panel-head"><h2>${d.finished?"Последний поиск":"Автоподбор"} · ${esc(d.scope.host)}</h2>${badge(domainStageName(d.stage,d.reason),d.stage==="applied"?"":"warn")}</div><p>${esc(tlsLabels[d.scope.tls]||d.scope.tls)} · ${esc(d.scope.family)} · порт ${d.scope.port} · в очереди: ${state.domain_queue||0}${d.candidate_total?" · кандидат "+d.candidate_index+"/"+d.candidate_total:""}</p><p>${d.candidate&&!d.finished?"Сейчас: "+esc(strategyName(d.candidate)):d.selected?"Применён: "+esc(strategyName(d.selected)):"Действующий метод сохранён"}</p>${domainReasonHelp(d)?`<p class="domain-search-help">${esc(domainReasonHelp(d))}</p>`:""}${state.background_hold?`<p class="domain-resource-hold">Фоновые проверки отложены: ${esc(state.background_hold)}</p>`:""}${d.error?`<p class="subtle">${esc(d.error)}</p>`:""}${d.next_at?`<p>Следующая попытка не раньше ${esc(new Date(d.next_at).toLocaleString("ru-RU"))}</p>`:""}<p class="subtle">Проверяется HTTPS с роутера; это не подтверждение видео, голоса или ClientHello телевизора.</p>${(d.trials||[]).map((t,i)=>`<details class="trial trial-compact" data-trial="${esc(key+"/"+i)}" ${trialOpen.get(key+"/"+i)?"open":""}><summary><strong>${esc(t.strategy.startsWith("direct:")?"Без обхода":(t.strategy.startsWith("confirm:")?"Подтверждение · ":"")+strategyName(t.strategy.split(":").slice(1).join(":")))}</strong><small>${t.results.filter(r=>r.ok).length}/${t.results.length} проб</small>${badge(t.passed?"Пройдено":t.error?"Не измерено":"Не прошло",t.passed?"":"warn")}</summary>${t.error?`<p>${esc(t.error)}</p>`:""}<div class="table-scroll"><table class="probe-table"><tbody>${t.results.map(r=>`<tr><td>${esc(r.url)}${r.peer?`<br><small>${esc(r.peer)}${r.client_hello_response?" · есть ответ на форму ClientHello":""}</small>`:""}</td><td>${esc(r.tls)} / ${esc(r.family)}</td><td>${r.status||"—"} · ${r.duration_ms} мс</td><td>${r.ok?"Есть ответ":esc(r.error)}</td></tr>`).join("")}</tbody></table></div></details>`).join("")}${d.finished?`<button id="domain-retry" ${state.busy?"disabled":""}>Повторить поиск этого домена</button>`:""}</div>`;
+ return `<div class="panel domain-search-report"><div class="panel-head"><h2>${d.finished?"Последний поиск":"Автоподбор"} · ${esc(d.scope.host)}</h2>${badge(domainStageName(d.stage,d.reason),d.stage==="applied"?"":"warn")}</div><p>${esc(tlsLabels[d.scope.tls]||d.scope.tls)} · ${esc(d.scope.family)} · порт ${d.scope.port} · в очереди: ${state.domain_queue||0}${d.candidate_total?" · кандидат "+d.candidate_index+"/"+d.candidate_total:""}</p><p>${d.candidate&&!d.finished?"Сейчас: "+esc(strategyName(d.candidate)):d.selected?"Применён: "+esc(strategyName(d.selected)):"Действующий метод сохранён"}</p>${domainReasonHelp(d)?`<p class="domain-search-help">${esc(domainReasonHelp(d))}</p>`:""}${state.background_hold?`<p class="domain-resource-hold">Фоновые проверки отложены: ${esc(state.background_hold)}</p>`:""}${d.error?`<p class="subtle">${esc(d.error)}</p>`:""}${d.next_at?`<p>Следующая попытка не раньше ${esc(new Date(d.next_at).toLocaleString("ru-RU"))}</p>`:""}<p class="subtle">Проверяется HTTPS с роутера; это не подтверждение видео, голоса или ClientHello телевизора.</p>${(d.trials||[]).map((t,i)=>`<details class="trial trial-compact" data-trial="${esc(key+"/"+i)}" ${trialOpen.get(key+"/"+i)?"open":""}><summary><strong>${esc(t.strategy.startsWith("direct:")?"Без обхода":(t.strategy.startsWith("confirm:")?"Подтверждение · ":"")+strategyName(t.strategy.split(":").slice(1).join(":")))}</strong><small>${t.results.filter(r=>r.ok).length}/${t.results.length} проб</small>${badge(t.passed?"Пройдено":t.error?"Не измерено":"Не прошло",t.passed?"":"warn")}</summary>${t.error?`<p>${esc(t.error)}</p>`:""}<div class="table-scroll"><table class="probe-table"><tbody>${t.results.map(r=>`<tr><td>${esc(r.url)}${r.peer?`<br><small>${esc(r.peer)}${r.client_hello_response?" · есть ответ на форму ClientHello":""}</small>`:""}</td><td>${esc(r.tls)} / ${esc(r.family)}</td><td>${r.status||"—"} · ${r.duration_ms} мс</td><td>${r.ok?"Есть ответ":esc(r.error)}</td></tr>`).join("")}</tbody></table></div></details>`).join("")}${d.finished?`<button id="domain-retry" ${manualBlocked()?"disabled":""}>Повторить поиск этого домена</button>`:""}</div>`;
 }
 function tuneRunning(){return Boolean((state.job&&!state.job.finished)||(state.domain_job&&!state.domain_job.finished));}
 function jobSummary() {
@@ -181,7 +186,7 @@ function jobSummary() {
 function overview() {
   const c=state.config;
   return heading("Состояние сети", "Обход и доступность сервисов под контролем.")+
-    `<div class="status-card"><div class="status-main"><span class="dot"></span><strong>${state.running?"ОБХОД ВКЛЮЧЁН":"ОБХОД ОСТАНОВЛЕН"}</strong><small>WAN · ${esc(c.wan||"не задан")}</small></div><button id="service-toggle" ${state.busy?"disabled":""}>${state.running?"Остановить":"Запустить обход"}</button></div>
+    `<div class="status-card"><div class="status-main"><span class="dot"></span><strong>${state.running?"ОБХОД ВКЛЮЧЁН":"ОБХОД ОСТАНОВЛЕН"}</strong><small>WAN · ${esc(c.wan||"не задан")}</small></div><button id="service-toggle" ${manualBlocked()?"disabled":""}>${state.running?"Остановить":"Запустить обход"}</button></div>
     ${!c.enabled&&!state.job?'<div class="panel welcome"><h2>Первый запуск</h2><a class="button-link primary" href="#connect">Настроить подключение</a></div>':""}
     <div id="network-telemetry" class="network-telemetry" aria-live="off">${deviceData?telemetryMarkup(deviceData):"Загрузка показателей роутера…"}</div>
     ${domainSearchMini()}<div class="dashboard-columns"><section class="panel"><div class="panel-head"><h2>Сервисы</h2><a href="#profiles">Управление →</a></div><div class="form-actions"><button id="check-all">Проверить все сервисы</button><button id="check-stop" hidden>Остановить проверку</button><small id="batch-status" role="status"></small></div><div class="service-check-list">${c.profiles.map(p=>`<div class="service-row">${logo(p)}<div class="service-meta"><h3>${esc(p.name)}</h3><span>${esc(strategyName(p.strategy))} · ${p.domains.length} доменов</span></div><div class="service-check-status" data-check-status="${esc(p.id)}">${checkStatus(p)}</div><button data-check-profile="${esc(p.id)}">Проверить</button></div><div data-check-report="${esc(p.id)}">${checkReport(p)}</div>`).join("")}</div><p class="info-note">Проверяются контрольные HTTPS-адреса сервиса. Ответ не подтверждает видео, звонки и работу всех доменов.</p></section><aside>${loadControlPanel()}<p class="subtle"><a href="#tune">Последний подбор: ${esc(jobSummary())} →</a></p></aside></div>
@@ -198,12 +203,12 @@ function cancelBatch() {
 function updateBatchButtons() {
   const start = $("#check-all");
   if (!start) return;
-  start.disabled = !!batch || checkPending.size > 0 || state.busy || lostContact || !state.config.profiles.length;
+  start.disabled = !!batch || checkPending.size > 0 || manualBlocked() || lostContact || !state.config.profiles.length;
   $("#check-stop").hidden = !batch;
   $("#batch-status").textContent = batchMessage;
 }
 async function checkAllServices() {
-  if (batch || checkPending.size || state.busy || lostContact) return;
+  if (batch || checkPending.size || manualBlocked() || lostContact) return;
   const controller = new AbortController();
   const profiles = state.config.profiles.slice();
   const session = panelSession;
@@ -241,7 +246,8 @@ async function checkAllServices() {
     }
   }
 }
-function checkDisabled(){return !signedIn || lostContact || state.busy || !!batch || checkPending.size>0;}
+function manualBlocked(){return Boolean(state?.busy && !state?.background_search_running);}
+function checkDisabled(){return !signedIn || lostContact || manualBlocked() || !!batch || checkPending.size>0;}
 async function checkOneService(id) {
   if (checkDisabled()) return;
   const controller = new AbortController();
@@ -283,26 +289,26 @@ function presetNote(id) {
 function servicePresetState(p) {
   const existing = state.config.profiles.some((v) => v.id === p.id);
   const conflict = state.config.profiles.some((v) => v.domains.some((d) => p.domains.some((other) => d === other || d.endsWith("." + other) || other.endsWith("." + d))));
-  return { existing, conflict, blocked: existing || conflict || state.config.profiles.length >= 12 || state.busy || serviceMutationPending };
+  return { existing, conflict, blocked: existing || conflict || state.config.profiles.length >= 12 || manualBlocked() || serviceMutationPending };
 }
 function updateServiceButtons() {
   document.querySelectorAll("#performance-rescue-apply, #telegram-native-toggle").forEach(button => {
     button.disabled = serviceMutationPending;
   });
   const restore = $("#youtube-restore");
-  if (restore) restore.disabled = state.busy || serviceMutationPending;
+  if (restore) restore.disabled = manualBlocked() || serviceMutationPending;
   const video = $("#youtube-video-check");
-  if (video) video.disabled = state.busy || videoProbeBusy;
+  if (video) video.disabled = manualBlocked() || videoProbeBusy;
   document.querySelectorAll("[data-add-service]").forEach((button) => {
     const preset = (state.service_presets || []).find((p) => p.profile.id === button.dataset.addService);
     button.disabled = !preset || servicePresetState(preset.profile).blocked;
   });
-  document.querySelectorAll("[data-expand-domains]").forEach(b=>{b.disabled=state.busy||serviceMutationPending;});
-  document.querySelectorAll("[data-domain-sync]").forEach(b=>{b.disabled=state.busy||serviceMutationPending;});
-  const customButton=$("#custom-service-form button[type=submit]");if(customButton)customButton.disabled=state.busy||serviceMutationPending||state.config.profiles.length>=12;
+  document.querySelectorAll("[data-expand-domains]").forEach(b=>{b.disabled=manualBlocked()||serviceMutationPending;});
+  document.querySelectorAll("[data-domain-sync]").forEach(b=>{b.disabled=manualBlocked()||serviceMutationPending;});
+  const customButton=$("#custom-service-form button[type=submit]");if(customButton)customButton.disabled=manualBlocked()||serviceMutationPending||state.config.profiles.length>=12;
   document.querySelectorAll("[data-profile-card]").forEach(card=>{const p=state.config.profiles.find(p=>p.id===card.dataset.profileCard);if(!p)return;const summary=card.querySelector(".profile-summary small");if(summary)summary.textContent=strategyName(p.strategy)+" · доменов: "+p.domains.length;if(!profileDrafts.has(p.id)){const box=$(`#domains-${p.id}`);if(box)box.value=p.domains.join("\n");const select=$(`#strategy-${p.id}`);if(select)select.value=p.strategy;}});
-  document.querySelectorAll("[data-save-profile]").forEach((b) => { b.disabled = state.busy || serviceMutationPending; });
-  document.querySelectorAll("[data-remove-service]").forEach((b) => { b.disabled = state.busy || serviceMutationPending || state.config.profiles.length <= 1; });
+  document.querySelectorAll("[data-save-profile]").forEach((b) => { b.disabled = manualBlocked() || serviceMutationPending; });
+  document.querySelectorAll("[data-remove-service]").forEach((b) => { b.disabled = manualBlocked() || serviceMutationPending || state.config.profiles.length <= 1; });
 }
 async function serviceAction(fn) {
   if (serviceMutationPending) return;
@@ -323,7 +329,29 @@ function serviceCatalog() {
 }
 function profileCard(p) {
   const edit = profileDrafts.get(p.id) || p;
-  return `<details class="panel service-profile" data-profile-card="${esc(p.id)}" ${profileOpen.get(p.id) ? "open" : ""}><summary><span class="profile-summary">${logo(p)}<span><strong>${esc(p.name)}</strong><small>${esc(strategyName(p.strategy))} · доменов: ${p.domains.length}</small></span></span></summary><div class="profile-editor"><p class="subtle">${esc(presetNote(p.id))}</p><label for="strategy-${esc(p.id)}">Текущая стратегия</label><select id="strategy-${esc(p.id)}">${strategyOptions(edit.strategy)}</select><details><summary>Домены и проверки</summary><label for="domains-${esc(p.id)}">Один домен на строку, поддомены включаются автоматически</label><textarea rows="4" id="domains-${esc(p.id)}">${esc(edit.domains.join("\n"))}</textarea>${(state.service_presets||[]).some(s=>s.profile.id===p.id)?`<button type="button" data-expand-domains="${esc(p.id)}" ${state.busy?"disabled":""}>Дополнить домены из каталога</button>`:""}<div class="field"></div><label>Контрольные запросы</label>${edit.targets.map((t, i) => `<div class="target-editor" data-profile="${esc(p.id)}" data-target="${i}"><label>Адрес HTTPS</label><input type="url" data-field="url" value="${esc(t.url)}"><div class="target-small"><div><label>HTTP</label><input type="number" min="200" max="399" data-field="status" value="${t.status}"></div><div><label>Фрагмент ответа</label><input data-field="contains" value="${esc(t.contains || "")}" placeholder="Необязательно"></div></div></div>`).join("")}<small>Каждый адрес проверяется с TLS 1.2 и TLS 1.3. HTTP 403/451 и ошибки сертификата не считаются успешным обходом. Контрольные адреса можно изменить под нужный сценарий.</small></details>${domainSourceEditor(edit)}<div class="profile-buttons"><button data-save-profile="${esc(p.id)}" ${state.busy ? "disabled" : ""}>Сохранить</button><button data-check-profile="${esc(p.id)}">Проверить сервис</button><button data-tune-profile="${esc(p.id)}" class="primary" ${!state.running || state.busy ? "disabled" : ""}>Подобрать ↗</button><button data-remove-service="${esc(p.id)}" ${state.busy || state.config.profiles.length <= 1 ? "disabled" : ""}>Удалить профиль</button></div><div data-check-status="${esc(p.id)}">${checkStatus(p)}</div><div data-check-report="${esc(p.id)}">${checkReport(p)}</div></div></details>`;
+  return `<details class="panel service-profile" data-profile-card="${esc(p.id)}" ${profileOpen.get(p.id) ? "open" : ""}><summary><span class="profile-summary">${logo(p)}<span><strong>${esc(p.name)}</strong><small>${esc(strategyName(p.strategy))} · доменов: ${p.domains.length}</small></span></span></summary><div class="profile-editor"><p class="subtle">${esc(presetNote(p.id))}</p><label for="strategy-${esc(p.id)}">Текущая стратегия</label><select id="strategy-${esc(p.id)}">${strategyOptions(edit.strategy)}</select><details><summary>Домены и проверки</summary><label for="domains-${esc(p.id)}">Один домен на строку, поддомены включаются автоматически</label><textarea rows="4" id="domains-${esc(p.id)}">${esc(edit.domains.join("\n"))}</textarea><div class="form-actions"><label>Импорт списка hosts / TXT<input type="file" data-hostlist-import="${esc(p.id)}" accept=".txt,.hosts,.list,text/plain"></label><button type="button" data-hostlist-export="${esc(p.id)}">Скачать список доменов</button></div><small>Импорт добавляет домены к черновику, не меняет DNS-адреса. Для применения нажмите «Сохранить».</small>${(state.service_presets||[]).some(s=>s.profile.id===p.id)?`<button type="button" data-expand-domains="${esc(p.id)}" ${manualBlocked()?"disabled":""}>Дополнить домены из каталога</button>`:""}<div class="field"></div><label>Контрольные запросы</label>${edit.targets.map((t, i) => `<div class="target-editor" data-profile="${esc(p.id)}" data-target="${i}"><label>Адрес HTTPS</label><input type="url" data-field="url" value="${esc(t.url)}"><div class="target-small"><div><label>HTTP</label><input type="number" min="200" max="399" data-field="status" value="${t.status}"></div><div><label>Фрагмент ответа</label><input data-field="contains" value="${esc(t.contains || "")}" placeholder="Необязательно"></div></div></div>`).join("")}<small>Каждый адрес проверяется с TLS 1.2 и TLS 1.3. HTTP 403/451 и ошибки сертификата не считаются успешным обходом. Контрольные адреса можно изменить под нужный сценарий.</small></details>${domainSourceEditor(edit)}<div class="profile-buttons"><button data-save-profile="${esc(p.id)}" ${manualBlocked() ? "disabled" : ""}>Сохранить</button><button data-check-profile="${esc(p.id)}">Проверить сервис</button><button data-tune-profile="${esc(p.id)}" class="primary" ${!state.running || manualBlocked() ? "disabled" : ""}>Подобрать ↗</button><button data-remove-service="${esc(p.id)}" ${manualBlocked() || state.config.profiles.length <= 1 ? "disabled" : ""}>Удалить профиль</button></div><div data-check-status="${esc(p.id)}">${checkStatus(p)}</div><div data-check-report="${esc(p.id)}">${checkReport(p)}</div></div></details>`;
+}
+function parseLocalHostlist(raw){
+ if(raw.length>262144)throw Error("Список слишком большой (максимум 256 КиБ).");
+ const result=new Set();let skipped=0;
+ for(const row of raw.split(/\r?\n/)){
+  const line=row.replace(/#.*$/,"").trim();if(!line||line.startsWith(";"))continue;
+  const parts=line.split(/\s+/);
+  if(parts.length>1&&(/^(?:\d{1,3}\.){3}\d{1,3}$/.test(parts[0])||/^[0-9a-f:]+:[0-9a-f:]*$/i.test(parts[0])))parts.shift();
+  for(let domain of parts){
+   domain=domain.toLowerCase().replace(/^\*\./,"").replace(/\.$/,"");
+   if(domain.length>253||!domain.includes(".")||/^(?:\d{1,3}\.){3}\d{1,3}$/.test(domain)||!domain.split(".").every(label=>/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))||/\.(?:local|localhost|internal)$/.test(domain)){skipped++;continue;}
+   result.add(domain);if(result.size>300)throw Error("В списке больше 300 доменов; разделите файл.");
+  }
+ }
+ if(!result.size)throw Error("В файле нет допустимых доменов.");
+ return {domains:[...result],skipped};
+}
+function mergeLocalHostlist(existing,incoming){
+ const all=[...new Set([...existing,...incoming])];
+ const result=all.filter(d=>!all.some(parent=>parent!==d&&d.endsWith("."+parent)));
+ if(result.length>300)throw Error("В профиле может быть максимум 300 доменов.");
+ return result;
 }
 function expandedProfileDomains(p,preset,profiles){
  const incoming=preset.profile.domains.filter(d=>!(p.source_exclusions||[]).some(x=>d===x||d.endsWith("."+x)||x.endsWith("."+d))&&!profiles.some(other=>other.id!==p.id&&other.domains.some(x=>d===x||d.endsWith("."+x)||x.endsWith("."+d))));
@@ -358,9 +386,9 @@ function youtubeVideoCheckPanel(){
   <div class="field"><label for="youtube-video-url">Временная ссылка на видео</label>
   <input id="youtube-video-url" type="password" autocomplete="off" spellcheck="false" maxlength="8192" placeholder="https://rr…googlevideo.com/videoplayback?…" />
   <small>Проверка из роутера: HTTP 206, MIME video/*, Content-Range, первые 64 КиБ и время загрузки. Работа телевизора и плавность воспроизведения проверяются отдельно.</small></div>
-  <div class="form-actions"><button type="button" id="youtube-restore" class="primary" ${state.busy?"disabled":""}>Вернуть fake-host-md5 и закрепить YouTube</button></div>
+  <div class="form-actions"><button type="button" id="youtube-restore" class="primary" ${manualBlocked()?"disabled":""}>Вернуть fake-host-md5 и закрепить YouTube</button></div>
   <p class="subtle">Восстановление дополняет охват YouTube/CDN из каталога (с учётом исключений), включает ранее работавший метод и запрещает автоподбору автоматически менять его по ответу страницы. Настройки других сервисов сохраняются. Изменение кратко перезапустит движок.</p>
-  <div class="form-actions"><button type="button" id="youtube-video-check" ${videoProbeBusy||state.busy?"disabled":""}>Проверить видеофрагмент</button></div>
+  <div class="form-actions"><button type="button" id="youtube-video-check" ${videoProbeBusy||manualBlocked()?"disabled":""}>Проверить видеофрагмент</button></div>
   <div id="youtube-video-report" aria-live="polite">${videoProbeMarkup()}</div></section>`;
 }
 function bindYoutubeRestore(){
@@ -396,7 +424,7 @@ function bindYoutubeVideoCheck(){
     }catch(e){
       videoProbeReport={ok:false,error:e.message};
     }finally {
-      videoProbeBusy=false;button.disabled=state.busy;button.textContent="Проверить видеофрагмент";
+      videoProbeBusy=false;button.disabled=manualBlocked();button.textContent="Проверить видеофрагмент";
       if(report.isConnected)report.innerHTML=videoProbeMarkup();
     }
   });
@@ -407,10 +435,10 @@ function bindYoutubeVideoCheck(){
 // the controller's normal rollback frees the operation lock, then apply a
 // fresh copy of config rather than overwriting another completed change.
 async function applyConfigAfterActiveSearch(change){
-  if(state.busy)await api("tune/cancel","POST",{});
+  if(manualBlocked())await api("tune/cancel","POST",{});
   for(let i=0;i<24;i++){
     const fresh=await api("status");
-    if(!fresh.busy){
+    if(!fresh.busy||fresh.background_search_running){
       const c=structuredClone(fresh.config);
       change(c);
       await api("config","PUT",c);
@@ -497,7 +525,7 @@ function tune() {
       "Подбор стратегий",
       "Сначала сохранённый метод и опыт коробок; перед сохранением — полная повторная проверка.",
     ) +
-    serviceCatalog() + `<div class="tune-intro"><div class="step-card"><b>01 / ИСХОДНОЕ СОСТОЯНИЕ</b><strong>Проверка без обхода</strong><p>Прямые соединения помогают понять, требуется ли вмешательство.</p></div><div class="step-card"><b>02 / ПОИСК</b><strong>TLS 1.2 + TLS 1.3</strong><p>Применяем варианты и повторяем контрольные запросы.</p></div><div class="step-card"><b>03 / ПОДТВЕРЖДЕНИЕ</b><strong>Сохранение или откат</strong><p>Перезапускаем движок и снова проверяем выбранный вариант.</p></div></div><div class="panel"><div class="tune-control"><div class="field"><label for="tune-profile">Сервис</label><select id="tune-profile">${state.config.profiles.map((p) => `<option value="${esc(p.id)}" ${p.id === selectedTuneProfile ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select></div><button id="tune-start" class="primary" ${!state.running || state.busy ? "disabled" : ""}>Начать подбор ↗</button><button id="tune-cancel" ${!tuneRunning() ? "disabled" : ""}>Отменить</button></div><div class="info-note">Во время подбора движок несколько раз перезапускается. Возможны краткие перебои у активных соединений. QUIC, голос Discord и фактическое воспроизведение видео требуют отдельных испытаний.</div><p id="tune-profile-note" class="subtle">${esc(presetNote(state.config.profiles.find((p) => p.id === selectedTuneProfile)?.id || state.config.profiles[0].id))}</p></div><div id="job-panel">${jobPanel()}</div>`
+    serviceCatalog() + `<div class="tune-intro"><div class="step-card"><b>01 / ИСХОДНОЕ СОСТОЯНИЕ</b><strong>Проверка без обхода</strong><p>Прямые соединения помогают понять, требуется ли вмешательство.</p></div><div class="step-card"><b>02 / ПОИСК</b><strong>TLS 1.2 + TLS 1.3</strong><p>Применяем варианты и повторяем контрольные запросы.</p></div><div class="step-card"><b>03 / ПОДТВЕРЖДЕНИЕ</b><strong>Сохранение или откат</strong><p>Перезапускаем движок и снова проверяем выбранный вариант.</p></div></div><div class="panel"><div class="tune-control"><div class="field"><label for="tune-profile">Сервис</label><select id="tune-profile">${state.config.profiles.map((p) => `<option value="${esc(p.id)}" ${p.id === selectedTuneProfile ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select></div><button id="tune-start" class="primary" ${!state.running || manualBlocked() ? "disabled" : ""}>Начать подбор ↗</button><button id="tune-cancel" ${!tuneRunning() ? "disabled" : ""}>Отменить</button></div><div class="info-note">Во время подбора движок несколько раз перезапускается. Возможны краткие перебои у активных соединений. QUIC, голос Discord и фактическое воспроизведение видео требуют отдельных испытаний.</div><p id="tune-profile-note" class="subtle">${esc(presetNote(state.config.profiles.find((p) => p.id === selectedTuneProfile)?.id || state.config.profiles[0].id))}</p></div><div id="job-panel">${jobPanel()}</div>`
   );
 }
 function jobPanel(){
@@ -519,7 +547,7 @@ function settings() {
       "Настройки",
       "Сетевые параметры и правила автоматического подбора.",
     ) +
-    `<form id="settings-form"><div class="settings-grid"><div class="panel"><div class="panel-head"><h2>Подключение</h2></div><div class="field"><label for="wan">WAN-интерфейс</label><input id="wan" value="${esc(c.wan)}" placeholder="Например: ppp0"><small>Имя активного интерфейса провайдера на роутере.</small></div>${toggle("ipv6", "Обрабатывать IPv6", "Включайте при наличии работающего IPv6 у провайдера.", c.ipv6)}${toggle("ppe", "Сохранять видимость handshake", "Первые пакеты без аппаратного ускорения: окно 48 при автоподборе по трафику, иначе 30.", c.ppe)}${toggle("quic", "Обрабатывать QUIC", "Статическая стратегия UDP/443. Подбор HTTPS её не проверяет.", c.quic)}${toggle("discord_voice", "Discord Voice · экспериментально", "Обработка UDP 50000–50099. Нужна проверка реального звонка.", c.discord_voice)}${toggle("youtube_stable", "YouTube · сохранить выбранную стратегию", "Выбранный метод профиля YouTube не будет автоматически заменяться по HTTPS-пробе. Для восстановления используйте кнопку в «Сервисах и доменах».", c.youtube_stable)}</div><div class="panel"><div class="panel-head"><h2>Автоматический подбор</h2></div>${toggle("adaptive", "Автоподбор по трафику", "Обнаруживать повторные ошибки HTTPS и менять метод отдельно для каждого сайта. Сохранённый метод используется первым.", c.adaptive)}<div class="info-note">Новые наблюдения и выбранные методы — в разделе «Коробки обхода». Сетевые ошибки не всегда означают блокировку.</div>${toggle("adaptive_fast_start","Быстрый старт автоподбора","Первые три смены метода в каждом 10-минутном окне: пауза 10 секунд вместо обычной. Затем действует заданная ниже пауза. Два сбоя перед сменой и общие лимиты сохраняются.",c.adaptive_fast_start)}${toggle("adaptive_active","Полный автоподбор","После повторных сбоев самостоятельно проверить прямое подключение и весь каталог на изолированных пробах. Применять только подтверждённый HTTPS-результат без перезапуска движка.",c.adaptive_active)}${toggle("background_paused","Пауза фоновых проверок","Приостановить автоматические проверки и подбор, не перезапуская nfqws2, QUIC и текущие стратегии.",Boolean(c.background_paused))}${toggle("background_other_domains","Проверять посторонние сайты автоматически","По умолчанию выключено для снижения нагрузки. Полный автоподбор работает на настроенных сервисах; неизвестные сайты можно поставить на проверку вручную. Включайте только на мощном роутере.",Boolean(c.background_other_domains))}${toggle("adaptive_reuse", "Использовать опыт коробок", "После повторных сбоев сначала пробовать до трёх методов, давших ответ в похожем контексте за последние семь дней.", c.adaptive_reuse)}<div class="two-fields"><div class="field"><label for="adaptive-cooldown">Пауза между сменами, с</label><input id="adaptive-cooldown" type="number" min="10" max="300" value="${c.adaptive_cooldown_seconds}"></div><div class="field"><label for="adaptive-max-switches">Максимум смен за 10 минут</label><input id="adaptive-max-switches" type="number" min="1" max="20" value="${c.adaptive_max_switches}"></div></div><div class="field"><label for="adaptive-global-max">Общий лимит смен движка за 10 минут</label><input id="adaptive-global-max" type="number" min="1" max="300" value="${c.adaptive_global_max_switches??30}"><small>Для всех коробок вместе. Рабочие методы сохраняются; при достижении лимита смена ждёт окончания окна.</small></div>${toggle("probe_load_guard","Защита фоновых проверок","Откладывать плановые проверки, подбор и загрузку каталогов при CPU ≥65%, load ≥ числу ядер или нехватке памяти. Работающий обход продолжается.",c.probe_load_guard!==false)}${toggle("auto_catalog", "Обновлять каталог стратегий", "Подписанный каталог Pilot: проверка раз в сутки. Новые варианты проверяются при подборе.", c.auto_catalog)}<div class="form-actions"><button type="button" id="catalog-update">Загрузить стратегии сейчас</button></div>${toggle("auto", "Следить за доступностью", "После двух неудачных циклов проверок начинается новый подбор.", c.auto)}<div class="field"></div><div class="two-fields"><div class="field"><label for="interval">Интервал, мин</label><input id="interval" type="number" min="5" max="1440" value="${c.interval_minutes}"></div><div class="field"><label for="timeout">Таймаут запроса, с</label><input id="timeout" type="number" min="2" max="20" value="${c.timeout_seconds}"></div></div><div class="field"><label for="attempts">Попыток на протокол и адрес</label><input id="attempts" type="number" min="1" max="3" value="${c.attempts}"></div><div class="field"><label for="exclusions">Исключения · по одному домену на строку</label><textarea id="exclusions" rows="6" placeholder="example.com">${esc(c.exclusions.join("\n"))}</textarea><small>Исключённые домены не обрабатываются движком.</small></div></div></div><div class="form-actions"><button type="submit" class="primary" ${state.busy ? "disabled" : ""}>Сохранить настройки ↗</button><small>Изменение параметров обработки трафика перезапустит движок. Параметры фоновых проверок применяются сразу.</small></div></form>`
+    `<form id="settings-form"><div class="settings-grid"><div class="panel"><div class="panel-head"><h2>Подключение</h2></div><div class="field"><label for="wan">WAN-интерфейс</label><input id="wan" value="${esc(c.wan)}" placeholder="Например: ppp0"><small>Имя активного интерфейса провайдера на роутере.</small></div>${toggle("ipv6", "Обрабатывать IPv6", "Включайте при наличии работающего IPv6 у провайдера.", c.ipv6)}${toggle("ppe", "Сохранять видимость handshake", "Первые пакеты без аппаратного ускорения: окно 48 при автоподборе по трафику, иначе 30.", c.ppe)}${toggle("quic", "Обрабатывать QUIC", "Статическая стратегия UDP/443. Подбор HTTPS её не проверяет.", c.quic)}${toggle("discord_voice", "Discord Voice · экспериментально", "Обработка UDP 50000–50099. Нужна проверка реального звонка.", c.discord_voice)}${toggle("youtube_stable", "YouTube · сохранить выбранную стратегию", "Выбранный метод профиля YouTube не будет автоматически заменяться по HTTPS-пробе. Для восстановления используйте кнопку в «Сервисах и доменах».", c.youtube_stable)}</div><div class="panel"><div class="panel-head"><h2>Автоматический подбор</h2></div>${toggle("adaptive", "Автоподбор по трафику", "Обнаруживать повторные ошибки HTTPS и менять метод отдельно для каждого сайта. Сохранённый метод используется первым.", c.adaptive)}<div class="info-note">Новые наблюдения и выбранные методы — в разделе «Коробки обхода». Сетевые ошибки не всегда означают блокировку.</div>${toggle("adaptive_fast_start","Быстрый старт автоподбора","Первые три смены метода в каждом 10-минутном окне: пауза 10 секунд вместо обычной. Затем действует заданная ниже пауза. Два сбоя перед сменой и общие лимиты сохраняются.",c.adaptive_fast_start)}${toggle("adaptive_active","Полный автоподбор","После повторных сбоев самостоятельно проверить прямое подключение и весь каталог на изолированных пробах. Применять только подтверждённый HTTPS-результат без перезапуска движка.",c.adaptive_active)}${toggle("subscription_auto_refresh","Обновлять сохранённую VPN-подписку","Не чаще раза в сутки, при разрешённых фоновых проверках. Маршруты и туннели не меняются.",Boolean(c.subscription_auto_refresh))}${toggle("lightweight","Облегчённый режим (MIPS / слабые роутеры)","Проверка очереди фонового подбора каждые 30 секунд вместо 10. Действующие методы не меняются.",Boolean(c.lightweight))}${toggle("background_paused","Пауза фоновых проверок","Приостановить автоматические проверки и подбор, не перезапуская nfqws2, QUIC и текущие стратегии.",Boolean(c.background_paused))}${toggle("background_other_domains","Проверять посторонние сайты автоматически","По умолчанию выключено для снижения нагрузки. Полный автоподбор работает на настроенных сервисах; неизвестные сайты можно поставить на проверку вручную. Включайте только на мощном роутере.",Boolean(c.background_other_domains))}${toggle("adaptive_reuse", "Использовать опыт коробок", "После повторных сбоев сначала пробовать до трёх методов, давших ответ в похожем контексте за последние семь дней.", c.adaptive_reuse)}<div class="two-fields"><div class="field"><label for="adaptive-cooldown">Пауза между сменами, с</label><input id="adaptive-cooldown" type="number" min="10" max="300" value="${c.adaptive_cooldown_seconds}"></div><div class="field"><label for="adaptive-max-switches">Максимум смен за 10 минут</label><input id="adaptive-max-switches" type="number" min="1" max="20" value="${c.adaptive_max_switches}"></div></div><div class="field"><label for="adaptive-global-max">Общий лимит смен движка за 10 минут</label><input id="adaptive-global-max" type="number" min="1" max="300" value="${c.adaptive_global_max_switches??30}"><small>Для всех коробок вместе. Рабочие методы сохраняются; при достижении лимита смена ждёт окончания окна.</small></div>${toggle("probe_load_guard","Защита фоновых проверок","Откладывать плановые проверки, подбор и загрузку каталогов при CPU ≥65%, load ≥ числу ядер или нехватке памяти. Работающий обход продолжается.",c.probe_load_guard!==false)}${toggle("auto_catalog", "Обновлять каталог стратегий", "Подписанный каталог Pilot: проверка раз в сутки. Новые варианты проверяются при подборе.", c.auto_catalog)}<div class="form-actions"><button type="button" id="catalog-update">Загрузить стратегии сейчас</button></div>${toggle("auto", "Следить за доступностью", "После двух неудачных циклов проверок начинается новый подбор.", c.auto)}<div class="field"></div><div class="two-fields"><div class="field"><label for="interval">Интервал, мин</label><input id="interval" type="number" min="5" max="1440" value="${c.interval_minutes}"></div><div class="field"><label for="timeout">Таймаут запроса, с</label><input id="timeout" type="number" min="2" max="20" value="${c.timeout_seconds}"></div></div><div class="field"><label for="history-retention">Хранение истории, суток (0 — без очистки по сроку)</label><input id="history-retention" type="number" min="0" max="365" value="${c.history_retention_days??0}"><small>Удаляются только группы, последний результат которых старше срока. Настройки и текущие наблюдения сохраняются.</small></div><div class="field"><label for="attempts">Попыток на протокол и адрес</label><input id="attempts" type="number" min="1" max="3" value="${c.attempts}"></div><div class="field"><label for="exclusions">Исключения · по одному домену на строку</label><textarea id="exclusions" rows="6" placeholder="example.com">${esc(c.exclusions.join("\n"))}</textarea><small>Исключённые домены не обрабатываются движком.</small></div></div></div><div class="form-actions"><button type="submit" class="primary" ${manualBlocked() ? "disabled" : ""}>Сохранить настройки ↗</button><small>Изменение параметров обработки трафика перезапустит движок. Параметры фоновых проверок применяются сразу.</small></div></form>` + `<section class="panel"><h2>Резервная копия настроек</h2><p>Включает профили и ручные правила, но не пароли панели и не файлы обучения. Может содержать частные домены и URL — храните локально.</p><div class="form-actions"><button id="settings-backup-download" type="button">Скачать JSON</button><input type="file" id="settings-backup-file" accept=".json,application/json"><button id="settings-backup-restore" type="button">Восстановить настройки</button></div></section>`
   );
 }
 function lines(value) {
@@ -587,7 +615,7 @@ async function refresh(render = false, poll = false) {
   } else if (page === "tune") {
     $("#job-panel").innerHTML = jobPanel();
     bindTrials();
-    $("#tune-start").disabled = !state.running || state.busy;
+    $("#tune-start").disabled = !state.running || manualBlocked();
     $("#tune-cancel").disabled = !tuneRunning();
     bindDomainRetry();
   } else {
@@ -645,7 +673,42 @@ function validateIndependentVPN(type, data){
  }
  return "Основные параметры найдены. Это проверка формата, не проверка подключения.";
 }
-function dnsProbePanel(){return `<section class="panel"><h2>Защищённый DNS</h2><p>Проверка реальных DNS-запросов с роутера через текущую маршрутизацию. AdGuard DNS · DoH / DoT / DoQ. Требуется kdig с поддержкой соответствующего протокола. Настройки DNS не меняются.</p><button id="dns-probe" type="button">Проверить DNS</button><pre id="dns-probe-result" aria-live="polite">Не проверено</pre></section>`;}
+function dnsProbePanel(){
+ return `<section class="panel"><h2>DNS роутера</h2>
+ <p>Проверяет DNS на самом Keenetic и показывает серверы, которые удалось прочитать из KeeneticOS. Для этой проверки kdig не нужен.</p>
+ <button id="dns-probe" type="button">Проверить DNS роутера</button>
+ <pre id="dns-probe-result" aria-live="polite">Проверка ещё не запускалась</pre>
+ <details><summary>Системный DNS процесса Pilot</summary>
+ <button id="dns-system-probe" type="button">Проверить системный резолвер</button>
+ <pre id="dns-system-result" aria-live="polite">Проверка ещё не запускалась</pre>
+ </details>
+ <details><summary>Ручная проверка внешнего DoH, DoT или DoQ</summary>
+ <p>Эта проверка обращается напрямую к указанному серверу. DNS-настройки роутера сохраняются.</p>
+ <label>Имя DNS-сервера (TLS)<input id="dns-server" maxlength="253"></label>
+ <label>IP для подключения (необязательно)<input id="dns-address" maxlength="45"></label>
+ <label>Протокол<select id="dns-protocol"><option value="all">Все три протокола</option><option>DoH</option><option>DoT</option><option>DoQ</option></select></label>
+ <details><summary>Установка kdig для ручной проверки</summary><pre>opkg update
+opkg install knot-dig ca-certificates
+kdig -V</pre><p>Поддержка DoQ зависит от сборки kdig.</p></details>
+ <button id="dns-manual-probe" type="button">Проверить внешний DNS</button>
+ <pre id="dns-manual-result" aria-live="polite">Проверка ещё не запускалась</pre>
+ </details></section>`;
+}
+let subscriptionBusy=false;
+function describeSubscription(d){return "Записей: "+d.total+" · "+Object.entries(d.types||{}).map(([k,v])=>k+": "+v).join(", ")+" · неизвестных: "+d.unknown+". Доступность серверов не проверена.";}
+function previewLocalSubscription(raw){
+ let value=raw.trim();if(!value.includes("://")){try{const decoded=new TextDecoder().decode(Uint8Array.from(atob(value.replace(/\s/g,"").replace(/-/g,"+").replace(/_/g,"/")),c=>c.charCodeAt(0)));if(decoded.includes("://"))value=decoded;}catch{}}
+ const types={},known=new Set(["vless","vmess","trojan","ss","ssr","hysteria2","hy2","tuic","wireguard"]);let total=0,unknown=0;
+ for(const line of value.split("\n").map(x=>x.trim())){if(!line||line.startsWith("#"))continue;if(++total>2000)throw Error("Слишком много записей.");const match=/^([a-z0-9]+):\/\/(.+)$/i.exec(line);let type=match?.[1].toLowerCase();if(!known.has(type)||!match[2].trim()){unknown++;continue;}if(type==="hy2")type="hysteria2";types[type]=(types[type]||0)+1;}
+ if(!Object.keys(types).length)throw Error("Не найдены поддерживаемые URI; YAML и JSON пока не поддерживаются.");return {total,types,unknown};
+}
+function showSubscriptionDialog(message){
+ let dialog=$("#subscription-dialog");
+ if(!dialog){dialog=document.createElement("dialog");dialog.id="subscription-dialog";dialog.setAttribute("aria-labelledby","subscription-title");dialog.innerHTML='<h2 id="subscription-title">VPN · предпросмотр</h2><p id="subscription-dialog-result" role="status" aria-live="polite">Результатов пока нет.</p><button type="button" id="subscription-close">Свернуть</button>';document.body.appendChild(dialog);$("#subscription-close").onclick=()=>dialog.close();dialog.addEventListener("click",e=>{const r=dialog.getBoundingClientRect();if(e.target===dialog&&(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom))dialog.close();});}
+ if(message!==undefined)$("#subscription-dialog-result").textContent=message;
+ if(!dialog.open)dialog.showModal();
+}
+document.addEventListener("pilot-logout",()=>{$("#subscription-dialog")?.remove();});
 function geoPage(){
  return heading("Geo Routing","План выборочной маршрутизации KeeneticOS 5.2 через собственный VPN. Pilot не применяет команды автоматически.")+dnsProbePanel()+`<section class="panel">
  <details class="geo-fold"><summary>Туннель и политика</summary><p id="geo-tunnels" class="subtle">Поиск VPN-интерфейсов…</p>
@@ -657,12 +720,12 @@ function geoPage(){
  <p>Проверь отсутствие существующих групп pilot-geo-*, резервную копию конфигурации, туннель и политику. Применяй в CLI самой KeeneticOS, не в Entware shell. Проверь доступ из клиента политики перед сохранением конфигурации. Для отката удали только созданные маршруты и группы в настройках Keenetic. Автоматического отката нет.</p></div>
  </details></section><section class="panel" id="vpn-standalone">
  <details class="geo-fold"><summary>Smart VPN Auto · независимое подключение (разработка)</summary>
- <p class="subtle">Проверка формата на устройстве пользователя. Туннель, автоматическая маршрутизация и сохранение секретов пока не реализованы. Не вводи пароль в HTTP-панель.</p>
+ <p class="subtle">Проверка формата на устройстве пользователя. SSH-проверка проверяет вход на VPS, но не запускает туннель. Пароль не сохраняется. Ввод и вставка пароля доступны в локальной панели. Для отправки пароля открой панель через HTTPS или защищённый SSH-проброс на localhost.</p>
  <p id="vpn-engines" class="subtle">Поиск VPN-движков…</p>
  <form id="vpn-prepare"><div class="field"><label for="vpn-type">Тип подключения</label><select id="vpn-type"><option value="ssh">VPS по SSH</option><option value="wg">WireGuard</option><option value="awg">AmneziaWG</option><option value="openvpn">OpenVPN</option></select></div>
- <div id="vpn-ssh-fields"><div class="field"><label for="vpn-host">IP или домен сервера</label><input id="vpn-host" maxlength="253" autocomplete="off"></div><div class="field"><label for="vpn-port">Порт SSH</label><input id="vpn-port" type="number" min="1" max="65535" value="22"></div><div class="field"><label for="vpn-user">Логин</label><input id="vpn-user" maxlength="64" autocomplete="off"></div></div>
+ <div id="vpn-ssh-fields"><div class="field"><label for="vpn-host">IP или домен сервера</label><input id="vpn-host" maxlength="253" autocomplete="off"></div><div class="field"><label for="vpn-port">Порт SSH</label><input id="vpn-port" type="number" min="1" max="65535" value="22"></div><div class="field"><label for="vpn-user">Логин</label><input id="vpn-user" maxlength="64" autocomplete="off"></div><div class="field"><label for="vpn-password">Пароль VPS</label><input id="vpn-password" type="password" maxlength="512" autocomplete="new-password" spellcheck="false"><div class="form-actions"><button id="vpn-password-toggle" type="button">Показать пароль</button><button id="vpn-ssh-test" type="button" disabled>Проверить вход на VPS</button></div><small id="vpn-password-hint">Ввод доступен; отправка пароля только через защищённое подключение.</small></div></div>
  <div id="vpn-config-fields" hidden><label for="vpn-config">Локальный файл конфигурации</label><input id="vpn-config" type="file" accept=".conf,.ovpn,.txt"><p class="subtle">Файл проверяется только в браузере, не отправляется на роутер.</p></div>
- <button type="submit">Проверить формат</button><p id="vpn-prepare-result" aria-live="polite"></p></form></details></section>`;
+ <button type="submit">Проверить формат</button><p id="vpn-prepare-result" aria-live="polite"></p></form></details></section><section class="panel"><h2>VPN-подписки · импорт и обновление</h2><p>Предпросмотр не меняет маршруты и не запускает VPN. Поддерживаются TXT и base64 со списком URI. Для передачи приватных данных используйте HTTPS или SSH-проброс панели на localhost.</p><form id="vpn-subscription-form"><label>HTTPS-ссылка <input id="vpn-subscription-url" type="password" autocomplete="off" maxlength="4096" required></label><div class="form-actions"><button type="submit" value="preview">Предпросмотр ссылки</button><button type="submit" value="save">Сохранить ссылку</button></div></form><div class="field"><label for="vpn-subscription-file">Импорт с компьютера</label><input id="vpn-subscription-file" type="file" accept=".txt,.conf,.b64,.base64,text/plain"><div class="form-actions"><button id="vpn-file-preview" type="button">Предпросмотр файла</button><button id="vpn-file-import" type="button">Импортировать файл</button></div></div><div class="form-actions"><button id="vpn-subscription-show" type="button">Открыть последнее окно</button><button id="vpn-subscription-refresh" type="button">Обновить сохранённую</button><button id="vpn-subscription-delete" type="button">Удалить сохранённую</button></div><p id="vpn-subscription-saved" aria-live="polite"></p><p id="vpn-subscription-result" aria-live="polite"></p></section>`;
 }
 function bindGeo(){
  const form=$("#geo-form");
@@ -670,16 +733,80 @@ function bindGeo(){
  const target=$("#geo-services"),status=$("#geo-tunnels"),button=$("#geo-build"),output=$("#geo-output"),commands=$("#geo-commands");
  const session=panelSession;
  const current=()=>signedIn&&panelSession===session&&form===$("#geo-form");
- const dnsButton=$("#dns-probe"),dnsResult=$("#dns-probe-result");
- dnsButton?.addEventListener("click",async()=>{
-  dnsButton.disabled=true;dnsResult.textContent="Проверяется…";
-  try{const rows=await api("dns/probe","POST",{});if(current())dnsResult.textContent=rows.map(r=>`${r.protocol} · ${r.server} · ${r.status==="ok"?"Есть DNS-ответ":r.status==="unavailable"?"kdig не найден":r.status==="timeout"?"Таймаут":"Нет подтверждения (ошибка или протокол не поддерживается)"} · ${r.milliseconds} мс`).join("\n");}
-  catch(e){if(current())dnsResult.textContent=e.message;}
-  finally{if(current())dnsButton.disabled=false;}
- });
+ const routerDNS=$("#dns-probe"), systemDNS=$("#dns-system-probe"), manualDNS=$("#dns-manual-probe");
+ const runDNS=async(result,input)=>{
+  routerDNS.disabled=systemDNS.disabled=manualDNS.disabled=true;
+  result.textContent="Проверяется…";
+  try{
+   const rows=await api("dns/probe","POST",input);
+   if(!current())return;
+   result.textContent=rows.map(row=>{
+    const label=row.status==="ok"?"Есть DNS-ответ":row.error||"Нет подтверждённого ответа";
+    const latency=["configured","unknown","unavailable"].includes(row.status)?"":` · ${row.milliseconds} мс`;
+    return `${row.protocol} · ${row.server} · ${label}${latency}`;
+   }).join("\n");
+  }catch(error){if(current())result.textContent=error.message;}
+  finally{if(current())routerDNS.disabled=systemDNS.disabled=manualDNS.disabled=false;}
+ };
+ routerDNS.addEventListener("click",()=>runDNS($("#dns-probe-result"),{protocol:"router"}));
+ systemDNS.addEventListener("click",()=>runDNS($("#dns-system-result"),{protocol:"system"}));
+ manualDNS.addEventListener("click",()=>runDNS($("#dns-manual-result"),{
+  server:$("#dns-server").value,address:$("#dns-address").value,protocol:$("#dns-protocol").value,
+ }));
+ const subscription=$("#vpn-subscription-form");
+ const renderSaved=d=>{if(!current())return;$("#vpn-subscription-saved").textContent=d.saved?(d.local?"Локальный файл: ":"Сохранённая ссылка: ")+new Date(d.updated).toLocaleString("ru-RU")+" · "+describeSubscription(d.preview):"Сохранённой подписки нет.";$("#vpn-subscription-refresh").disabled=!d.saved||d.local;$("#vpn-subscription-delete").disabled=!d.saved;};
+ const show=message=>{if(!signedIn||panelSession!==session)return;showSubscriptionDialog(message);if(current())$("#vpn-subscription-result").textContent=message;};
+ const run=async(fn)=>{if(subscriptionBusy)return;subscriptionBusy=true;show("Выполняется…");try{await fn();}catch(err){show("Ошибка: "+err.message);}finally{subscriptionBusy=false;}};
+ if(subscription){
+  $("#vpn-subscription-refresh").disabled=true;$("#vpn-subscription-delete").disabled=true;
+  api("vpn/subscription").then(renderSaved).catch(e=>{if(current())$("#vpn-subscription-saved").textContent=e.message;});
+  $("#vpn-subscription-show").onclick=()=>showSubscriptionDialog();
+  for(const [id,act] of [["vpn-subscription-refresh","refresh"],["vpn-subscription-delete","delete"]]){
+   $("#"+id).onclick=()=>{if(act==="delete"&&!window.confirm("Удалить сохранённую подписку?"))return;run(async()=>{renderSaved(await api("vpn/subscription","POST",{action:act}));show(act==="delete"?"Подписка удалена.":"Подписка обновлена.");});};
+  }
+  subscription.addEventListener("submit",e=>{
+   e.preventDefault();const field=$("#vpn-subscription-url"),url=field.value.trim(),save=e.submitter?.value==="save";
+   if(!url||subscriptionBusy)return;
+   if(save&&!window.confirm("Заменить сохранённую подписку? Маршруты не изменятся."))return;
+   field.value="";
+   run(async()=>{const d=await api(save?"vpn/subscription":"vpn/subscription/preview","POST",save?{url,action:"save"}:{url});if(save)renderSaved(d);show((save?"Подписка сохранена. ":"")+describeSubscription(save?d.preview:d));});
+  });
+  const fileInput=$("#vpn-subscription-file");
+  const fileAction=save=>{if(subscriptionBusy)return;const file=fileInput.files[0];if(!file||file.size>512*1024){show("Выберите файл до 512 КиБ.");return;}
+   if(save&&!window.confirm("Заменить сохранённую подписку локальным файлом? Маршруты не изменятся."))return;
+   run(async()=>{if(!save){show(describeSubscription(previewLocalSubscription(await file.text())));return;}
+    if(location.protocol!=="https:"&&!["localhost","127.0.0.1","[::1]"].includes(location.hostname))throw Error("Для импорта используйте HTTPS или SSH-проброс на localhost. Предпросмотр файла доступен без отправки.");
+    const response=await fetch("/api/vpn/subscription/file",{method:"POST",headers:{Authorization:"Bearer "+token,"Content-Type":"application/octet-stream"},body:file});
+    const data=await response.json().catch(()=>({}));if(!response.ok)throw Error(data.error||"HTTP "+response.status);renderSaved(data);show("Файл импортирован. "+describeSubscription(data.preview));fileInput.value="";
+   });
+  };
+  $("#vpn-file-preview").onclick=()=>fileAction(false);
+  $("#vpn-file-import").onclick=()=>fileAction(true);
+ }
  const prep=$("#vpn-prepare"),type=$("#vpn-type"),result=$("#vpn-prepare-result"),file=$("#vpn-config");
  let prepSerial=0;
- const changeVPN=()=>{prepSerial++;result.textContent="";$("#vpn-ssh-fields").hidden=type.value!=="ssh";$("#vpn-config-fields").hidden=type.value==="ssh";file.value="";};
+ const password=$("#vpn-password"), showPassword=$("#vpn-password-toggle"), sshTest=$("#vpn-ssh-test");
+ const secureSSH=location.protocol==="https:"||["localhost","127.0.0.1","[::1]"].includes(location.hostname);
+ password.disabled=showPassword.disabled=false;sshTest.disabled=false;
+ if(secureSSH)$("#vpn-password-hint").textContent="Пароль передаётся только для проверки входа, после проверки очищается. Нужен предварительно проверенный ключ сервера.";
+ showPassword.onclick=()=>{const visible=password.type==="password";password.type=visible?"text":"password";showPassword.textContent=visible?"Скрыть пароль":"Показать пароль";};
+ sshTest.onclick=async()=>{
+  if(type.value!=="ssh")return;
+  if(!secureSSH){result.textContent="Пароль не отправлен: открой панель через HTTPS или SSH-проброс на localhost. Ввод и вставка доступны.";return;}
+  const serial=++prepSerial;
+  sshTest.disabled=true;result.textContent="Проверяем SSH-вход с роутера…";
+  try{
+   const data={host:$("#vpn-host").value.trim(),user:$("#vpn-user").value.trim(),port:$("#vpn-port").value,password:password.value};
+   validateIndependentVPN("ssh",data);
+   if(!data.password)throw Error("Введи пароль VPS.");
+   const promise=api("vpn/ssh-check","POST",data);
+   data.password="";password.value="";password.type="password";showPassword.textContent="Показать пароль";
+   const answer=await promise;
+   if(current()&&serial===prepSerial)result.textContent=answer.status==="authenticated"?"SSH-вход подтверждён. Туннель не запущен.": "Вход не подтверждён: "+(answer.message||"ошибка");
+  }catch(err){if(current()&&serial===prepSerial)result.textContent=err.message;}
+  finally{if(current()){password.value="";password.type="password";showPassword.textContent="Показать пароль";sshTest.disabled=false;}}
+ };
+ const changeVPN=()=>{prepSerial++;result.textContent="";$("#vpn-ssh-fields").hidden=type.value!=="ssh";$("#vpn-config-fields").hidden=type.value==="ssh";file.value="";password.value="";password.type="password";showPassword.textContent="Показать пароль";};
  type.addEventListener("change",changeVPN);
  prep.addEventListener("input",()=>{prepSerial++;result.textContent="";});
  prep.addEventListener("submit",async e=>{
@@ -764,7 +891,7 @@ function renderPage() {
                     "Коробки обхода",
                     "Группы наблюдений, найденные методы и история их проверки.",
                   ) +
-                  `<div class="adaptive-heading"><details><summary>Как работают коробки</summary><p>Сходные признаки помогают выбирать кандидатов. Каждое новое соединение проверяется отдельно; группа не означает опознанное устройство провайдера.</p><p>«Скачать диагностику» сохраняет полный снимок методов и истории в JSON, независимо от фильтров. Файл содержит домены и имя WAN-интерфейса; пароли, токены, журналы и контрольные URL не включаются. На роутере ничего не меняется.</p></details><div class="adaptive-actions"><button id="adaptive-download" title="JSON с доменами и историей; без паролей и токенов">Скачать диагностику</button><button id="adaptive-refresh">Обновить</button><button id="adaptive-reset-all" class="danger-button" type="button">Очистить все коробки</button></div></div>${adaptiveToolbar()}<div id="adaptive-results">Загрузка…</div>`
+                  `<div class="adaptive-heading"><details><summary>Как работают коробки</summary><p>Сходные признаки помогают выбирать кандидатов. Каждое новое соединение проверяется отдельно; группа не означает опознанное устройство провайдера.</p><p>«Скачать диагностику» сохраняет полный снимок методов и истории в JSON, независимо от фильтров. Файл содержит домены и имя WAN-интерфейса; пароли, токены, журналы и контрольные URL не включаются. На роутере ничего не меняется.</p></details><div class="adaptive-actions"><button id="adaptive-download" title="JSON с доменами и историей; без паролей и токенов">Скачать диагностику</button><button id="adaptive-health-check" type="button">Самодиагностика</button><button id="adaptive-refresh">Обновить</button><button id="adaptive-reset-all" class="danger-button" type="button">Очистить все коробки</button></div></div><section id="adaptive-health-result" class="panel" aria-live="polite" hidden></section>${adaptiveToolbar()}<div id="adaptive-results">Загрузка…</div>`
                 : page === "connect"
                   ? connectPage()
                   : heading(
@@ -772,7 +899,7 @@ function renderPage() {
                       "События контроллера и движка. Последние 200 строк.",
                       '<button id="refresh-logs">Обновить ↻</button>',
                     ) +
-                    '<div class="panel"><pre id="log-view" class="log-view">Загрузка…</pre></div>';
+                    '<div class="panel"><h2>Уведомления текущего сеанса</h2><div id="notification-center"></div></div><div class="panel"><pre id="log-view" class="log-view">Загрузка…</pre></div>';
   bindActions();
   if(page==="geo")bindGeo();
   if(page==="overview"){loadTelemetry();loadOverviewBoxes();}
@@ -813,6 +940,24 @@ function bindActions() {
     let message="Сервис добавлен";if(source){try{await api("services/"+id+"/domains","POST",{});}catch(e){message+="; домены пока не загружены: "+e.message;}}
     notify(message);f.reset();
   });});
+  document.querySelectorAll("[data-hostlist-import]").forEach(input=>input.addEventListener("change",async()=>{
+    const id=input.dataset.hostlistImport,file=input.files[0];if(!file)return;
+    const session=panelSession;
+    try{
+      if(file.size>262144)throw Error("Файл больше 256 КиБ.");
+      const parsed=parseLocalHostlist(await file.text());
+      if(!signedIn||session!==panelSession||!input.isConnected)return;
+      const draft=readProfileDraft(id);
+      draft.domains=mergeLocalHostlist(draft.domains,parsed.domains);
+      $("#domains-"+id).value=draft.domains.join("\n");profileDrafts.set(id,draft);
+      notify("В черновике "+draft.domains.length+" доменов; пропущено "+parsed.skipped+". Нажмите «Сохранить».");
+    }catch(e){if(session===panelSession)notify(e.message,true);}finally{input.value="";}
+  }));
+  document.querySelectorAll("[data-hostlist-export]").forEach(button=>button.addEventListener("click",()=>{
+    const id=button.dataset.hostlistExport,draft=readProfileDraft(id);
+    const url=URL.createObjectURL(new Blob([draft.domains.join("\n")+"\n"],{type:"text/plain"}));
+    const link=document.createElement("a");link.href=url;link.download=id+"-hostlist.txt";link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }));
   document.querySelectorAll("[data-expand-domains]").forEach(button=>button.addEventListener("click",()=>serviceAction(async()=>{
     const id=button.dataset.expandDomains,c=structuredClone(state.config),draft=readProfileDraft(id),preset=state.service_presets.find(s=>s.profile.id===id);
     if(!preset)throw new Error("Сервис отсутствует в каталоге");
@@ -826,6 +971,7 @@ function bindActions() {
 
   $("#adaptive-refresh")?.addEventListener("click", loadAdaptive);
   $("#adaptive-download")?.addEventListener("click", downloadDiagnostics);
+  $("#adaptive-health-check")?.addEventListener("click", showDiagnosticHealth);
   $("#adaptive-reset-all")?.addEventListener("click", (event) => {
     if (!window.confirm("Удалить накопленное обучение и историю всех коробок? Ручные правила сохранятся. Возможен краткий перерыв обхода. Новые подключения начнут обучение заново.")) return;
     const button = event.currentTarget;
@@ -927,6 +1073,8 @@ function bindActions() {
     $("#tune-profile-note").textContent = presetNote(selectedTuneProfile);
   });
   bindPresetActions(document);
+  bindSettingsBackup();
+  renderNotifications();
   updateServiceButtons();
   $("#settings-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -945,6 +1093,8 @@ function bindActions() {
         "adaptive_reuse",
         "adaptive_active",
         "background_paused",
+        "subscription_auto_refresh",
+        "lightweight",
         "background_other_domains",
         "adaptive_fast_start",
         "probe_load_guard",
@@ -955,6 +1105,7 @@ function bindActions() {
       c.interval_minutes = Number($("#interval").value);
       c.timeout_seconds = Number($("#timeout").value);
       c.attempts = Number($("#attempts").value);
+      c.history_retention_days=Number($("#history-retention").value);
       c.exclusions = lines($("#exclusions").value);
       await api("config", "PUT", c);
       notify("Настройки сохранены");
@@ -1117,7 +1268,7 @@ function domainControls(b, domains) {
         pin?.strategy ||
         b.hosts.find((r) => r.host === host)?.strategy ||
         "none";
-      return `<form class="domain-control" ${controlData(host, pin || scope)}><strong>${esc(host)}</strong><label>Метод для закрепления<select name="strategy">${strategyOptions(current)}</select></label><div class="domain-buttons"><button type="submit" ${state.busy ? "disabled" : ""}>${pin ? "Изменить закрепление" : "Закрепить метод"}</button>${pin ? `<button type="button" data-domain-action="unpin" ${controlData(host, pin)}>Снять закрепление</button>` : ""}${ownPause ? '<button type="button" data-domain-action="resume">Возобновить обработку</button>' : !excluded ? '<button type="button" data-domain-action="pause">Приостановить</button>' : ""}<button type="button" data-domain-action="reset">Сбросить обучение</button></div>${excluded ? `<small>Обработка приостановлена правилом ${esc(excluded)}. ${!ownPause ? "Правила исключения — в настройках." : ""}</small>` : ""}</form>`;
+      return `<form class="domain-control" ${controlData(host, pin || scope)}><strong>${esc(host)}</strong><label>Метод для закрепления<select name="strategy">${strategyOptions(current)}</select></label><div class="domain-buttons"><button type="submit" ${manualBlocked() ? "disabled" : ""}>${pin ? "Изменить закрепление" : "Закрепить метод"}</button>${pin ? `<button type="button" data-domain-action="unpin" ${controlData(host, pin)}>Снять закрепление</button>` : ""}${ownPause ? '<button type="button" data-domain-action="resume">Возобновить обработку</button>' : !excluded ? '<button type="button" data-domain-action="pause">Приостановить</button>' : ""}<button type="button" data-domain-action="reset">Сбросить обучение</button></div>${excluded ? `<small>Обработка приостановлена правилом ${esc(excluded)}. ${!ownPause ? "Правила исключения — в настройках." : ""}</small>` : ""}</form>`;
     })
     .join("")}</details>`;
 }
@@ -1214,8 +1365,9 @@ function boxCard(b, enabled = true) {
   const domains = [
     ...new Set([...b.hosts, ...b.history].map((r) => r.host)),
   ].sort();
-  const history = groupedHistory(b.history);
-  const eventTotal = b.history.reduce((sum, r) => sum + (r.event_count || 1), 0);
+  const history = groupedHistory(b.history.filter(r=>r.updated>=historyCutoff && (!historyHours || r.updated>=Date.now()/1000-historyHours*3600)));
+  const eventTotal = history.reduce((sum,r)=>sum+(r.event_count||1),0);
+  const allEvents = b.history.reduce((sum,r)=>sum+(r.event_count||1),0);
   return `<article class="panel bypass-box" data-box="${esc(b.id)}">
     <div class="panel-head"><h2>${esc(tlsLabels[b.tls] || tlsLabels.unknown)} · ${esc(b.family === "ipv6" ? "IPv6" : b.family === "ipv4" ? "IPv4" : "IP не определён")}</h2><span class="subtle">Домены: ${domains.length}</span></div>
     <p class="box-health">${esc(boxHealthLabel(b,enabled))} · смены в записанных 10-минутных окнах: ${boxHealth(b,enabled).switches}</p>
@@ -1225,9 +1377,41 @@ function boxCard(b, enabled = true) {
     <details data-view-key="${esc(b.id)}/observations"><summary>Домены и методы · ${domains.length}</summary>${currentBoxMethods(b.hosts, enabled)}${observationTable(b.hosts, false, enabled)}</details>
     <details data-view-key="${esc(b.id)}/experience"><summary>Опыт обхода · ${b.methods.length}</summary><div class="box-methods">${b.methods.length ? b.methods.map((m) => `<div class="box-method"><div class="box-method-line"><strong>${esc(m.name)}</strong>${badge(m.reusable ? "Кандидат по опыту" : "Сохранённое наблюдение", m.reusable ? "" : "neutral")}</div><small>${esc(familyLabels[m.family] || familyLabels.other)} · ответ на ${m.hosts} доменах</small></div>`).join("") : `<p class="subtle">${esc(boxExperienceEmpty(b))}</p>`}</div></details>
     ${domainControls(b, domains)}
-    <details data-view-key="${esc(b.id)}/history"><summary>История · ${history.length} строк · событий: ${eventTotal}</summary>${observationTable(history, true)}</details>
+    <details data-view-key="${esc(b.id)}/history"><summary>История · ${history.length} строк · событий: ${eventTotal} из ${allEvents}</summary><p class="subtle">Это накопленные попытки, не число недоступных сайтов. Фильтр выбирает группы по последнему событию; счётчик группы может включать старые попытки.</p>${observationTable(history, true)}</details>
     <small class="box-updated">Наблюдение: ${esc(new Date(b.updated * 1000).toLocaleString("ru-RU"))}</small>
   </article>`;
+}
+async function showDiagnosticHealth(event) {
+  const button = event.currentTarget, target = $("#adaptive-health-result");
+  if (!target) return;
+  button.disabled = true;
+  target.hidden = false;
+  target.textContent = "Читаем состояние роутера…";
+  try {
+    const report = await api("diagnostics");
+    if (target !== $("#adaptive-health-result") || !signedIn) return;
+    const summary = report.history_summary;
+    if (!summary || !Array.isArray(report.health_findings)) {
+      target.textContent = "Этот сервер ещё не поддерживает расширенную диагностику.";
+      return;
+    }
+    const labels = {
+      enabled_service_not_running: "Служба включена, но не запущена",
+      service_reported_error: "Служба сообщила об ошибке",
+      observation_read_error: "Не удалось прочитать наблюдения",
+      observation_slot_needs_review: "Один из файлов наблюдений требует проверки",
+      no_recent_saved_observations: "Нет сохранённых наблюдений за последние сутки; это не доказывает сбой",
+      active_search_client_hello_missing: "Последний поиск не получил ClientHello",
+      low_opt_free_space: "На /opt менее 32 МиБ свободного места",
+      other_packet_engines_detected: "Обнаружены другие обработчики пакетов; возможный конфликт требует проверки"
+    };
+    const windows = {3600:"Час",86400:"Сутки",604800:"Неделя"};
+    target.innerHTML = `<h2>Самодиагностика</h2><p class="subtle">Снимок: ${esc(new Date(report.generated_at).toLocaleString("ru-RU"))}. Только чтение, без сетевых проб и изменения настроек.</p><ul>${report.health_findings.length ? report.health_findings.map(code=>`<li>${esc(labels[code]||code)}</li>`).join("") : "<li>В этом снимке известных предупреждений нет.</li>"}</ul><h3>История попыток</h3><p>Записей: ${esc(summary.rows)} · событий: ${esc(summary.events)} · неудачных попыток: ${esc(summary.failed_attempts)}</p><table class="probe-table"><thead><tr><th>Период</th><th>Событий (диапазон)</th><th>Смешанных групп</th></tr></thead><tbody>${(summary.windows||[]).map(w=>`<tr><td>${esc(windows[w.seconds]||w.seconds)}</td><td>${esc(w.confirmed_events===w.possible_events?String(w.confirmed_events):w.confirmed_events+"–"+w.possible_events)}</td><td>${esc(w.mixed_rows)}</td></tr>`).join("")}</tbody></table><small>История ограничена сохранёнными группами. Неудачная попытка не означает недоступность сайта. Диапазон отражает отсутствие точных времён отдельных событий.</small>`;
+  } catch (e) {
+    if (target === $("#adaptive-health-result")) target.textContent = "Самодиагностика недоступна: " + e.message;
+  } finally {
+    button.disabled = false;
+  }
 }
 async function downloadDiagnostics(event) {
   const button = event.currentTarget;
@@ -1254,6 +1438,7 @@ let adaptiveData = null,
   adaptiveFilter = "all",
   adaptiveLoading = false,
   adaptiveRevealSaved = false;
+let historyHours=0,historyCutoff=0;
 const adaptiveDetails = new Map(), adaptiveDrafts = new Map();
 function adaptiveToolbar() {
   const filters = { all: "Все состояния", stale: "Нет свежих наблюдений", probing: "Пробуется", held: "Смена отложена", connected: "Есть ответ", pinned: "Закреплён", paused: "Приостановлен" };
@@ -1280,12 +1465,12 @@ function saveAdaptiveView(target) {
     adaptiveDetails.set(detail.dataset.viewKey, detail.open);
   });
 }
-function renderAdaptive() {
+function renderAdaptive(force = false) {
   const target = $("#adaptive-results");
   if (!target || !adaptiveData) return;
   // Keep native selects and buttons in place while the user interacts with them.
-  if (target.querySelector(".domain-control:focus-within")) {
-    $("#adaptive-update").textContent = "Новые данные будут показаны после выхода из управления доменом.";
+  if (target.querySelector(".domain-control:focus-within") || (!force && target.querySelector("#history-hours:focus"))) {
+    $("#adaptive-update").textContent = "Новые данные будут показаны после выхода из выбранного элемента.";
     return;
   }
   saveAdaptiveView(target);
@@ -1299,6 +1484,7 @@ function renderAdaptive() {
   }
   target.innerHTML =
     loadControlPanel() + manualRules() +
+    `<div class="panel"><label>История попыток<select id="history-hours">${[[0,"Всё время"],[1,"Последний час"],[24,"Последние сутки"],[168,"Последняя неделя"]].map(([v,t])=>`<option value="${v}" ${historyHours===v?"selected":""}>${t}</option>`).join("")}</select></label><div class="form-actions"><button id="history-hide" type="button">Скрыть старую историю</button><button id="history-show" type="button">Вернуть всю историю</button><button id="history-clear" type="button" class="danger-button">Очистить старые попытки</button><button id="history-restore" type="button">Восстановить опыт до очистки</button></div><small>Только отображение в текущей сессии; опыт, настройки и файл диагностики сохраняются.</small></div>` +
     (!data.enabled
       ? '<div class="notice">Включите «Автоподбор по трафику» в настройках. Текущие стратегии сохранятся.</div>'
       : '<p class="adaptive-note">«Есть ответ» — передача данных, без подтверждения видео и голоса. Свежие наблюдения — за последние сутки. Отсутствие свежих записей не останавливает автоподбор: он продолжится при новых сбоях трафика.</p>') +
@@ -1309,6 +1495,11 @@ function renderAdaptive() {
       : boxes.length
         ? '<div class="panel empty"><h3>Совпадений нет</h3><p>Измените домен или выберите другое состояние. Поиск и состояние должны совпасть у одного домена. Карточка показывает весь контекст коробки.</p></div>'
         : '<div class="panel empty"><h3>Коробки пока не сформированы</h3><p>Включите автоподбор по трафику и откройте нужный сайт. Наблюдения появятся после ошибок или ответов настроенных сервисов. Прежние сохранённые методы продолжают действовать.</p></div>');
+  target.querySelector("#history-hours")?.addEventListener("change",e=>{historyHours=Number(e.target.value);renderAdaptive(true);});
+  target.querySelector("#history-hide")?.addEventListener("click",()=>{historyCutoff=Math.floor(Date.now()/1000)+1;renderAdaptive();});
+  target.querySelector("#history-clear")?.addEventListener("click",()=>{if(!window.confirm("Удалить попытки старше 10 минут? Свежие результаты, текущие наблюдения и правила сохранятся. Возможен краткий перезапуск движка; резервная копия останется на роутере."))return;action(async()=>{await api("adaptive/domain","POST",{host:"",action:"clear_history"});notify("Старая история очищена");await loadAdaptive();});});
+  target.querySelector("#history-restore")?.addEventListener("click",()=>{if(!window.confirm("Восстановить наблюдения и историю из последней копии перед очисткой? Более новые наблюдения будут заменены, текущие настройки не изменятся. Возможен краткий перезапуск движка."))return;action(async()=>{await api("adaptive/domain","POST",{host:"",action:"restore_history"});notify("Опыт восстановлен");await loadAdaptive();});});
+  target.querySelector("#history-show")?.addEventListener("click",()=>{historyCutoff=0;historyHours=0;renderAdaptive();});
   target.querySelectorAll("details[data-view-key]").forEach((detail) => {
     const key = detail.dataset.viewKey;
     detail.open = adaptiveDetails.get(key) || false;
@@ -1354,6 +1545,32 @@ let boxesLastTarget=null,boxesLastFetch=0;
 async function loadOverviewBoxes(){const target=$("#overview-boxes");if(!target||overviewBoxesLoading||document.hidden||(target===boxesLastTarget&&Date.now()-boxesLastFetch<12000))return;overviewBoxesLoading=true;boxesLastTarget=target;boxesLastFetch=Date.now();try{const d=await api("adaptive");if(!signedIn||target!==$("#overview-boxes"))return;const boxes=d.boxes||[],recent=boxes.filter(boxHasRecentTraffic).map(b=>({b,h:boxHealth(b)})).sort((a,b)=>(b.h.probing+b.h.held)-(a.h.probing+a.h.held)||b.b.updated-a.b.updated).map(v=>v.b),saved=boxes.length-recent.length;target.innerHTML=(recent.length?`<div class="table-scroll"><table class="box-overview-table"><thead><tr><th>Группа</th><th>Домены</th><th>Состояния</th></tr></thead><tbody>${recent.map(b=>`<tr><td><a href="#adaptive">${esc(tlsLabels[b.tls]||tlsLabels.unknown)} · ${esc(b.family)}</a></td><td>${new Set(b.hosts.map(r=>r.host)).size}</td><td>${esc(boxHealthLabel(b,d.enabled))}</td></tr>`).join("")}</tbody></table></div>`:'<p>Свежих наблюдений пока нет. При новых подключениях автоподбор продолжится.</p>')+`<small>Сохранённая история: ${saved} коробок. ${!d.enabled?"Автоподбор по трафику выключен.":""}</small>`;}catch(e){if(target===$("#overview-boxes"))target.textContent="Наблюдения недоступны: "+e.message;}finally{overviewBoxesLoading=false;}}
 let deviceData=null,deviceLoading=false,updatesData=null,updatesLoading=false,updatesSerial=0;
 let sourceUpdatesData=null,sourceUpdatesLoading=false,sourceUpdatesSerial=0;
+const lastSourceChecks=new Map(),sourceCheckErrors=new Map();
+const releaseNotes={
+ "0.2.0-beta.3":["Контрольный выпуск для KN-1811","Коробки, Geo Routing, исправления панели"],
+ "0.2.0-beta.4":["DNS-тестер: системный резолвер, DoH, DoT и DoQ","Фильтры истории без удаления обучения","Темы Matrix, тёмная, светлая, Aero, Luna и свои цвета","Сведения о последних проверках обновлений; движок не менялся"],
+ "0.2.0-beta.5":["Самодиагностика, предупреждения и диапазоны количества событий","Закрытие всплывающих окон вне области и по Esc; описание версии сохраняет раскрытие","Ручная очистка старой истории и восстановление наблюдений из копии; срок хранения 1–365 суток, по умолчанию выключено","Резервное копирование и восстановление настроек; облегчённый режим фоновых проверок","Импорт одной VPN-подписки, ручное и опциональное ежедневное обновление; без запуска туннелей","Уведомления текущего сеанса","Защитный откат при отказе службы или повторной потере двух контрольных HTTPS-подключений во время обновления; не проверяет скорость"],
+ "0.2.0-beta.6":["Импорт и экспорт HostList для каждого сервиса; применение только после сохранения","Импорт локального файла VPN-подписки и предварительный просмотр TXT/base64; без запуска VPN","Приоритет ручных операций над фоновым поиском","Geo Routing: план маршрутов Telegram через существующий туннель; независимый VPS-туннель пока не реализован"],
+ "0.2.0-beta.7":["Smart VPN Auto: поле пароля, проверка SSH-входа через защищённую панель; туннель автоматически не запускается","Экспериментальный CLI-помощник WireGuard для IPv4-сетей Telegram; требуется настроенный VPS и проверка на роутере","Ограниченный API Telegram-бота: состояние, управление обходом, проверка и подбор YouTube; отдельный ключ, доступ только через localhost"],
+ "0.2.0-beta.11":["Обновления Codex для общей бета-ветки Pilot","Отдельная проверка системного DNS процесса Pilot для сравнения с ответом Keenetic"],
+ "0.2.0-beta.10":["Отдельная проверка DNS самого роутера по адресу панели","Текущие резолверы KeeneticOS из show dns-proxy","Ручные DoH, DoT и DoQ в отдельном разделе"],
+ "0.2.0-beta.8":["Убран встроенный AdGuard: по умолчанию проверяется реальный DNS роутера без kdig","Чтение глобальных upstream DoH/DoT/DoQ из KeeneticOS, без изменения настроек и раскрытия URL-путей","Smart VPN Auto: ввод и вставка пароля доступны в HTTP-панели; отправка только через защищённый канал"],
+ "0.2.0-beta.9":["DNS: точные команды установки kdig и CA-сертификатов для Keenetic с Entware; инструкция в примечании панели","Все исправления DNS и ввода пароля из beta.8"]
+};
+const releaseNotesOpen=new Map();
+function rememberReleaseNotes(root){
+ root.querySelectorAll("details[data-release-notes]").forEach(el=>releaseNotesOpen.set(el.dataset.releaseNotes,el.open));
+}
+document.addEventListener("toggle",e=>{
+ const el=e.target;
+ if(el instanceof Element&&el.isConnected&&el.matches("details[data-release-notes]"))releaseNotesOpen.set(el.dataset.releaseNotes,el.open);
+},true);
+function releaseNotesHTML(version,scope="installed",defaultOpen=false){
+ const key=scope+":"+String(version||"unknown");
+ const notes=scope==="Codex"?null:releaseNotes[version];
+ const open=releaseNotesOpen.has(key)?releaseNotesOpen.get(key):defaultOpen;
+ return `<details class="release-notes" data-release-notes="${esc(key)}" ${open?"open":""}><summary>Что нового${version?" · "+esc(version):""}</summary>${Array.isArray(notes)?`<ul>${notes.map(note=>`<li>${esc(note)}</li>`).join("")}</ul><small>Локальное описание выпуска ChatGPT, не подтверждение источника установленного пакета.</small>`:"<p>Описание этого выпуска пока отсутствует в панели.</p>"}</details>`;
+}
 const prettyBytes=n=>n==null?"недоступно":n>=1048576?(n/1048576).toFixed(1)+" МиБ":n>=1024?(n/1024).toFixed(1)+" КиБ":Math.round(n)+" Б";
 function devicePage(){return heading("Роутер","Данные устройства, на котором запущен Pilot. Недоступные датчики не заменяются примерными значениями.")+`<p class="panel-address">Адрес этой панели · <a href="#overview">${esc(location.origin)}</a></p><div id="device-data">Загрузка…</div><section class="panel"><h2>Проверка среды Keenetic / Entware</h2><p class="subtle">Пассивная проверка по идеям MY.KN. Никакие службы, правила NFQUEUE и подключённые носители не изменяются.</p><div id="preflight-data">Загрузка…</div></section>`;}
 async function loadDevice(){const target=$("#device-data");if(!target||deviceLoading)return;deviceLoading=true;try{const d=await api("device");if(target!==$("#device-data"))return;deviceData=d;target.innerHTML=`<div class="stats-grid"><div class="panel"><h3>Процессор</h3><strong>${d.cpu_percent==null?(d.cpu_sample_available?"ожидается второй замер":"недоступно"):d.cpu_percent.toFixed(1)+" %"}</strong><p>Ядер: ${d.cpu_cores}</p><small>Load 1/5/15 мин: ${d.load.length?d.load.map(v=>v.toFixed(2)).join(" / "):"недоступно"}</small><p class="subtle">Из общего CPU: Pilot ${d.pilot_cpu_percent==null?"ожидается замер":d.pilot_cpu_percent.toFixed(1)+" %"} · nfqws2 ${d.engine_cpu_percent==null?"не измерено":d.engine_cpu_percent.toFixed(1)+" %"}</p><small>Доли от всех ядер суммарно, не от одного ядра. Остальная нагрузка — системные и другие процессы.</small></div><div class="panel"><h3>Память</h3><strong>${d.memory_available==null?"недоступно":prettyBytes(d.memory_total-d.memory_available)+" занято"}</strong><p>Всего: ${prettyBytes(d.memory_total||null)}</p><small>Доступно: ${prettyBytes(d.memory_available)}</small></div><div class="panel"><h3>Температура</h3>${d.temperatures.length?d.temperatures.map(t=>`<p><strong>${t.celsius.toFixed(1)} °C</strong> · ${esc(t.name)}</p>`).join(""):'<p>Недоступно: прошивка не предоставляет датчик Pilot.</p>'}</div></div><div class="panel"><h3>${esc(d.model||"Модель не предоставлена прошивкой")}</h3><p>${esc(d.platform)} · ядро ${esc(d.kernel||"неизвестно")}</p><p>Время работы: ${d.uptime_seconds==null?"недоступно":Math.floor(d.uptime_seconds/86400)+" д "+Math.floor(d.uptime_seconds%86400/3600)+" ч "+Math.floor(d.uptime_seconds%3600/60)+" мин"}</p><p>WAN ${esc(d.wan||"не задан")}: получено ${prettyBytes(d.rx_bytes)}, передано ${prettyBytes(d.tx_bytes)}</p><p>Сейчас: ↓ ${prettyBytes(d.rx_bytes_per_second)}/с · ↑ ${prettyBytes(d.tx_bytes_per_second)}/с</p></div>`;}catch(e){if(target===$("#device-data"))target.textContent="Не удалось получить данные: "+e.message;}finally{deviceLoading=false;loadPreflight();}}
@@ -1404,6 +1621,13 @@ function ensureUpdateDialog(){
  dialog.innerHTML='<h2 id="update-monitor-title">Обновление Keenetic Pilot</h2><p id="update-monitor-version" class="subtle"></p><p id="update-monitor-state" role="status" aria-live="polite"></p><progress id="update-monitor-progress" aria-label="Выполняется обновление"></progress><ol id="update-monitor-steps"></ol><p id="update-monitor-detail" class="subtle"></p><div class="form-actions"><button id="update-monitor-copy" type="button">Скачать диагностику</button><button id="update-monitor-close" type="button">Свернуть</button></div><small>Закрытие окна не отменяет обновление. Не отключайте питание роутера во время установки.</small>';
  document.body.appendChild(dialog);
  $("#update-monitor-close").onclick=()=>dialog.close();
+ // A backdrop click minimizes the monitor only; polling and installation continue.
+ let pressedOutside=false;
+ const outside=e=>{const r=dialog.getBoundingClientRect();return e.target===dialog&&(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom);};
+ dialog.addEventListener("pointerdown",e=>{pressedOutside=e.button===0&&outside(e);});
+ dialog.addEventListener("pointercancel",()=>{pressedOutside=false;});
+ dialog.addEventListener("click",e=>{const dismiss=pressedOutside&&outside(e);pressedOutside=false;if(dismiss&&dialog.open)dialog.close();});
+ dialog.addEventListener("close",()=>{pressedOutside=false;});
  $("#update-monitor-copy").onclick=()=>{
   if(!updateMonitor)return;
   const m=updateMonitor,d=m.last||{};
@@ -1482,7 +1706,7 @@ async function startMonitoredUpdate(path,payload,source,button){
  }
 }
 
-function updatesPage(){return heading("Обновления","Обновление Pilot, панели и закреплённого nfqws2 с сохранением настроек.")+`<div class="panel"><div id="update-info">Загрузка…</div><div class="form-actions"><button id="update-check">Проверить версию</button><button id="update-install" class="primary" disabled>Установить обновление</button><button id="update-monitor-open" type="button">Ход обновления</button></div><p class="subtle">Выпуск проверяется по подписи и SHA-256. Перед остановкой службы проверяются пакет и конфигурация; установщик сохраняет прежнюю версию для отката при ошибке. Текущий подбор будет отменён перед установкой. Будет краткий перерыв. После перезапуска войдите с прежним паролем.</p></div><div class="panel"><h3>ChatGPT / Codex · отдельные обновления</h3><p class="subtle">Это дополнительный канал GitHub HTTPS + SHA-256, без независимой подписи Ed25519. Автор указан издателем в GitHub, а не подтверждён криптографически. Старый подписанный канал выше оставлен без изменений.</p><div id="source-update-info">Загрузка сведений об источниках…</div></div><div class="panel"><h3>Каталог методов</h3><p>Подписанные стратегии можно загрузить отдельно от приложения.</p><button id="catalog-update">Загрузить стратегии сейчас</button></div>`;}
+function updatesPage(){return heading("Обновления","Обновление Pilot, панели и закреплённого nfqws2 с сохранением настроек.")+`<div class="panel"><h3>Установленная версия</h3><div id="installed-release-notes">${releaseNotesHTML(state.version,"installed",true)}</div></div><div class="panel"><div id="update-info">Загрузка…</div><div class="form-actions"><button id="update-check">Проверить версию</button><button id="update-install" class="primary" disabled>Установить обновление</button><button id="update-monitor-open" type="button">Ход обновления</button></div><p class="subtle">Выпуск проверяется по подписи и SHA-256. Перед остановкой службы проверяются пакет и конфигурация; установщик сохраняет прежнюю версию для отката при ошибке. Текущий подбор будет отменён перед установкой. Будет краткий перерыв. После перезапуска войдите с прежним паролем.</p></div><div class="panel"><h3>ChatGPT / Codex · отдельные обновления</h3><p class="subtle">Это дополнительный канал GitHub HTTPS + SHA-256, без независимой подписи Ed25519. Автор указан издателем в GitHub, а не подтверждён криптографически. Старый подписанный канал выше оставлен без изменений.</p><div id="source-update-info">Загрузка сведений об источниках…</div></div><div class="panel"><h3>Каталог методов</h3><p>Подписанные стратегии можно загрузить отдельно от приложения.</p><button id="catalog-update">Загрузить стратегии сейчас</button></div>`;}
 async function loadSourceUpdates(force=false){
   const target=$("#source-update-info");
   if(!target||(sourceUpdatesLoading&&!force))return;
@@ -1492,13 +1716,19 @@ async function loadSourceUpdates(force=false){
     const d=await api("updates/sources");
     if(target!==$("#source-update-info")||serial!==sourceUpdatesSerial)return;
     sourceUpdatesData=d;
+    rememberReleaseNotes(target);
     target.innerHTML=(d.sources||[]).map(item=>{
       const src=esc(item.source);
+      if(item.checked){lastSourceChecks.set(item.source,{version:item.latest,commit:item.commit});}
+      const previous=lastSourceChecks.get(item.source);
       const latest=item.checked?esc(item.latest):"Не проверено";
       const status=!item.checked?"Для поиска нажмите «Проверить»":item.available?"Есть новая версия":"Новых выпусков нет";
       return `<div class="source-update-row" data-source-row="${src}">
         <div class="panel-head"><strong>${src}</strong><span>${esc(status)}</span></div>
         <p>Версия: ${latest}${item.checked&&item.commit?" · коммит "+esc(item.commit.slice(0,8)):""}</p>
+        ${releaseNotesHTML(item.checked?item.latest:previous?.version,item.source)}
+        ${!item.checked&&previous?`<p>Последний подтверждённый ранее выпуск: ${esc(previous.version)} · ${esc(previous.commit?.slice(0,8))}. Установка недоступна до новой проверки.</p>`:""}
+        ${sourceCheckErrors.has(item.source)?`<p class="fail-text">${esc(sourceCheckErrors.get(item.source))}</p>`:""}
         <div class="form-actions">
           <button data-source-update-check="${src}" ${d.running?"disabled":""}>Проверить ${src}</button>
           <button data-source-update-install="${src}" ${!d.supported||!item.available||d.running?"disabled":""}>Установить ${latest} [${src}]</button>
@@ -1507,8 +1737,8 @@ async function loadSourceUpdates(force=false){
     }).join("");
     target.querySelectorAll("[data-source-update-check]").forEach(button=>button.addEventListener("click",async()=>{
       button.disabled=true;
-      try{await api("updates/sources/check","POST",{source:button.dataset.sourceUpdateCheck});await loadSourceUpdates(true);}
-      catch(err){notify("Ошибка проверки: "+err.message,true);button.disabled=false;}
+      try{await api("updates/sources/check","POST",{source:button.dataset.sourceUpdateCheck});sourceCheckErrors.delete(button.dataset.sourceUpdateCheck);await loadSourceUpdates(true);}
+      catch(err){sourceCheckErrors.set(button.dataset.sourceUpdateCheck,err.message);notify("Ошибка проверки: "+err.message,true);await loadSourceUpdates(true);button.disabled=false;}
     }));
     target.querySelectorAll("[data-source-update-install]").forEach(button=>button.addEventListener("click",async()=>{
       const source=button.dataset.sourceUpdateInstall;
@@ -1521,7 +1751,7 @@ async function loadSourceUpdates(force=false){
   }catch(e){if(target===$("#source-update-info"))target.textContent="Не удалось получить сведения об источниках: "+e.message;}
   finally{if(serial===sourceUpdatesSerial)sourceUpdatesLoading=false;}
 }
-async function loadUpdates(force=false){const target=$("#update-info");if(!target||(updatesLoading&&!force))return;updatesLoading=true;const serial=++updatesSerial;try{const d=await api("updates");if(target!==$("#update-info")||serial!==updatesSerial)return;updatesData=d;const stages={idle:"Готово к проверке",downloading:"Загрузка и проверка пакета",installing:"Установка и перезапуск службы",waiting:"Ожидание завершения текущего подбора перед обновлением",completed:"Обновление завершено",failed:"Обновление не завершено. Подробности — в /opt/etc/keenetic-pilot/update.log; проверьте состояние службы.",interrupted:"Процесс обновления прерван; проверьте состояние службы перед повтором."};target.innerHTML=`<h3>Pilot ${esc(d.current)}</h3><p>nfqws2: ${esc(d.engine||"версия не получена")}</p><p>${esc(stages[d.stage]||d.stage)}</p>${d.stage==="failed"||d.stage==="interrupted"?`<p>${d.phase?"Этап: "+esc(({"log-open":"открытие журнала",prepare:"подготовка пакета",waiting:"завершение текущей операции","worker-start":"запуск установки",install:"установка приложения и движка","version-check":"проверка установленной версии"})[d.phase]||"неизвестен"):""}${d.exit_code?" · код завершения: "+esc(d.exit_code):""}</p>`:""}<p>${d.latest?"Последний проверенный выпуск: "+esc(d.latest)+(d.latest_engine?" · nfqws2 "+esc(d.latest_engine):""):"Проверка новых выпусков ещё не выполнялась"}</p>${!d.supported?'<p class="subtle">Установка из панели доступна для управляемой установки на роутере.</p>':""}`;$("#update-install").disabled=!d.supported||!d.available||d.running;$("#update-install").textContent=d.available?"Установить "+d.latest:"Установить обновление";$("#update-check").disabled=d.running||d.checking;}catch(e){if(target===$("#update-info"))target.textContent="Связь с панелью временно недоступна: "+e.message;}finally{if(serial===updatesSerial)updatesLoading=false;}}
+async function loadUpdates(force=false){const target=$("#update-info");if(!target||(updatesLoading&&!force))return;updatesLoading=true;const serial=++updatesSerial;try{const d=await api("updates");if(target!==$("#update-info")||serial!==updatesSerial)return;updatesData=d;const installed=$("#installed-release-notes");if(installed){const key="installed:"+String(d.current||"unknown");if(installed.querySelector("details")?.dataset.releaseNotes!==key){rememberReleaseNotes(installed);installed.innerHTML=releaseNotesHTML(d.current,"installed",true);}}const stages={idle:"Готово к проверке",downloading:"Загрузка и проверка пакета",installing:"Установка и перезапуск службы",waiting:"Ожидание завершения текущего подбора перед обновлением",completed:"Обновление завершено",failed:"Обновление не завершено. Подробности — в /opt/etc/keenetic-pilot/update.log; проверьте состояние службы.",interrupted:"Процесс обновления прерван; проверьте состояние службы перед повтором."};target.innerHTML=`<h3>Pilot ${esc(d.current)}</h3><p>nfqws2: ${esc(d.engine||"версия не получена")}</p><p>${esc(stages[d.stage]||d.stage)}</p>${d.stage==="failed"||d.stage==="interrupted"?`<p>${d.phase?"Этап: "+esc(({"log-open":"открытие журнала",prepare:"подготовка пакета",waiting:"завершение текущей операции","worker-start":"запуск установки",install:"установка приложения и движка","version-check":"проверка установленной версии"})[d.phase]||"неизвестен"):""}${d.exit_code?" · код завершения: "+esc(d.exit_code):""}</p>`:""}<p>${d.latest?"Последний проверенный выпуск: "+esc(d.latest)+(d.latest_engine?" · nfqws2 "+esc(d.latest_engine):""):"Проверка новых выпусков ещё не выполнялась"}</p>${!d.supported?'<p class="subtle">Установка из панели доступна для управляемой установки на роутере.</p>':""}`;$("#update-install").disabled=!d.supported||!d.available||d.running;$("#update-install").textContent=d.available?"Установить "+d.latest:"Установить обновление";$("#update-check").disabled=d.running||d.checking;}catch(e){if(target===$("#update-info"))target.textContent="Связь с панелью временно недоступна: "+e.message;}finally{if(serial===updatesSerial)updatesLoading=false;}}
 async function loadLogs() {
   try {
     const logs = await api("logs");
@@ -1635,3 +1865,52 @@ async function pollStatus() {
 $("#retry-connection").addEventListener("click", pollStatus);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) pollStatus(); });
 schedulePoll();
+
+(function initPilotTheme(){
+ const select=$("#pilot-theme");if(!select)return;
+ const root=document.documentElement,fields=["accent","bg","panel","text"];
+ const defaults={theme:"matrix",accent:"#57f68b",bg:"#101318",panel:"#1b2028",text:"#e2f3e8"};
+ let prefs={...defaults};
+ try{const saved=JSON.parse(localStorage.getItem("pilot-theme-v1")||"{}");if(saved&&typeof saved==="object"){if(["matrix","dark","light","aero","luna","custom"].includes(saved.theme))prefs.theme=saved.theme;for(const k of fields)if(/^#[0-9a-f]{6}$/i.test(saved[k]))prefs[k]=saved[k];}}catch{}
+ function apply(){
+  select.value=prefs.theme;root.dataset.pilotTheme=prefs.theme;$("#theme-custom").hidden=prefs.theme!=="custom";
+  for(const k of fields){$("#theme-"+k).value=prefs[k];if(prefs.theme==="custom")root.style.setProperty("--"+k,prefs[k]);else root.style.removeProperty("--"+k);}
+  try{localStorage.setItem("pilot-theme-v1",JSON.stringify(prefs));}catch{}
+ }
+ select.addEventListener("change",()=>{prefs.theme=select.value;apply();});
+ for(const k of fields)$("#theme-"+k).addEventListener("input",e=>{prefs[k]=e.target.value;apply();});
+ $("#theme-reset").addEventListener("click",()=>{prefs={...defaults};apply();});
+ apply();
+})();
+
+ // Close only transient header popovers, not inline details or editable forms.
+ const transientPopovers=()=>document.querySelectorAll("#pilot-music[open],.theme-picker[open]");
+ document.addEventListener("click",e=>{
+  if(!(e.target instanceof Node))return;
+  for(const panel of transientPopovers())if(!panel.contains(e.target))panel.open=false;
+ });
+ document.addEventListener("keydown",e=>{
+  if(e.key!=="Escape"||e.defaultPrevented||document.querySelector("dialog[open]"))return;
+  for(const panel of transientPopovers()){
+   const restore=panel.contains(document.activeElement);
+   panel.open=false;
+   if(restore)panel.querySelector("summary")?.focus();
+  }
+ });
+
+function renderNotifications(){
+ const target=$("#notification-center");if(!target)return;
+ target.innerHTML=panelNotifications.length?'<ul>'+panelNotifications.map(n=>'<li>'+esc(n.at)+' · '+(n.error?'Ошибка: ':'')+esc(n.message)+'</li>').join("")+'</ul>':'<p>Уведомлений пока нет.</p>';
+}
+function bindSettingsBackup(){
+ $("#settings-backup-download")?.addEventListener("click",()=>action(async()=>{
+  const data=await api("settings-backup");const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:"application/json"}));
+  const a=document.createElement("a");a.href=url;a.download="pilot-settings-backup.json";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+ }));
+ $("#settings-backup-restore")?.addEventListener("click",()=>action(async()=>{
+  const file=$("#settings-backup-file")?.files[0];if(!file||file.size>65536)throw Error("Выберите резервную копию до 64 КБ.");
+  const data=JSON.parse(await file.text());
+  if(!window.confirm("Восстановить настройки из "+file.name+"? Текущая конфигурация будет сохранена в config.json.previous. Возможен перезапуск движка."))return;
+  await api("settings-backup/restore","POST",data);notify("Настройки восстановлены");
+ }));
+}

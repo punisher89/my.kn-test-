@@ -591,3 +591,22 @@ func TestBoxFreshCycleUsesFullCatalogAndDoesNotReplaceWorkingMethodOnFailure(t *
  for _,candidate:=range StrategiesFor(c){if candidate.ID!="none"{expected=append(expected,candidate.ID)}}
  if strings.Join(tested,",")!=strings.Join(expected,","){t.Fatal("fresh search used stale ranking or skipped candidates")}
 }
+
+
+func TestDirectBaselineHasShortDeadline(t *testing.T) {
+ m,c,_,scope:=activeFixture(t)
+ c.TimeoutSeconds=12
+ directCalls:=0
+ m.activeProbeHook=func(ctx context.Context,_ Config,_ DomainScope,_ Target,id string)activeEvidence{
+  if id=="direct" {
+   directCalls++
+   deadline,ok:=ctx.Deadline()
+   if !ok || time.Until(deadline)>4*time.Second || time.Until(deadline)<=0 {t.Fatal("direct probe has invalid deadline")}
+   return evidence(false,true)
+  }
+  if _,ok:=ctx.Deadline();ok {t.Fatal("candidate inherited short direct deadline")}
+  return evidence(id=="fake-md5",true)
+ }
+ stage,_:=m.searchDomain(context.Background(),c,scope)
+ if directCalls!=2 || stage!="applied" {t.Fatalf("direct calls=%d stage=%s",directCalls,stage)}
+}

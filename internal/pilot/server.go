@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -46,6 +47,22 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 			if !bearerOK && (auth == nil || !auth.validSession(r)) {
 				jsonReply(w, 401, map[string]string{"error": "требуется ключ доступа"})
 				return
+			}
+			// Only user-initiated operations that contend for the controller lock
+			// get a foreground reservation. Polling and explicit cancellation do not.
+			foreground := false
+			switch path {
+			case "PUT /api/config", "POST /api/service", "POST /api/tune",
+				"POST /api/check", "POST /api/domain-search", "POST /api/adaptive/domain",
+				"POST /api/services", "POST /api/services/custom", "DELETE /api/services/{id}",
+				"POST /api/services/{id}/domains", "POST /api/settings-backup/restore",
+				"POST /api/catalog/update", "POST /api/youtube/video-test", "POST /api/vpn/subscription", "POST /api/vpn/subscription/file":
+				foreground = true
+			}
+			if foreground {
+				release, err := m.reserveManual(r.Context())
+				if err != nil { jsonReply(w, 409, map[string]string{"error": err.Error()}); return }
+				defer release()
 			}
 			fn(w, r)
 		})
@@ -87,7 +104,17 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 		w.Header().Set("Content-Disposition", `attachment; filename="keenetic-pilot-diagnostics-`+report.GeneratedAt.Format("20060102T150405Z")+`.json"`)
 		jsonReply(w, 200, report)
 	})
-	api("GET /api/updates", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, m.Updates()) })
+	api("GET /api/settings-backup",func(w http.ResponseWriter,r *http.Request){
+  backup,err:=m.SettingsBackup();if err!=nil {replyError(w,err);return}
+  w.Header().Set("Content-Disposition",`attachment; filename="pilot-settings-backup.json"`)
+  jsonReply(w,200,backup)
+ })
+ api("POST /api/settings-backup/restore",func(w http.ResponseWriter,r *http.Request){
+  var b settingsBackup;if !read(w,r,&b){return}
+  if err:=m.RestoreSettingsBackup(b);err!=nil{replyError(w,err);return}
+  jsonReply(w,200,m.Snapshot())
+ })
+ api("GET /api/updates", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, m.Updates()) })
 	api("POST /api/updates/check", func(w http.ResponseWriter, r *http.Request) {
 		if e := m.CheckUpdate(r.Context()); e != nil {
 			replyError(w, e)
@@ -175,16 +202,60 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 	})
 	// Serialize manual tunnel probes; they must not compete with each other.
 	vpnProbeSlot := make(chan struct{}, 1)
+ api("GET /api/vpn/subscription",func(w http.ResponseWriter,r *http.Request){
+  state,err:=m.SubscriptionState();if err!=nil{replyError(w,err);return};jsonReply(w,200,state)
+ })
+ api("POST /api/vpn/subscription",func(w http.ResponseWriter,r *http.Request){
+  var input struct{URL string `json:"url"`;Action string `json:"action"`}
+  if !read(w,r,&input){return}
+  if input.Action=="delete"{if err:=m.DeleteSubscription();err!=nil{replyError(w,err);return};jsonReply(w,200,subscriptionState{});return}
+  if input.Action!="save"&&input.Action!="refresh"{jsonReply(w,400,map[string]string{"error":"неизвестное действие"});return}
+  select{case vpnProbeSlot<-struct{}{}:defer func(){<-vpnProbeSlot}();default:replyError(w,ErrBusy);return}
+  state,err:=m.SaveSubscription(r.Context(),input.URL,input.Action=="refresh")
+  if err!=nil{replyError(w,err);return};jsonReply(w,200,state)
+ })
+ // A file can contain credentials: accept it over TLS or an explicit local
+ // loopback connection (e.g. an SSH port forward), not unencrypted LAN HTTP.
+ api("POST /api/vpn/ssh-check",func(w http.ResponseWriter,r *http.Request){
+  if !sshSecretTransport(r){jsonReply(w,403,map[string]string{"error":"Для ввода пароля требуется HTTPS или SSH-проброс на localhost"});return}
+  var input sshPasswordRequest
+  if !read(w,r,&input){return}
+  if err:=validateSSHPassword(input);err!=nil{replyError(w,err);return}
+  select{case vpnProbeSlot<-struct{}{}:defer func(){<-vpnProbeSlot}();default:replyError(w,ErrBusy);return}
+  jsonReply(w,200,checkSSHPassword(r.Context(),m.path,input))
+ })
+ api("POST /api/vpn/subscription/file",func(w http.ResponseWriter,r *http.Request){
+  remote,_,_:=net.SplitHostPort(r.RemoteAddr)
+  host:=r.Host
+  if h,_,e:=net.SplitHostPort(host);e==nil {host=h}
+  loopback:=net.ParseIP(remote).IsLoopback()&&(host=="localhost"||net.ParseIP(strings.Trim(host,"[]")).IsLoopback())
+  if r.TLS==nil&&!loopback{jsonReply(w,403,map[string]string{"error":"Для импорта секретов используйте HTTPS или SSH-проброс панели на localhost"});return}
+  if r.Header.Get("Content-Type")!="application/octet-stream"{jsonReply(w,415,map[string]string{"error":"ожидается файл"});return}
+  data,err:=io.ReadAll(http.MaxBytesReader(w,r.Body,maxSubscriptionBytes))
+  if err!=nil{jsonReply(w,400,map[string]string{"error":"файл слишком большой или не читается"});return}
+  state,err:=m.ImportSubscriptionFile(data);if err!=nil{replyError(w,err);return};jsonReply(w,200,state)
+ })
+ api("POST /api/vpn/subscription/preview",func(w http.ResponseWriter,r *http.Request){
+  var input struct{URL string `json:"url"`};if !read(w,r,&input){return}
+  select{case vpnProbeSlot<-struct{}{}:defer func(){<-vpnProbeSlot}();default:replyError(w,ErrBusy);return}
+  preview,err:=fetchSubscriptionPreview(r.Context(),input.URL)
+  if err!=nil{replyError(w,err);return};jsonReply(w,200,preview)
+ })
+	dnsProbeSlot := make(chan struct{}, 1)
 	api("POST /api/dns/probe", func(w http.ResponseWriter, r *http.Request) {
-		var input struct{}
+		var input secureDNSRequest
 		if !read(w,r,&input){return}
+		if _,err:=normalizeDNSProbe(input);err!=nil{replyError(w,err);return}
 		select {
-		case vpnProbeSlot <- struct{}{}:
-			defer func(){<-vpnProbeSlot}()
+		case dnsProbeSlot <- struct{}{}:
+			defer func(){<-dnsProbeSlot}()
 		default:
 			replyError(w,ErrBusy);return
 		}
-		jsonReply(w,200,secureDNSProbe(r.Context()))
+		if local, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr); ok {
+			input.panelIP, _, _ = net.SplitHostPort(local.String())
+		}
+		jsonReply(w,200,secureDNSProbe(r.Context(),input))
 	})
 	api("POST /api/geo/probe", func(w http.ResponseWriter, r *http.Request) {
 		var input struct { Interface string `json:"interface"` }
@@ -310,6 +381,7 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 		}
 		jsonReply(w, 200, results)
 	})
+	registerBotAPI(mux, m)
 	root, _ := fs.Sub(assets, "web")
 	mux.Handle("/", http.FileServer(http.FS(root)))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -29,3 +29,42 @@ jobs:
           name: keenetic-pilot-alpha-packages
           path: dist/
           if-no-files-found: error
+
+  telegram-notification:
+    needs: linux
+    if: ${{ always() && github.event_name == 'push' && github.repository == 'punisher89/my.kn-test-' && github.ref == 'refs/heads/feature/keenetic-pilot-beta6' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Notify configured Telegram group of CI result
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.PILOT_TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.PILOT_TELEGRAM_CHAT_ID }}
+          BUILD_RESULT: ${{ needs.linux.result }}
+          CHANGE_TITLE: ${{ github.event.head_commit.message }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, urllib.request, urllib.error
+          token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+          chat = os.environ.get("TELEGRAM_CHAT_ID", "")
+          if not token or not chat:
+              print("Telegram notifications not configured; skipped.")
+              raise SystemExit(0)
+          if not re.fullmatch(r"[0-9]+:[A-Za-z0-9_-]+", token) or not re.fullmatch(r"-[0-9]+", chat):
+              print("::warning::Telegram group notification settings invalid.")
+              raise SystemExit(0)
+          state = os.environ["BUILD_RESULT"]
+          labels = {"success":"✅ Тесты и сборка прошли", "failure":"❌ Сборка или тесты не прошли", "cancelled":"⏹ Сборка отменена", "skipped":"⏸ Сборка пропущена"}
+          title = os.environ.get("CHANGE_TITLE", "").splitlines()
+          message = "\n".join(["Keenetic Pilot · beta.6 · ChatGPT", labels.get(state, state), (title[0] if title else "")[:240], "Коммит: " + os.environ["GITHUB_SHA"][:8], "https://github.com/" + os.environ["GITHUB_REPOSITORY"] + "/actions/runs/" + os.environ["GITHUB_RUN_ID"], "Результат CI не означает публикацию обновления."])
+          body = json.dumps({"chat_id":chat,"text":message,"disable_web_page_preview":True}).encode()
+          try:
+              req = urllib.request.Request("https://api.telegram.org/bot" + token + "/sendMessage", data=body, headers={"Content-Type":"application/json"}, method="POST")
+              with urllib.request.urlopen(req, timeout=15) as response:
+                  if not json.load(response).get("ok"):
+                      raise ValueError("rejected")
+              print("Telegram group notification delivered.")
+          except Exception:
+              print("::warning::Telegram notification failed; build result unchanged.")
+          PY

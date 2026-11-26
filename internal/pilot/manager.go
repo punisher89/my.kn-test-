@@ -42,6 +42,7 @@ type Snapshot struct {
 	Mode            string                  `json:"mode"`
 	Running         bool                    `json:"running"`
 	Busy            bool                    `json:"busy"`
+	BackgroundSearch bool                   `json:"background_search_running,omitempty"`
 	Config          Config                  `json:"config"`
 	Job             *Job                    `json:"job"`
 	Error           string                  `json:"error,omitempty"`
@@ -75,6 +76,8 @@ type Manager struct {
 	radio            radioReader
 	mu               sync.Mutex
 	op               sync.Mutex
+	manualPending    atomic.Int32
+	backgroundCancel context.CancelCauseFunc // protected by mu
 	c                Config
 	path             string
 	backend          Backend
@@ -156,7 +159,7 @@ func (m *Manager) Snapshot() Snapshot {
 		copied := m.lastVideo
 		lastVideo = &copied
 	}
-	return Snapshot{LastVideo: lastVideo, DomainJob: domainJob, DomainQueue: m.domainQueue, VerifiedDomains: len(m.domainPlans.Plans), Checks: m.checksLocked(running), BackgroundHold: hold, ServicePresets: ServicePresets(), Version: Version, Mode: m.backend.Kind(), Running: running, Busy: busy, Config: cloneConfig(m.c), Job: job, Error: m.lastError, Strategies: StrategiesFor(m.c)}
+	return Snapshot{LastVideo: lastVideo, DomainJob: domainJob, DomainQueue: m.domainQueue, VerifiedDomains: len(m.domainPlans.Plans), Checks: m.checksLocked(running), BackgroundHold: hold, ServicePresets: ServicePresets(), Version: Version, Mode: m.backend.Kind(), Running: running, Busy: busy, BackgroundSearch: m.backgroundCancel != nil, Config: cloneConfig(m.c), Job: job, Error: m.lastError, Strategies: StrategiesFor(m.c)}
 }
 func (m *Manager) setError(err error) error {
 	m.mu.Lock()
@@ -476,6 +479,7 @@ func (m *Manager) Watch(ctx context.Context) {
     nextCatalog := time.Now().Add(catalogStartDelay)
     nextDomains := map[string]time.Time{}
     nextRepair := time.Now()
+    nextSubscription := time.Now().Add(10*time.Minute)
     nextStartRetry := time.Time{}
     startRetryDelay := 30 * time.Second
     failures := make(recoveryFailures)
@@ -487,10 +491,10 @@ func (m *Manager) Watch(ctx context.Context) {
         case <-ctx.Done():
             return
         case <-ticker.C:
-            if m.updateRequested.Load() || !m.op.TryLock() {
+            if m.manualPending.Load() > 0 || m.updateRequested.Load() || !m.op.TryLock() {
                 continue
             }
-            if m.updateRequested.Load() {
+            if m.manualPending.Load() > 0 || m.updateRequested.Load() {
                 m.op.Unlock()
                 continue
             }
@@ -498,6 +502,10 @@ func (m *Manager) Watch(ctx context.Context) {
             allowed := m.backgroundAllowed(c)
             now := time.Now()
 
+            if allowed && c.SubscriptionAutoRefresh && !now.Before(nextSubscription) {
+                nextSubscription=now.Add(24*time.Hour)
+                if err:=m.refreshSubscriptionIfDue(ctx,now);err!=nil {m.log.Add("VPN-подписка: "+err.Error())}
+            }
             if allowed && c.AutoCatalog && !now.Before(nextCatalog) {
                 nextCatalog = now.Add(24 * time.Hour)
                 if err := m.updateCatalog(ctx); err != nil {
@@ -613,4 +621,30 @@ func (m *Manager) Close() error {
 	m.op.Lock()
 	defer m.op.Unlock()
 	return m.backend.Stop()
+}
+
+// reserveManual gives an authenticated foreground request a bounded opportunity
+// to yield an active background domain probe. It never cancels a configuration
+// transaction, updater, or user-started legacy tune. The caller releases its
+// reservation after the endpoint finishes, including on errors.
+var errForegroundPriority = errors.New("foreground request priority")
+
+func (m *Manager) reserveManual(ctx context.Context) (func(), error) {
+ m.manualPending.Add(1)
+ release := func(){m.manualPending.Add(-1)}
+ deadline,cancel:=context.WithTimeout(ctx,5*time.Second)
+ defer cancel()
+ ticker:=time.NewTicker(25*time.Millisecond)
+ defer ticker.Stop()
+ for {
+  if deadline.Err()!=nil {release();return nil,ErrBusy}
+  m.mu.Lock()
+  if m.backgroundCancel!=nil {m.backgroundCancel(errForegroundPriority)}
+  m.mu.Unlock()
+  if m.op.TryLock(){m.op.Unlock();return release,nil}
+  select {
+  case <-deadline.Done():release();return nil,ErrBusy
+  case <-ticker.C:
+  }
+ }
 }

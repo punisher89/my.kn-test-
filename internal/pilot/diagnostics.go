@@ -12,6 +12,8 @@ import (
 // DiagnosticReport is an explicit export allowlist. Never embed Config, Job,
 // Snapshot, logs, or arbitrary error text: they can contain URLs or credentials.
 type DiagnosticReport struct {
+	HistorySummary DiagnosticHistorySummary `json:"history_summary"`
+	HealthFindings []string `json:"health_findings"`
 	LastVideo            *VideoMeasurement `json:"last_video_check,omitempty"`
 	Resources            DiagnosticResources     `json:"resources"`
 	Preflight            RouterPreflight         `json:"preflight"`
@@ -281,5 +283,7 @@ func (m *Manager) Diagnostics() DiagnosticReport {
 		}
 		d.Storage = append(d.Storage, check)
 	}
+	d.HistorySummary = summarizeDiagnosticHistory(d.History, now.Unix())
+	d.HealthFindings = diagnosticHealthFindings(d, now.Unix())
 	return d
 }

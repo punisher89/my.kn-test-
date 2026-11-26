@@ -45,6 +45,9 @@ type Config struct {
 	AdaptiveActive            bool        `json:"adaptive_active"`
 	BackgroundOtherDomains     bool        `json:"background_other_domains"`
 	BackgroundPaused bool `json:"background_paused"`
+ Lightweight bool `json:"lightweight"`
+ HistoryRetentionDays int `json:"history_retention_days"`
+ SubscriptionAutoRefresh bool `json:"subscription_auto_refresh"`
 	AdaptiveFastStart         bool        `json:"adaptive_fast_start"`
 	AdaptiveReuse             bool        `json:"adaptive_reuse"`
 	AdaptiveCooldownSeconds   int         `json:"adaptive_cooldown_seconds"`
@@ -105,6 +108,7 @@ var idRE = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 func ValidDomain(s string) bool { return len(s) <= 253 && domainRE.MatchString(s) }
 
 func (c Config) Validate() error {
+ if c.HistoryRetentionDays<0||c.HistoryRetentionDays>365{return errors.New("хранение истории: 0–365 суток")}
 	if err := c.validateDomainControls(); err != nil {
 		return err
 	}
