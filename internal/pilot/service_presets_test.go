@@ -18,8 +18,8 @@ func TestServiceCatalogProfilesAndIsolation(t *testing.T) {
 		seen[s.Profile.ID] = true
 		c.Profiles = append(c.Profiles, s.Profile)
 	}
-	if len(seen) != 9 {
-		t.Fatalf("expected nine services including Telegram Web, got %d", len(seen))
+	if len(seen) != 12 {
+		t.Fatalf("expected twelve services including Telegram Web, got %d", len(seen))
 	}
 	if err := c.Validate(); err != nil {
 		t.Fatal("combined presets invalid", err)
