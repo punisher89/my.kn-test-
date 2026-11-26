@@ -675,7 +675,7 @@ function validateIndependentVPN(type, data){
 }
 function dnsProbePanel(){
  return `<section class="panel"><h2>DNS роутера</h2>
- <p>Проверяет DNS на самом Keenetic и показывает серверы, которые удалось прочитать из KeeneticOS.</p>
+ <p>Проверяет DNS на самом Keenetic и показывает серверы, которые удалось прочитать из KeeneticOS. Для этой проверки kdig не нужен.</p>
  <button id="dns-probe" type="button">Проверить DNS роутера</button>
  <pre id="dns-probe-result" aria-live="polite">Проверка ещё не запускалась</pre>
  <details><summary>Ручная проверка внешнего DoH, DoT или DoQ</summary>
