@@ -27,3 +27,15 @@ assert.deepEqual(preview(sample),{total:3,types:{vless:1,ss:1},unknown:1});
 assert.deepEqual(preview(Buffer.from(sample).toString("base64")) ,preview(sample));
 assert.throws(()=>preview("proxies: []"));
 console.log("Local VPN preview: 3 checks passed");
+
+const hsStart=source.indexOf("function parseLocalHostlist(");
+const hsEnd=source.indexOf("function expandedProfileDomains(",hsStart);
+assert.ok(hsStart>=0&&hsEnd>hsStart);
+const {parse,merge}=new Function(source.slice(hsStart,hsEnd)+";return {parse:parseLocalHostlist,merge:mergeLocalHostlist};")();
+assert.deepEqual(parse("0.0.0.0 EXAMPLE.COM www.example.com # comment\n*.example.net.\n::1 api.example.org\n127.0.0.1 localhost\nexample.com\n"),{domains:["example.com","www.example.com","example.net","api.example.org"],skipped:1});
+assert.deepEqual(merge(["own.example.org","www.example.com"],["example.com","own.example.org"]),["own.example.org","example.com"]);
+assert.throws(()=>parse("localhost\n192.168.1.1\nhttps://example.com/a"));
+assert.throws(()=>parse("x".repeat(262145)));
+assert.throws(()=>parse(Array.from({length:301},(_,i)=>"a"+i+".example.com").join("\n")));
+assert.throws(()=>merge(Array.from({length:300},(_,i)=>"a"+i+".example.com"),["extra.example.net"]));
+console.log("HostList: 6 checks passed");
