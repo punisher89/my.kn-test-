@@ -291,7 +291,15 @@ func (m *Manager) searchDomain(ctx context.Context, c Config, s DomainScope) (st
 				message = "Поиск ждёт свободных ресурсов роутера"
 				break
 			}
-			evidence := m.activeProbe(ctx, c, s, target, id)
+			// Keep the baseline bounded without reducing the confirmation budget of other candidates.
+			// Two direct successes are still required; mixed results retain the previous method.
+			probeCtx := ctx
+			cancelProbe := func() {}
+			if id == "direct" {
+				probeCtx, cancelProbe = context.WithTimeout(ctx, min(4*time.Second, time.Duration(c.TimeoutSeconds)*time.Second))
+			}
+			evidence := m.activeProbe(probeCtx, c, s, target, id)
+			cancelProbe()
 			evidence.Result.Attempt = i
 			results = append(results, evidence.Result)
 			if evidence.Local && !evidence.Result.OK {
