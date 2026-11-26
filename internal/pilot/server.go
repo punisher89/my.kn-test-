@@ -87,7 +87,17 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 		w.Header().Set("Content-Disposition", `attachment; filename="keenetic-pilot-diagnostics-`+report.GeneratedAt.Format("20060102T150405Z")+`.json"`)
 		jsonReply(w, 200, report)
 	})
-	api("GET /api/updates", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, m.Updates()) })
+	api("GET /api/settings-backup",func(w http.ResponseWriter,r *http.Request){
+  backup,err:=m.SettingsBackup();if err!=nil {replyError(w,err);return}
+  w.Header().Set("Content-Disposition",`attachment; filename="pilot-settings-backup.json"`)
+  jsonReply(w,200,backup)
+ })
+ api("POST /api/settings-backup/restore",func(w http.ResponseWriter,r *http.Request){
+  var b settingsBackup;if !read(w,r,&b){return}
+  if err:=m.RestoreSettingsBackup(b);err!=nil{replyError(w,err);return}
+  jsonReply(w,200,m.Snapshot())
+ })
+ api("GET /api/updates", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, m.Updates()) })
 	api("POST /api/updates/check", func(w http.ResponseWriter, r *http.Request) {
 		if e := m.CheckUpdate(r.Context()); e != nil {
 			replyError(w, e)

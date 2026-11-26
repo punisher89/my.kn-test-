@@ -265,7 +265,7 @@ func (m *Manager) searchDomain(ctx context.Context, c Config, s DomainScope) (st
 		sample, err := readHelloSample(c, s)
 		if err != nil {
 			m.domainReason("client_hello_missing")
-			return finish("unmeasured", "", err.Error(), time.Now().Add(time.Minute))
+			return finish("unmeasured", "", err.Error(), time.Now().Add(5*time.Minute))
 		}
 		m.activeHello = &sample
 		defer func() { m.activeHello = nil }()
@@ -438,12 +438,16 @@ func (m *Manager) watchActive(ctx context.Context) {
     // are still scheduled sequentially and manual endpoint requests are not
     // blocked by this polling cadence.
     ticker := time.NewTicker(10 * time.Second)
+ var lastRun time.Time
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+   now:=time.Now()
+   if m.Config().Lightweight && now.Sub(lastRun)<30*time.Second {continue}
+   lastRun=now
 			m.activeTick(ctx)
 		}
 	}

@@ -76,7 +76,11 @@ func writeAdaptiveFile(path string, data []byte) error {
 	return d.Sync()
 }
 
-func (m *Manager) resetDomainLocked(c Config, host string) (result error) {
+func (m *Manager) resetDomainLocked(c Config, host string) error {
+ return m.rewriteAdaptiveLocked(c, host, false)
+}
+
+func (m *Manager) rewriteAdaptiveLocked(c Config, host string, historyOnly bool) (result error) {
 	if _, err := os.Lstat(c.RuntimeDir); os.IsNotExist(err) {
 		return nil
 	} else if err != nil {
@@ -129,11 +133,17 @@ func (m *Manager) resetDomainLocked(c Config, host string) (result error) {
 	if snapshot.Generation >= (1<<53)-2 {
 		return errors.New("исчерпан счётчик кадров опыта")
 	}
-	hosts := slices.DeleteFunc(snapshot.Hosts, func(r AdaptiveHost) bool { return host == "" || r.Host == host })
+	hosts := snapshot.Hosts
+ if !historyOnly {hosts = slices.DeleteFunc(hosts, func(r AdaptiveHost) bool { return host == "" || r.Host == host })}
+ if historyOnly {
+  // Save both complete original slots, not just the interpreted history.
+  // Fixed private file; retain the last pre-cleanup backup without unbounded growth.
+  if err := WriteJSON(filepath.Join(filepath.Dir(m.path),"history-before-cleanup.json"), backups); err != nil {return err}
+ }
 	events := slices.DeleteFunc(snapshot.History, func(r AdaptiveHost) bool { return host == "" || r.Host == host })
 	discovered := []string{}
 	for _, line := range strings.Split(string(backups["autohosts.txt"]), "\n") {
-		if host != "" && ValidDomain(line) && line != host && !slices.Contains(discovered, line) && len(discovered) < 1000 {
+		if (historyOnly || host != "") && ValidDomain(line) && line != host && !slices.Contains(discovered, line) && len(discovered) < 1000 {
 			discovered = append(discovered, line)
 		}
 	}
@@ -156,7 +166,9 @@ func (m *Manager) resetDomainLocked(c Config, host string) (result error) {
 			return err
 		}
 	}
-	if host == "" {
+	if historyOnly {
+  m.log.Add("История попыток очищена; наблюдения, методы и ручные правила сохранены")
+ } else if host == "" {
 		m.log.Add("Обучение всех доменов сброшено; ручные правила сохранены")
 	} else {
 		m.log.Add("Обучение домена сброшено: " + host + "; ручные правила сохранены")

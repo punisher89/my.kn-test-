@@ -27,6 +27,7 @@ let state,
   token = sessionStorage.getItem("pilot-token") || "",
   toastTimer;
 document.addEventListener("visibilitychange",()=>document.documentElement.classList.toggle("page-hidden",document.hidden));
+const panelNotifications=[];
 let signedIn = false,
   authInfo = { configured: true },
   networkInfo;
@@ -59,6 +60,8 @@ async function api(path, method = "GET", data, signal) {
   }
 }
 function notify(message, error = false) {
+  const msg=String(message).slice(0,500);
+  if(signedIn&&(panelNotifications[0]?.message!==msg||panelNotifications[0]?.error!==error)){panelNotifications.unshift({message:msg,error,at:new Date().toLocaleTimeString("ru-RU")});if(panelNotifications.length>50)panelNotifications.pop();renderNotifications();}
   const toast = $("#toast");
   toast.textContent = message;
   toast.className = `toast${error ? " error" : ""}`;
@@ -67,6 +70,7 @@ function notify(message, error = false) {
 }
 async function logout() {
   stopUpdateMonitor();
+  panelNotifications.length=0;
   document.dispatchEvent(new Event("pilot-logout"));
   signedIn = false;
   panelSession++;
@@ -519,7 +523,7 @@ function settings() {
       "Настройки",
       "Сетевые параметры и правила автоматического подбора.",
     ) +
-    `<form id="settings-form"><div class="settings-grid"><div class="panel"><div class="panel-head"><h2>Подключение</h2></div><div class="field"><label for="wan">WAN-интерфейс</label><input id="wan" value="${esc(c.wan)}" placeholder="Например: ppp0"><small>Имя активного интерфейса провайдера на роутере.</small></div>${toggle("ipv6", "Обрабатывать IPv6", "Включайте при наличии работающего IPv6 у провайдера.", c.ipv6)}${toggle("ppe", "Сохранять видимость handshake", "Первые пакеты без аппаратного ускорения: окно 48 при автоподборе по трафику, иначе 30.", c.ppe)}${toggle("quic", "Обрабатывать QUIC", "Статическая стратегия UDP/443. Подбор HTTPS её не проверяет.", c.quic)}${toggle("discord_voice", "Discord Voice · экспериментально", "Обработка UDP 50000–50099. Нужна проверка реального звонка.", c.discord_voice)}${toggle("youtube_stable", "YouTube · сохранить выбранную стратегию", "Выбранный метод профиля YouTube не будет автоматически заменяться по HTTPS-пробе. Для восстановления используйте кнопку в «Сервисах и доменах».", c.youtube_stable)}</div><div class="panel"><div class="panel-head"><h2>Автоматический подбор</h2></div>${toggle("adaptive", "Автоподбор по трафику", "Обнаруживать повторные ошибки HTTPS и менять метод отдельно для каждого сайта. Сохранённый метод используется первым.", c.adaptive)}<div class="info-note">Новые наблюдения и выбранные методы — в разделе «Коробки обхода». Сетевые ошибки не всегда означают блокировку.</div>${toggle("adaptive_fast_start","Быстрый старт автоподбора","Первые три смены метода в каждом 10-минутном окне: пауза 10 секунд вместо обычной. Затем действует заданная ниже пауза. Два сбоя перед сменой и общие лимиты сохраняются.",c.adaptive_fast_start)}${toggle("adaptive_active","Полный автоподбор","После повторных сбоев самостоятельно проверить прямое подключение и весь каталог на изолированных пробах. Применять только подтверждённый HTTPS-результат без перезапуска движка.",c.adaptive_active)}${toggle("background_paused","Пауза фоновых проверок","Приостановить автоматические проверки и подбор, не перезапуская nfqws2, QUIC и текущие стратегии.",Boolean(c.background_paused))}${toggle("background_other_domains","Проверять посторонние сайты автоматически","По умолчанию выключено для снижения нагрузки. Полный автоподбор работает на настроенных сервисах; неизвестные сайты можно поставить на проверку вручную. Включайте только на мощном роутере.",Boolean(c.background_other_domains))}${toggle("adaptive_reuse", "Использовать опыт коробок", "После повторных сбоев сначала пробовать до трёх методов, давших ответ в похожем контексте за последние семь дней.", c.adaptive_reuse)}<div class="two-fields"><div class="field"><label for="adaptive-cooldown">Пауза между сменами, с</label><input id="adaptive-cooldown" type="number" min="10" max="300" value="${c.adaptive_cooldown_seconds}"></div><div class="field"><label for="adaptive-max-switches">Максимум смен за 10 минут</label><input id="adaptive-max-switches" type="number" min="1" max="20" value="${c.adaptive_max_switches}"></div></div><div class="field"><label for="adaptive-global-max">Общий лимит смен движка за 10 минут</label><input id="adaptive-global-max" type="number" min="1" max="300" value="${c.adaptive_global_max_switches??30}"><small>Для всех коробок вместе. Рабочие методы сохраняются; при достижении лимита смена ждёт окончания окна.</small></div>${toggle("probe_load_guard","Защита фоновых проверок","Откладывать плановые проверки, подбор и загрузку каталогов при CPU ≥65%, load ≥ числу ядер или нехватке памяти. Работающий обход продолжается.",c.probe_load_guard!==false)}${toggle("auto_catalog", "Обновлять каталог стратегий", "Подписанный каталог Pilot: проверка раз в сутки. Новые варианты проверяются при подборе.", c.auto_catalog)}<div class="form-actions"><button type="button" id="catalog-update">Загрузить стратегии сейчас</button></div>${toggle("auto", "Следить за доступностью", "После двух неудачных циклов проверок начинается новый подбор.", c.auto)}<div class="field"></div><div class="two-fields"><div class="field"><label for="interval">Интервал, мин</label><input id="interval" type="number" min="5" max="1440" value="${c.interval_minutes}"></div><div class="field"><label for="timeout">Таймаут запроса, с</label><input id="timeout" type="number" min="2" max="20" value="${c.timeout_seconds}"></div></div><div class="field"><label for="attempts">Попыток на протокол и адрес</label><input id="attempts" type="number" min="1" max="3" value="${c.attempts}"></div><div class="field"><label for="exclusions">Исключения · по одному домену на строку</label><textarea id="exclusions" rows="6" placeholder="example.com">${esc(c.exclusions.join("\n"))}</textarea><small>Исключённые домены не обрабатываются движком.</small></div></div></div><div class="form-actions"><button type="submit" class="primary" ${state.busy ? "disabled" : ""}>Сохранить настройки ↗</button><small>Изменение параметров обработки трафика перезапустит движок. Параметры фоновых проверок применяются сразу.</small></div></form>`
+    `<form id="settings-form"><div class="settings-grid"><div class="panel"><div class="panel-head"><h2>Подключение</h2></div><div class="field"><label for="wan">WAN-интерфейс</label><input id="wan" value="${esc(c.wan)}" placeholder="Например: ppp0"><small>Имя активного интерфейса провайдера на роутере.</small></div>${toggle("ipv6", "Обрабатывать IPv6", "Включайте при наличии работающего IPv6 у провайдера.", c.ipv6)}${toggle("ppe", "Сохранять видимость handshake", "Первые пакеты без аппаратного ускорения: окно 48 при автоподборе по трафику, иначе 30.", c.ppe)}${toggle("quic", "Обрабатывать QUIC", "Статическая стратегия UDP/443. Подбор HTTPS её не проверяет.", c.quic)}${toggle("discord_voice", "Discord Voice · экспериментально", "Обработка UDP 50000–50099. Нужна проверка реального звонка.", c.discord_voice)}${toggle("youtube_stable", "YouTube · сохранить выбранную стратегию", "Выбранный метод профиля YouTube не будет автоматически заменяться по HTTPS-пробе. Для восстановления используйте кнопку в «Сервисах и доменах».", c.youtube_stable)}</div><div class="panel"><div class="panel-head"><h2>Автоматический подбор</h2></div>${toggle("adaptive", "Автоподбор по трафику", "Обнаруживать повторные ошибки HTTPS и менять метод отдельно для каждого сайта. Сохранённый метод используется первым.", c.adaptive)}<div class="info-note">Новые наблюдения и выбранные методы — в разделе «Коробки обхода». Сетевые ошибки не всегда означают блокировку.</div>${toggle("adaptive_fast_start","Быстрый старт автоподбора","Первые три смены метода в каждом 10-минутном окне: пауза 10 секунд вместо обычной. Затем действует заданная ниже пауза. Два сбоя перед сменой и общие лимиты сохраняются.",c.adaptive_fast_start)}${toggle("adaptive_active","Полный автоподбор","После повторных сбоев самостоятельно проверить прямое подключение и весь каталог на изолированных пробах. Применять только подтверждённый HTTPS-результат без перезапуска движка.",c.adaptive_active)}${toggle("lightweight","Облегчённый режим (MIPS / слабые роутеры)","Проверка очереди фонового подбора каждые 30 секунд вместо 10. Действующие методы не меняются.",Boolean(c.lightweight))}${toggle("background_paused","Пауза фоновых проверок","Приостановить автоматические проверки и подбор, не перезапуская nfqws2, QUIC и текущие стратегии.",Boolean(c.background_paused))}${toggle("background_other_domains","Проверять посторонние сайты автоматически","По умолчанию выключено для снижения нагрузки. Полный автоподбор работает на настроенных сервисах; неизвестные сайты можно поставить на проверку вручную. Включайте только на мощном роутере.",Boolean(c.background_other_domains))}${toggle("adaptive_reuse", "Использовать опыт коробок", "После повторных сбоев сначала пробовать до трёх методов, давших ответ в похожем контексте за последние семь дней.", c.adaptive_reuse)}<div class="two-fields"><div class="field"><label for="adaptive-cooldown">Пауза между сменами, с</label><input id="adaptive-cooldown" type="number" min="10" max="300" value="${c.adaptive_cooldown_seconds}"></div><div class="field"><label for="adaptive-max-switches">Максимум смен за 10 минут</label><input id="adaptive-max-switches" type="number" min="1" max="20" value="${c.adaptive_max_switches}"></div></div><div class="field"><label for="adaptive-global-max">Общий лимит смен движка за 10 минут</label><input id="adaptive-global-max" type="number" min="1" max="300" value="${c.adaptive_global_max_switches??30}"><small>Для всех коробок вместе. Рабочие методы сохраняются; при достижении лимита смена ждёт окончания окна.</small></div>${toggle("probe_load_guard","Защита фоновых проверок","Откладывать плановые проверки, подбор и загрузку каталогов при CPU ≥65%, load ≥ числу ядер или нехватке памяти. Работающий обход продолжается.",c.probe_load_guard!==false)}${toggle("auto_catalog", "Обновлять каталог стратегий", "Подписанный каталог Pilot: проверка раз в сутки. Новые варианты проверяются при подборе.", c.auto_catalog)}<div class="form-actions"><button type="button" id="catalog-update">Загрузить стратегии сейчас</button></div>${toggle("auto", "Следить за доступностью", "После двух неудачных циклов проверок начинается новый подбор.", c.auto)}<div class="field"></div><div class="two-fields"><div class="field"><label for="interval">Интервал, мин</label><input id="interval" type="number" min="5" max="1440" value="${c.interval_minutes}"></div><div class="field"><label for="timeout">Таймаут запроса, с</label><input id="timeout" type="number" min="2" max="20" value="${c.timeout_seconds}"></div></div><div class="field"><label for="attempts">Попыток на протокол и адрес</label><input id="attempts" type="number" min="1" max="3" value="${c.attempts}"></div><div class="field"><label for="exclusions">Исключения · по одному домену на строку</label><textarea id="exclusions" rows="6" placeholder="example.com">${esc(c.exclusions.join("\n"))}</textarea><small>Исключённые домены не обрабатываются движком.</small></div></div></div><div class="form-actions"><button type="submit" class="primary" ${state.busy ? "disabled" : ""}>Сохранить настройки ↗</button><small>Изменение параметров обработки трафика перезапустит движок. Параметры фоновых проверок применяются сразу.</small></div></form>` + `<section class="panel"><h2>Резервная копия настроек</h2><p>Включает профили и ручные правила, но не пароли панели и не файлы обучения. Может содержать частные домены и URL — храните локально.</p><div class="form-actions"><button id="settings-backup-download" type="button">Скачать JSON</button><input type="file" id="settings-backup-file" accept=".json,application/json"><button id="settings-backup-restore" type="button">Восстановить настройки</button></div></section>`
   );
 }
 function lines(value) {
@@ -772,7 +776,7 @@ function renderPage() {
                       "События контроллера и движка. Последние 200 строк.",
                       '<button id="refresh-logs">Обновить ↻</button>',
                     ) +
-                    '<div class="panel"><pre id="log-view" class="log-view">Загрузка…</pre></div>';
+                    '<div class="panel"><h2>Уведомления текущего сеанса</h2><div id="notification-center"></div></div><div class="panel"><pre id="log-view" class="log-view">Загрузка…</pre></div>';
   bindActions();
   if(page==="geo")bindGeo();
   if(page==="overview"){loadTelemetry();loadOverviewBoxes();}
@@ -928,6 +932,8 @@ function bindActions() {
     $("#tune-profile-note").textContent = presetNote(selectedTuneProfile);
   });
   bindPresetActions(document);
+  bindSettingsBackup();
+  renderNotifications();
   updateServiceButtons();
   $("#settings-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -946,6 +952,7 @@ function bindActions() {
         "adaptive_reuse",
         "adaptive_active",
         "background_paused",
+        "lightweight",
         "background_other_domains",
         "adaptive_fast_start",
         "probe_load_guard",
@@ -1334,7 +1341,7 @@ function renderAdaptive() {
   }
   target.innerHTML =
     loadControlPanel() + manualRules() +
-    `<div class="panel"><label>История попыток<select id="history-hours">${[[0,"Всё время"],[1,"Последний час"],[24,"Последние сутки"],[168,"Последняя неделя"]].map(([v,t])=>`<option value="${v}" ${historyHours===v?"selected":""}>${t}</option>`).join("")}</select></label><div class="form-actions"><button id="history-hide" type="button">Скрыть старую историю</button><button id="history-show" type="button">Вернуть всю историю</button></div><small>Только отображение в текущей сессии; опыт, настройки и файл диагностики сохраняются.</small></div>` +
+    `<div class="panel"><label>История попыток<select id="history-hours">${[[0,"Всё время"],[1,"Последний час"],[24,"Последние сутки"],[168,"Последняя неделя"]].map(([v,t])=>`<option value="${v}" ${historyHours===v?"selected":""}>${t}</option>`).join("")}</select></label><div class="form-actions"><button id="history-hide" type="button">Скрыть старую историю</button><button id="history-show" type="button">Вернуть всю историю</button><button id="history-clear" type="button" class="danger-button">Удалить историю попыток</button></div><small>Только отображение в текущей сессии; опыт, настройки и файл диагностики сохраняются.</small></div>` +
     (!data.enabled
       ? '<div class="notice">Включите «Автоподбор по трафику» в настройках. Текущие стратегии сохранятся.</div>'
       : '<p class="adaptive-note">«Есть ответ» — передача данных, без подтверждения видео и голоса. Свежие наблюдения — за последние сутки. Отсутствие свежих записей не останавливает автоподбор: он продолжится при новых сбоях трафика.</p>') +
@@ -1347,6 +1354,7 @@ function renderAdaptive() {
         : '<div class="panel empty"><h3>Коробки пока не сформированы</h3><p>Включите автоподбор по трафику и откройте нужный сайт. Наблюдения появятся после ошибок или ответов настроенных сервисов. Прежние сохранённые методы продолжают действовать.</p></div>');
   target.querySelector("#history-hours")?.addEventListener("change",e=>{historyHours=Number(e.target.value);renderAdaptive();});
   target.querySelector("#history-hide")?.addEventListener("click",()=>{historyCutoff=Math.floor(Date.now()/1000)+1;renderAdaptive();});
+  target.querySelector("#history-clear")?.addEventListener("click",()=>{if(!window.confirm("Удалить историю попыток? Рабочие методы и правила останутся. Возможен краткий перезапуск движка; последняя история будет сохранена на роутере."))return;action(async()=>{await api("adaptive/domain","POST",{host:"",action:"clear_history"});notify("История очищена");await loadAdaptive();});});
   target.querySelector("#history-show")?.addEventListener("click",()=>{historyCutoff=0;historyHours=0;renderAdaptive();});
   target.querySelectorAll("details[data-view-key]").forEach((detail) => {
     const key = detail.dataset.viewKey;
@@ -1739,3 +1747,20 @@ schedulePoll();
    if(restore)panel.querySelector("summary")?.focus();
   }
  });
+
+function renderNotifications(){
+ const target=$("#notification-center");if(!target)return;
+ target.innerHTML=panelNotifications.length?'<ul>'+panelNotifications.map(n=>'<li>'+esc(n.at)+' · '+(n.error?'Ошибка: ':'')+esc(n.message)+'</li>').join("")+'</ul>':'<p>Уведомлений пока нет.</p>';
+}
+function bindSettingsBackup(){
+ $("#settings-backup-download")?.addEventListener("click",()=>action(async()=>{
+  const data=await api("settings-backup");const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:"application/json"}));
+  const a=document.createElement("a");a.href=url;a.download="pilot-settings-backup.json";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+ }));
+ $("#settings-backup-restore")?.addEventListener("click",()=>action(async()=>{
+  const file=$("#settings-backup-file")?.files[0];if(!file||file.size>65536)throw Error("Выберите резервную копию до 64 КБ.");
+  const data=JSON.parse(await file.text());
+  if(!window.confirm("Восстановить настройки из "+file.name+"? Текущая конфигурация будет сохранена в config.json.previous. Возможен перезапуск движка."))return;
+  await api("settings-backup/restore","POST",data);notify("Настройки восстановлены");
+ }));
+}

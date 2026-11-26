@@ -45,6 +45,7 @@ type Config struct {
 	AdaptiveActive            bool        `json:"adaptive_active"`
 	BackgroundOtherDomains     bool        `json:"background_other_domains"`
 	BackgroundPaused bool `json:"background_paused"`
+ Lightweight bool `json:"lightweight"`
 	AdaptiveFastStart         bool        `json:"adaptive_fast_start"`
 	AdaptiveReuse             bool        `json:"adaptive_reuse"`
 	AdaptiveCooldownSeconds   int         `json:"adaptive_cooldown_seconds"`
