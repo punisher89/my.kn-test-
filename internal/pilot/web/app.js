@@ -645,7 +645,7 @@ function validateIndependentVPN(type, data){
  }
  return "Основные параметры найдены. Это проверка формата, не проверка подключения.";
 }
-function dnsProbePanel(){return `<section class="panel"><h2>Защищённый DNS</h2><p>Проверка реальных DNS-запросов с роутера через текущую маршрутизацию. AdGuard DNS · DoH / DoT / DoQ. Требуется kdig с поддержкой соответствующего протокола. Настройки DNS не меняются.</p><button id="dns-probe" type="button">Проверить DNS</button><pre id="dns-probe-result" aria-live="polite">Не проверено</pre></section>`;}
+function dnsProbePanel(){return `<section class="panel"><h2>Защищённый DNS</h2><p>Проверка DNS с роутера через текущую маршрутизацию, без изменения настроек. Системный резолвер ОС не показывает, какой защищённый протокол настроен в KeeneticOS.</p><label>Имя DNS-сервера (TLS)<input id="dns-server" placeholder="dns.adguard-dns.com" maxlength="253"></label><label>IP для подключения (необязательно)<input id="dns-address" placeholder="94.140.14.14" maxlength="45"></label><label>Протокол<select id="dns-protocol"><option value="all">Системный + DoH / DoT / DoQ</option><option value="system">Системный DNS</option><option>DoH</option><option>DoT</option><option>DoQ</option></select></label><details><summary>Что нужно установить на Keenetic / OpenWrt</summary><p>Keenetic с Entware: проверьте <code>opkg list | grep -E 'knot|kdig|ca-certificates'</code>, установите доступный пакет kdig (обычно knot-dig) и CA-сертификаты. OpenWrt: аналогично проверьте список пакетов opkg либо apk в зависимости от версии. Поддержка QUIC зависит от сборки kdig; проверьте <code>kdig -h</code>. Pilot пакеты автоматически не устанавливает.</p></details><button id="dns-probe" type="button">Проверить DNS</button><pre id="dns-probe-result" aria-live="polite">Не проверено</pre></section>`;}
 function geoPage(){
  return heading("Geo Routing","План выборочной маршрутизации KeeneticOS 5.2 через собственный VPN. Pilot не применяет команды автоматически.")+dnsProbePanel()+`<section class="panel">
  <details class="geo-fold"><summary>Туннель и политика</summary><p id="geo-tunnels" class="subtle">Поиск VPN-интерфейсов…</p>
@@ -673,7 +673,7 @@ function bindGeo(){
  const dnsButton=$("#dns-probe"),dnsResult=$("#dns-probe-result");
  dnsButton?.addEventListener("click",async()=>{
   dnsButton.disabled=true;dnsResult.textContent="Проверяется…";
-  try{const rows=await api("dns/probe","POST",{});if(current())dnsResult.textContent=rows.map(r=>`${r.protocol} · ${r.server} · ${r.status==="ok"?"Есть DNS-ответ":r.status==="unavailable"?"kdig не найден":r.status==="timeout"?"Таймаут":"Нет подтверждения (ошибка или протокол не поддерживается)"} · ${r.milliseconds} мс`).join("\n");}
+  try{const rows=await api("dns/probe","POST",{server:$("#dns-server").value,address:$("#dns-address").value,protocol:$("#dns-protocol").value});if(current())dnsResult.textContent=rows.map(r=>`${r.protocol} · ${r.server} · ${r.status==="ok"?"Есть DNS-ответ":r.status==="unavailable"?"kdig не найден":r.status==="timeout"?"Таймаут":r.status==="unsupported"?"Протокол не поддерживается":r.error||"Нет подтверждения"} · ${r.milliseconds} мс`).join("\n");}
   catch(e){if(current())dnsResult.textContent=e.message;}
   finally{if(current())dnsButton.disabled=false;}
  });
@@ -1214,8 +1214,9 @@ function boxCard(b, enabled = true) {
   const domains = [
     ...new Set([...b.hosts, ...b.history].map((r) => r.host)),
   ].sort();
-  const history = groupedHistory(b.history);
-  const eventTotal = b.history.reduce((sum, r) => sum + (r.event_count || 1), 0);
+  const history = groupedHistory(b.history.filter(r=>r.updated>=historyCutoff && (!historyHours || r.updated>=Date.now()/1000-historyHours*3600)));
+  const eventTotal = history.reduce((sum,r)=>sum+(r.event_count||1),0);
+  const allEvents = b.history.reduce((sum,r)=>sum+(r.event_count||1),0);
   return `<article class="panel bypass-box" data-box="${esc(b.id)}">
     <div class="panel-head"><h2>${esc(tlsLabels[b.tls] || tlsLabels.unknown)} · ${esc(b.family === "ipv6" ? "IPv6" : b.family === "ipv4" ? "IPv4" : "IP не определён")}</h2><span class="subtle">Домены: ${domains.length}</span></div>
     <p class="box-health">${esc(boxHealthLabel(b,enabled))} · смены в записанных 10-минутных окнах: ${boxHealth(b,enabled).switches}</p>
@@ -1225,7 +1226,7 @@ function boxCard(b, enabled = true) {
     <details data-view-key="${esc(b.id)}/observations"><summary>Домены и методы · ${domains.length}</summary>${currentBoxMethods(b.hosts, enabled)}${observationTable(b.hosts, false, enabled)}</details>
     <details data-view-key="${esc(b.id)}/experience"><summary>Опыт обхода · ${b.methods.length}</summary><div class="box-methods">${b.methods.length ? b.methods.map((m) => `<div class="box-method"><div class="box-method-line"><strong>${esc(m.name)}</strong>${badge(m.reusable ? "Кандидат по опыту" : "Сохранённое наблюдение", m.reusable ? "" : "neutral")}</div><small>${esc(familyLabels[m.family] || familyLabels.other)} · ответ на ${m.hosts} доменах</small></div>`).join("") : `<p class="subtle">${esc(boxExperienceEmpty(b))}</p>`}</div></details>
     ${domainControls(b, domains)}
-    <details data-view-key="${esc(b.id)}/history"><summary>История · ${history.length} строк · событий: ${eventTotal}</summary>${observationTable(history, true)}</details>
+    <details data-view-key="${esc(b.id)}/history"><summary>История · ${history.length} строк · событий: ${eventTotal} из ${allEvents}</summary><p class="subtle">Это накопленные попытки, не число недоступных сайтов. Фильтр учитывает время последнего события группы.</p>${observationTable(history, true)}</details>
     <small class="box-updated">Наблюдение: ${esc(new Date(b.updated * 1000).toLocaleString("ru-RU"))}</small>
   </article>`;
 }
@@ -1254,6 +1255,7 @@ let adaptiveData = null,
   adaptiveFilter = "all",
   adaptiveLoading = false,
   adaptiveRevealSaved = false;
+let historyHours=0,historyCutoff=0;
 const adaptiveDetails = new Map(), adaptiveDrafts = new Map();
 function adaptiveToolbar() {
   const filters = { all: "Все состояния", stale: "Нет свежих наблюдений", probing: "Пробуется", held: "Смена отложена", connected: "Есть ответ", pinned: "Закреплён", paused: "Приостановлен" };
@@ -1299,6 +1301,7 @@ function renderAdaptive() {
   }
   target.innerHTML =
     loadControlPanel() + manualRules() +
+    `<div class="panel"><label>История попыток<select id="history-hours">${[[0,"Всё время"],[1,"Последний час"],[24,"Последние сутки"],[168,"Последняя неделя"]].map(([v,t])=>`<option value="${v}" ${historyHours===v?"selected":""}>${t}</option>`).join("")}</select></label><div class="form-actions"><button id="history-hide" type="button">Скрыть старую историю</button><button id="history-show" type="button">Вернуть всю историю</button></div><small>Только отображение в текущей сессии; опыт, настройки и файл диагностики сохраняются.</small></div>` +
     (!data.enabled
       ? '<div class="notice">Включите «Автоподбор по трафику» в настройках. Текущие стратегии сохранятся.</div>'
       : '<p class="adaptive-note">«Есть ответ» — передача данных, без подтверждения видео и голоса. Свежие наблюдения — за последние сутки. Отсутствие свежих записей не останавливает автоподбор: он продолжится при новых сбоях трафика.</p>') +
@@ -1309,6 +1312,9 @@ function renderAdaptive() {
       : boxes.length
         ? '<div class="panel empty"><h3>Совпадений нет</h3><p>Измените домен или выберите другое состояние. Поиск и состояние должны совпасть у одного домена. Карточка показывает весь контекст коробки.</p></div>'
         : '<div class="panel empty"><h3>Коробки пока не сформированы</h3><p>Включите автоподбор по трафику и откройте нужный сайт. Наблюдения появятся после ошибок или ответов настроенных сервисов. Прежние сохранённые методы продолжают действовать.</p></div>');
+  target.querySelector("#history-hours")?.addEventListener("change",e=>{historyHours=Number(e.target.value);renderAdaptive();});
+  target.querySelector("#history-hide")?.addEventListener("click",()=>{historyCutoff=Math.floor(Date.now()/1000)+1;renderAdaptive();});
+  target.querySelector("#history-show")?.addEventListener("click",()=>{historyCutoff=0;historyHours=0;renderAdaptive();});
   target.querySelectorAll("details[data-view-key]").forEach((detail) => {
     const key = detail.dataset.viewKey;
     detail.open = adaptiveDetails.get(key) || false;
@@ -1354,6 +1360,9 @@ let boxesLastTarget=null,boxesLastFetch=0;
 async function loadOverviewBoxes(){const target=$("#overview-boxes");if(!target||overviewBoxesLoading||document.hidden||(target===boxesLastTarget&&Date.now()-boxesLastFetch<12000))return;overviewBoxesLoading=true;boxesLastTarget=target;boxesLastFetch=Date.now();try{const d=await api("adaptive");if(!signedIn||target!==$("#overview-boxes"))return;const boxes=d.boxes||[],recent=boxes.filter(boxHasRecentTraffic).map(b=>({b,h:boxHealth(b)})).sort((a,b)=>(b.h.probing+b.h.held)-(a.h.probing+a.h.held)||b.b.updated-a.b.updated).map(v=>v.b),saved=boxes.length-recent.length;target.innerHTML=(recent.length?`<div class="table-scroll"><table class="box-overview-table"><thead><tr><th>Группа</th><th>Домены</th><th>Состояния</th></tr></thead><tbody>${recent.map(b=>`<tr><td><a href="#adaptive">${esc(tlsLabels[b.tls]||tlsLabels.unknown)} · ${esc(b.family)}</a></td><td>${new Set(b.hosts.map(r=>r.host)).size}</td><td>${esc(boxHealthLabel(b,d.enabled))}</td></tr>`).join("")}</tbody></table></div>`:'<p>Свежих наблюдений пока нет. При новых подключениях автоподбор продолжится.</p>')+`<small>Сохранённая история: ${saved} коробок. ${!d.enabled?"Автоподбор по трафику выключен.":""}</small>`;}catch(e){if(target===$("#overview-boxes"))target.textContent="Наблюдения недоступны: "+e.message;}finally{overviewBoxesLoading=false;}}
 let deviceData=null,deviceLoading=false,updatesData=null,updatesLoading=false,updatesSerial=0;
 let sourceUpdatesData=null,sourceUpdatesLoading=false,sourceUpdatesSerial=0;
+const lastSourceChecks=new Map(),sourceCheckErrors=new Map();
+const releaseNotes={"0.2.0-beta.3":"Стабильная контрольная версия KN-1811: коробки, Geo Routing, исправления панели.","0.2.0-beta.4":"DNS-тестер, фильтры истории и оформление. Движок не менялся."};
+function releaseNotesHTML(version){return `<details><summary>Что нового</summary><p>${esc(releaseNotes[version]||"Описание для этой версии не включено в панель.")}</p></details>`;}
 const prettyBytes=n=>n==null?"недоступно":n>=1048576?(n/1048576).toFixed(1)+" МиБ":n>=1024?(n/1024).toFixed(1)+" КиБ":Math.round(n)+" Б";
 function devicePage(){return heading("Роутер","Данные устройства, на котором запущен Pilot. Недоступные датчики не заменяются примерными значениями.")+`<p class="panel-address">Адрес этой панели · <a href="#overview">${esc(location.origin)}</a></p><div id="device-data">Загрузка…</div><section class="panel"><h2>Проверка среды Keenetic / Entware</h2><p class="subtle">Пассивная проверка по идеям MY.KN. Никакие службы, правила NFQUEUE и подключённые носители не изменяются.</p><div id="preflight-data">Загрузка…</div></section>`;}
 async function loadDevice(){const target=$("#device-data");if(!target||deviceLoading)return;deviceLoading=true;try{const d=await api("device");if(target!==$("#device-data"))return;deviceData=d;target.innerHTML=`<div class="stats-grid"><div class="panel"><h3>Процессор</h3><strong>${d.cpu_percent==null?(d.cpu_sample_available?"ожидается второй замер":"недоступно"):d.cpu_percent.toFixed(1)+" %"}</strong><p>Ядер: ${d.cpu_cores}</p><small>Load 1/5/15 мин: ${d.load.length?d.load.map(v=>v.toFixed(2)).join(" / "):"недоступно"}</small><p class="subtle">Из общего CPU: Pilot ${d.pilot_cpu_percent==null?"ожидается замер":d.pilot_cpu_percent.toFixed(1)+" %"} · nfqws2 ${d.engine_cpu_percent==null?"не измерено":d.engine_cpu_percent.toFixed(1)+" %"}</p><small>Доли от всех ядер суммарно, не от одного ядра. Остальная нагрузка — системные и другие процессы.</small></div><div class="panel"><h3>Память</h3><strong>${d.memory_available==null?"недоступно":prettyBytes(d.memory_total-d.memory_available)+" занято"}</strong><p>Всего: ${prettyBytes(d.memory_total||null)}</p><small>Доступно: ${prettyBytes(d.memory_available)}</small></div><div class="panel"><h3>Температура</h3>${d.temperatures.length?d.temperatures.map(t=>`<p><strong>${t.celsius.toFixed(1)} °C</strong> · ${esc(t.name)}</p>`).join(""):'<p>Недоступно: прошивка не предоставляет датчик Pilot.</p>'}</div></div><div class="panel"><h3>${esc(d.model||"Модель не предоставлена прошивкой")}</h3><p>${esc(d.platform)} · ядро ${esc(d.kernel||"неизвестно")}</p><p>Время работы: ${d.uptime_seconds==null?"недоступно":Math.floor(d.uptime_seconds/86400)+" д "+Math.floor(d.uptime_seconds%86400/3600)+" ч "+Math.floor(d.uptime_seconds%3600/60)+" мин"}</p><p>WAN ${esc(d.wan||"не задан")}: получено ${prettyBytes(d.rx_bytes)}, передано ${prettyBytes(d.tx_bytes)}</p><p>Сейчас: ↓ ${prettyBytes(d.rx_bytes_per_second)}/с · ↑ ${prettyBytes(d.tx_bytes_per_second)}/с</p></div>`;}catch(e){if(target===$("#device-data"))target.textContent="Не удалось получить данные: "+e.message;}finally{deviceLoading=false;loadPreflight();}}
@@ -1494,11 +1503,16 @@ async function loadSourceUpdates(force=false){
     sourceUpdatesData=d;
     target.innerHTML=(d.sources||[]).map(item=>{
       const src=esc(item.source);
+      if(item.checked){lastSourceChecks.set(item.source,{version:item.latest,commit:item.commit});}
+      const previous=lastSourceChecks.get(item.source);
       const latest=item.checked?esc(item.latest):"Не проверено";
       const status=!item.checked?"Для поиска нажмите «Проверить»":item.available?"Есть новая версия":"Новых выпусков нет";
       return `<div class="source-update-row" data-source-row="${src}">
         <div class="panel-head"><strong>${src}</strong><span>${esc(status)}</span></div>
         <p>Версия: ${latest}${item.checked&&item.commit?" · коммит "+esc(item.commit.slice(0,8)):""}</p>
+        ${releaseNotesHTML(item.checked?item.latest:previous?.version)}
+        ${!item.checked&&previous?`<p>Последний подтверждённый ранее выпуск: ${esc(previous.version)} · ${esc(previous.commit?.slice(0,8))}. Установка недоступна до новой проверки.</p>`:""}
+        ${sourceCheckErrors.has(item.source)?`<p class="fail-text">${esc(sourceCheckErrors.get(item.source))}</p>`:""}
         <div class="form-actions">
           <button data-source-update-check="${src}" ${d.running?"disabled":""}>Проверить ${src}</button>
           <button data-source-update-install="${src}" ${!d.supported||!item.available||d.running?"disabled":""}>Установить ${latest} [${src}]</button>
@@ -1507,8 +1521,8 @@ async function loadSourceUpdates(force=false){
     }).join("");
     target.querySelectorAll("[data-source-update-check]").forEach(button=>button.addEventListener("click",async()=>{
       button.disabled=true;
-      try{await api("updates/sources/check","POST",{source:button.dataset.sourceUpdateCheck});await loadSourceUpdates(true);}
-      catch(err){notify("Ошибка проверки: "+err.message,true);button.disabled=false;}
+      try{await api("updates/sources/check","POST",{source:button.dataset.sourceUpdateCheck});sourceCheckErrors.delete(button.dataset.sourceUpdateCheck);await loadSourceUpdates(true);}
+      catch(err){sourceCheckErrors.set(button.dataset.sourceUpdateCheck,err.message);notify("Ошибка проверки: "+err.message,true);await loadSourceUpdates(true);button.disabled=false;}
     }));
     target.querySelectorAll("[data-source-update-install]").forEach(button=>button.addEventListener("click",async()=>{
       const source=button.dataset.sourceUpdateInstall;
@@ -1521,7 +1535,7 @@ async function loadSourceUpdates(force=false){
   }catch(e){if(target===$("#source-update-info"))target.textContent="Не удалось получить сведения об источниках: "+e.message;}
   finally{if(serial===sourceUpdatesSerial)sourceUpdatesLoading=false;}
 }
-async function loadUpdates(force=false){const target=$("#update-info");if(!target||(updatesLoading&&!force))return;updatesLoading=true;const serial=++updatesSerial;try{const d=await api("updates");if(target!==$("#update-info")||serial!==updatesSerial)return;updatesData=d;const stages={idle:"Готово к проверке",downloading:"Загрузка и проверка пакета",installing:"Установка и перезапуск службы",waiting:"Ожидание завершения текущего подбора перед обновлением",completed:"Обновление завершено",failed:"Обновление не завершено. Подробности — в /opt/etc/keenetic-pilot/update.log; проверьте состояние службы.",interrupted:"Процесс обновления прерван; проверьте состояние службы перед повтором."};target.innerHTML=`<h3>Pilot ${esc(d.current)}</h3><p>nfqws2: ${esc(d.engine||"версия не получена")}</p><p>${esc(stages[d.stage]||d.stage)}</p>${d.stage==="failed"||d.stage==="interrupted"?`<p>${d.phase?"Этап: "+esc(({"log-open":"открытие журнала",prepare:"подготовка пакета",waiting:"завершение текущей операции","worker-start":"запуск установки",install:"установка приложения и движка","version-check":"проверка установленной версии"})[d.phase]||"неизвестен"):""}${d.exit_code?" · код завершения: "+esc(d.exit_code):""}</p>`:""}<p>${d.latest?"Последний проверенный выпуск: "+esc(d.latest)+(d.latest_engine?" · nfqws2 "+esc(d.latest_engine):""):"Проверка новых выпусков ещё не выполнялась"}</p>${!d.supported?'<p class="subtle">Установка из панели доступна для управляемой установки на роутере.</p>':""}`;$("#update-install").disabled=!d.supported||!d.available||d.running;$("#update-install").textContent=d.available?"Установить "+d.latest:"Установить обновление";$("#update-check").disabled=d.running||d.checking;}catch(e){if(target===$("#update-info"))target.textContent="Связь с панелью временно недоступна: "+e.message;}finally{if(serial===updatesSerial)updatesLoading=false;}}
+async function loadUpdates(force=false){const target=$("#update-info");if(!target||(updatesLoading&&!force))return;updatesLoading=true;const serial=++updatesSerial;try{const d=await api("updates");if(target!==$("#update-info")||serial!==updatesSerial)return;updatesData=d;const stages={idle:"Готово к проверке",downloading:"Загрузка и проверка пакета",installing:"Установка и перезапуск службы",waiting:"Ожидание завершения текущего подбора перед обновлением",completed:"Обновление завершено",failed:"Обновление не завершено. Подробности — в /opt/etc/keenetic-pilot/update.log; проверьте состояние службы.",interrupted:"Процесс обновления прерван; проверьте состояние службы перед повтором."};target.innerHTML=`<h3>Pilot ${esc(d.current)}</h3>${releaseNotesHTML(d.current)}<p>nfqws2: ${esc(d.engine||"версия не получена")}</p><p>${esc(stages[d.stage]||d.stage)}</p>${d.stage==="failed"||d.stage==="interrupted"?`<p>${d.phase?"Этап: "+esc(({"log-open":"открытие журнала",prepare:"подготовка пакета",waiting:"завершение текущей операции","worker-start":"запуск установки",install:"установка приложения и движка","version-check":"проверка установленной версии"})[d.phase]||"неизвестен"):""}${d.exit_code?" · код завершения: "+esc(d.exit_code):""}</p>`:""}<p>${d.latest?"Последний проверенный выпуск: "+esc(d.latest)+(d.latest_engine?" · nfqws2 "+esc(d.latest_engine):""):"Проверка новых выпусков ещё не выполнялась"}</p>${!d.supported?'<p class="subtle">Установка из панели доступна для управляемой установки на роутере.</p>':""}`;$("#update-install").disabled=!d.supported||!d.available||d.running;$("#update-install").textContent=d.available?"Установить "+d.latest:"Установить обновление";$("#update-check").disabled=d.running||d.checking;}catch(e){if(target===$("#update-info"))target.textContent="Связь с панелью временно недоступна: "+e.message;}finally{if(serial===updatesSerial)updatesLoading=false;}}
 async function loadLogs() {
   try {
     const logs = await api("logs");
@@ -1635,3 +1649,20 @@ async function pollStatus() {
 $("#retry-connection").addEventListener("click", pollStatus);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) pollStatus(); });
 schedulePoll();
+
+(function initPilotTheme(){
+ const select=$("#pilot-theme");if(!select)return;
+ const root=document.documentElement,fields=["accent","bg","panel","text"];
+ const defaults={theme:"matrix",accent:"#57f68b",bg:"#101318",panel:"#1b2028",text:"#e2f3e8"};
+ let prefs={...defaults};
+ try{const saved=JSON.parse(localStorage.getItem("pilot-theme-v1")||"{}");if(saved&&typeof saved==="object"){if(["matrix","dark","light","aero","luna","custom"].includes(saved.theme))prefs.theme=saved.theme;for(const k of fields)if(/^#[0-9a-f]{6}$/i.test(saved[k]))prefs[k]=saved[k];}}catch{}
+ function apply(){
+  select.value=prefs.theme;root.dataset.pilotTheme=prefs.theme;$("#theme-custom").hidden=prefs.theme!=="custom";
+  for(const k of fields){$("#theme-"+k).value=prefs[k];if(prefs.theme==="custom")root.style.setProperty("--"+k,prefs[k]);else root.style.removeProperty("--"+k);}
+  try{localStorage.setItem("pilot-theme-v1",JSON.stringify(prefs));}catch{}
+ }
+ select.addEventListener("change",()=>{prefs.theme=select.value;apply();});
+ for(const k of fields)$("#theme-"+k).addEventListener("input",e=>{prefs[k]=e.target.value;apply();});
+ $("#theme-reset").addEventListener("click",()=>{prefs={...defaults};apply();});
+ apply();
+})();

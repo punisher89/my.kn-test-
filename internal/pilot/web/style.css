@@ -1595,3 +1595,24 @@ html { scrollbar-gutter: stable; }
 .panel-head button,.panel-head .button-link { flex-shrink:0; }
 .form-actions { flex-wrap:wrap; gap:8px; }
 @media (max-width:480px) { .stats-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .panel-head { gap:8px; } }
+
+/* Appearance is strictly browser-side; the original Matrix remains default. */
+.theme-picker {margin:8px 0;position:relative}
+.theme-picker summary {cursor:pointer;color:var(--accent)}
+.theme-picker-body {display:grid;gap:8px;margin-top:8px}
+.theme-picker-body label {display:grid;gap:3px}
+#theme-custom[hidden] {display:none}
+#theme-custom {display:grid;gap:4px}
+:root[data-pilot-theme="dark"] {--bg:#101318;--panel:#1b2028;--panel2:#242c36;--border:#3a4655;--text:#e2e8f0;--muted:#a0adbd;--accent:#85b8fa;--blue:#85b8fa}
+:root[data-pilot-theme="light"] {--bg:#edf1f6;--panel:#fff;--panel2:#e4eaf1;--border:#b2c1d3;--text:#182334;--muted:#43536a;--accent:#1758a3;--blue:#1758a3;--danger:#b21d27;color-scheme:light}
+:root[data-pilot-theme="aero"] {--bg:#d3e6f5;--panel:#f1f7fc;--panel2:#d8e8f5;--border:#82aecb;--text:#172e46;--muted:#435c71;--accent:#175e96;--blue:#175e96;--danger:#b21d27;color-scheme:light}
+:root[data-pilot-theme="luna"] {--bg:#e9e6d8;--panel:#fffcf0;--panel2:#e3ebff;--border:#7b9bd3;--text:#172e55;--muted:#465675;--accent:#17489c;--blue:#17489c;--danger:#b21d27;color-scheme:light}
+:root[data-pilot-theme="custom"] {--panel2:var(--panel);--border:var(--accent);--muted:var(--text);--blue:var(--accent)}
+:root[data-pilot-theme]:not([data-pilot-theme="matrix"]) body {background:var(--bg)}
+:root[data-pilot-theme]:not([data-pilot-theme="matrix"]) .matrix-rain {display:none}
+:root[data-pilot-theme]:not([data-pilot-theme="matrix"]) :is(.sidebar,.topbar,.panel,.login-card,.music-popover,#update-monitor,.log-view,.stat-card,.telemetry-cell,.box-method) {background:var(--panel);color:var(--text);border-color:var(--border)}
+:root[data-pilot-theme]:not([data-pilot-theme="matrix"]) :is(button,input,textarea,select,.notice,.info-note,.target-editor,.step-card,.compat-item,.badge,.toast,.brand-mark) {background:var(--panel2);color:var(--text);border-color:var(--border)}
+:root[data-pilot-theme]:not([data-pilot-theme="matrix"]) .sidebar nav a.active {background:var(--panel2);border-color:var(--accent);color:var(--accent)}
+:root[data-pilot-theme="aero"] :is(.sidebar,.topbar,.panel,button) {background:linear-gradient(180deg,#ffffffc9,var(--panel));border-radius:9px}
+:root[data-pilot-theme="luna"] :is(.sidebar,.topbar,button) {background:linear-gradient(180deg,#397be1,#1552b8);color:#fff;border-radius:6px}
+:root[data-pilot-theme="luna"] .sidebar nav a {color:#fff}
