@@ -369,6 +369,7 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 		}
 		jsonReply(w, 200, results)
 	})
+	registerBotAPI(mux, m)
 	root, _ := fs.Sub(assets, "web")
 	mux.Handle("/", http.FileServer(http.FS(root)))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
