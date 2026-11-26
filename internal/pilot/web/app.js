@@ -1376,7 +1376,7 @@ function renderAdaptive(force = false) {
   if (!target || !adaptiveData) return;
   // Keep native selects and buttons in place while the user interacts with them.
   if (target.querySelector(".domain-control:focus-within") || (!force && target.querySelector("#history-hours:focus"))) {
-    $("#adaptive-update").textContent = "Новые данные будут показаны после завершения работы с выбранным элементом.";
+    $("#adaptive-update").textContent = "Новые данные будут показаны после выхода из выбранного элемента.";
     return;
   }
   saveAdaptiveView(target);
