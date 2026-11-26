@@ -764,7 +764,7 @@ function renderPage() {
                     "Коробки обхода",
                     "Группы наблюдений, найденные методы и история их проверки.",
                   ) +
-                  `<div class="adaptive-heading"><details><summary>Как работают коробки</summary><p>Сходные признаки помогают выбирать кандидатов. Каждое новое соединение проверяется отдельно; группа не означает опознанное устройство провайдера.</p><p>«Скачать диагностику» сохраняет полный снимок методов и истории в JSON, независимо от фильтров. Файл содержит домены и имя WAN-интерфейса; пароли, токены, журналы и контрольные URL не включаются. На роутере ничего не меняется.</p></details><div class="adaptive-actions"><button id="adaptive-download" title="JSON с доменами и историей; без паролей и токенов">Скачать диагностику</button><button id="adaptive-refresh">Обновить</button><button id="adaptive-reset-all" class="danger-button" type="button">Очистить все коробки</button></div></div>${adaptiveToolbar()}<div id="adaptive-results">Загрузка…</div>`
+                  `<div class="adaptive-heading"><details><summary>Как работают коробки</summary><p>Сходные признаки помогают выбирать кандидатов. Каждое новое соединение проверяется отдельно; группа не означает опознанное устройство провайдера.</p><p>«Скачать диагностику» сохраняет полный снимок методов и истории в JSON, независимо от фильтров. Файл содержит домены и имя WAN-интерфейса; пароли, токены, журналы и контрольные URL не включаются. На роутере ничего не меняется.</p></details><div class="adaptive-actions"><button id="adaptive-download" title="JSON с доменами и историей; без паролей и токенов">Скачать диагностику</button><button id="adaptive-health-check" type="button">Самодиагностика</button><button id="adaptive-refresh">Обновить</button><button id="adaptive-reset-all" class="danger-button" type="button">Очистить все коробки</button></div></div><section id="adaptive-health-result" class="panel" aria-live="polite" hidden></section>${adaptiveToolbar()}<div id="adaptive-results">Загрузка…</div>`
                 : page === "connect"
                   ? connectPage()
                   : heading(
@@ -826,6 +826,7 @@ function bindActions() {
 
   $("#adaptive-refresh")?.addEventListener("click", loadAdaptive);
   $("#adaptive-download")?.addEventListener("click", downloadDiagnostics);
+  $("#adaptive-health-check")?.addEventListener("click", showDiagnosticHealth);
   $("#adaptive-reset-all")?.addEventListener("click", (event) => {
     if (!window.confirm("Удалить накопленное обучение и историю всех коробок? Ручные правила сохранятся. Возможен краткий перерыв обхода. Новые подключения начнут обучение заново.")) return;
     const button = event.currentTarget;
@@ -1226,9 +1227,41 @@ function boxCard(b, enabled = true) {
     <details data-view-key="${esc(b.id)}/observations"><summary>Домены и методы · ${domains.length}</summary>${currentBoxMethods(b.hosts, enabled)}${observationTable(b.hosts, false, enabled)}</details>
     <details data-view-key="${esc(b.id)}/experience"><summary>Опыт обхода · ${b.methods.length}</summary><div class="box-methods">${b.methods.length ? b.methods.map((m) => `<div class="box-method"><div class="box-method-line"><strong>${esc(m.name)}</strong>${badge(m.reusable ? "Кандидат по опыту" : "Сохранённое наблюдение", m.reusable ? "" : "neutral")}</div><small>${esc(familyLabels[m.family] || familyLabels.other)} · ответ на ${m.hosts} доменах</small></div>`).join("") : `<p class="subtle">${esc(boxExperienceEmpty(b))}</p>`}</div></details>
     ${domainControls(b, domains)}
-    <details data-view-key="${esc(b.id)}/history"><summary>История · ${history.length} строк · событий: ${eventTotal} из ${allEvents}</summary><p class="subtle">Это накопленные попытки, не число недоступных сайтов. Фильтр учитывает время последнего события группы.</p>${observationTable(history, true)}</details>
+    <details data-view-key="${esc(b.id)}/history"><summary>История · ${history.length} строк · событий: ${eventTotal} из ${allEvents}</summary><p class="subtle">Это накопленные попытки, не число недоступных сайтов. Фильтр выбирает группы по последнему событию; счётчик группы может включать старые попытки.</p>${observationTable(history, true)}</details>
     <small class="box-updated">Наблюдение: ${esc(new Date(b.updated * 1000).toLocaleString("ru-RU"))}</small>
   </article>`;
+}
+async function showDiagnosticHealth(event) {
+  const button = event.currentTarget, target = $("#adaptive-health-result");
+  if (!target) return;
+  button.disabled = true;
+  target.hidden = false;
+  target.textContent = "Читаем состояние роутера…";
+  try {
+    const report = await api("diagnostics");
+    if (target !== $("#adaptive-health-result") || !signedIn) return;
+    const summary = report.history_summary;
+    if (!summary || !Array.isArray(report.health_findings)) {
+      target.textContent = "Этот сервер ещё не поддерживает расширенную диагностику.";
+      return;
+    }
+    const labels = {
+      enabled_service_not_running: "Служба включена, но не запущена",
+      service_reported_error: "Служба сообщила об ошибке",
+      observation_read_error: "Не удалось прочитать наблюдения",
+      observation_slot_needs_review: "Один из файлов наблюдений требует проверки",
+      no_recent_saved_observations: "Нет сохранённых наблюдений за последние сутки; это не доказывает сбой",
+      active_search_client_hello_missing: "Последний поиск не получил ClientHello",
+      low_opt_free_space: "На /opt менее 32 МиБ свободного места",
+      other_packet_engines_detected: "Обнаружены другие обработчики пакетов; возможный конфликт требует проверки"
+    };
+    const windows = {3600:"Час",86400:"Сутки",604800:"Неделя"};
+    target.innerHTML = `<h2>Самодиагностика</h2><p class="subtle">Снимок: ${esc(new Date(report.generated_at).toLocaleString("ru-RU"))}. Только чтение, без сетевых проб и изменения настроек.</p><ul>${report.health_findings.length ? report.health_findings.map(code=>`<li>${esc(labels[code]||code)}</li>`).join("") : "<li>В этом снимке известных предупреждений нет.</li>"}</ul><h3>История попыток</h3><p>Записей: ${esc(summary.rows)} · событий: ${esc(summary.events)} · неудачных попыток: ${esc(summary.failed_attempts)}</p><table class="probe-table"><thead><tr><th>Период</th><th>Событий (диапазон)</th><th>Смешанных групп</th></tr></thead><tbody>${(summary.windows||[]).map(w=>`<tr><td>${esc(windows[w.seconds]||w.seconds)}</td><td>${esc(w.confirmed_events===w.possible_events?String(w.confirmed_events):w.confirmed_events+"–"+w.possible_events)}</td><td>${esc(w.mixed_rows)}</td></tr>`).join("")}</tbody></table><small>История ограничена сохранёнными группами. Неудачная попытка не означает недоступность сайта. Диапазон отражает отсутствие точных времён отдельных событий.</small>`;
+  } catch (e) {
+    if (target === $("#adaptive-health-result")) target.textContent = "Самодиагностика недоступна: " + e.message;
+  } finally {
+    button.disabled = false;
+  }
 }
 async function downloadDiagnostics(event) {
   const button = event.currentTarget;
