@@ -652,6 +652,21 @@ function validateIndependentVPN(type, data){
  return "Основные параметры найдены. Это проверка формата, не проверка подключения.";
 }
 function dnsProbePanel(){return `<section class="panel"><h2>Защищённый DNS</h2><p>Проверка DNS с роутера через текущую маршрутизацию, без изменения настроек. Системный резолвер ОС не показывает, какой защищённый протокол настроен в KeeneticOS.</p><label>Имя DNS-сервера (TLS)<input id="dns-server" placeholder="dns.adguard-dns.com" maxlength="253"></label><label>IP для подключения (необязательно)<input id="dns-address" placeholder="94.140.14.14" maxlength="45"></label><label>Протокол<select id="dns-protocol"><option value="all">Системный + DoH / DoT / DoQ</option><option value="system">Системный DNS</option><option>DoH</option><option>DoT</option><option>DoQ</option></select></label><details><summary>Что нужно установить на Keenetic / OpenWrt</summary><p>Keenetic с Entware: проверьте <code>opkg list | grep -E 'knot|kdig|ca-certificates'</code>, установите доступный пакет kdig (обычно knot-dig) и CA-сертификаты. OpenWrt: аналогично проверьте список пакетов opkg либо apk в зависимости от версии. Поддержка QUIC зависит от сборки kdig; проверьте <code>kdig -h</code>. Pilot пакеты автоматически не устанавливает.</p></details><button id="dns-probe" type="button">Проверить DNS</button><pre id="dns-probe-result" aria-live="polite">Не проверено</pre></section>`;}
+let subscriptionBusy=false;
+function describeSubscription(d){return "Записей: "+d.total+" · "+Object.entries(d.types||{}).map(([k,v])=>k+": "+v).join(", ")+" · неизвестных: "+d.unknown+". Доступность серверов не проверена.";}
+function previewLocalSubscription(raw){
+ let value=raw.trim();if(!value.includes("://")){try{const decoded=new TextDecoder().decode(Uint8Array.from(atob(value.replace(/\s/g,"").replace(/-/g,"+").replace(/_/g,"/")),c=>c.charCodeAt(0)));if(decoded.includes("://"))value=decoded;}catch{}}
+ const types={},known=new Set(["vless","vmess","trojan","ss","ssr","hysteria2","hy2","tuic","wireguard"]);let total=0,unknown=0;
+ for(const line of value.split("\n").map(x=>x.trim())){if(!line||line.startsWith("#"))continue;if(++total>2000)throw Error("Слишком много записей.");const match=/^([a-z0-9]+):\/\/(.+)$/i.exec(line);let type=match?.[1].toLowerCase();if(!known.has(type)||!match[2].trim()){unknown++;continue;}if(type==="hy2")type="hysteria2";types[type]=(types[type]||0)+1;}
+ if(!Object.keys(types).length)throw Error("Не найдены поддерживаемые URI; YAML и JSON пока не поддерживаются.");return {total,types,unknown};
+}
+function showSubscriptionDialog(message){
+ let dialog=$("#subscription-dialog");
+ if(!dialog){dialog=document.createElement("dialog");dialog.id="subscription-dialog";dialog.setAttribute("aria-labelledby","subscription-title");dialog.innerHTML='<h2 id="subscription-title">VPN · предпросмотр</h2><p id="subscription-dialog-result" role="status" aria-live="polite">Результатов пока нет.</p><button type="button" id="subscription-close">Свернуть</button>';document.body.appendChild(dialog);$("#subscription-close").onclick=()=>dialog.close();dialog.addEventListener("click",e=>{const r=dialog.getBoundingClientRect();if(e.target===dialog&&(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom))dialog.close();});}
+ if(message!==undefined)$("#subscription-dialog-result").textContent=message;
+ if(!dialog.open)dialog.showModal();
+}
+document.addEventListener("pilot-logout",()=>{$("#subscription-dialog")?.remove();});
 function geoPage(){
  return heading("Geo Routing","План выборочной маршрутизации KeeneticOS 5.2 через собственный VPN. Pilot не применяет команды автоматически.")+dnsProbePanel()+`<section class="panel">
  <details class="geo-fold"><summary>Туннель и политика</summary><p id="geo-tunnels" class="subtle">Поиск VPN-интерфейсов…</p>
@@ -668,7 +683,7 @@ function geoPage(){
  <form id="vpn-prepare"><div class="field"><label for="vpn-type">Тип подключения</label><select id="vpn-type"><option value="ssh">VPS по SSH</option><option value="wg">WireGuard</option><option value="awg">AmneziaWG</option><option value="openvpn">OpenVPN</option></select></div>
  <div id="vpn-ssh-fields"><div class="field"><label for="vpn-host">IP или домен сервера</label><input id="vpn-host" maxlength="253" autocomplete="off"></div><div class="field"><label for="vpn-port">Порт SSH</label><input id="vpn-port" type="number" min="1" max="65535" value="22"></div><div class="field"><label for="vpn-user">Логин</label><input id="vpn-user" maxlength="64" autocomplete="off"></div></div>
  <div id="vpn-config-fields" hidden><label for="vpn-config">Локальный файл конфигурации</label><input id="vpn-config" type="file" accept=".conf,.ovpn,.txt"><p class="subtle">Файл проверяется только в браузере, не отправляется на роутер.</p></div>
- <button type="submit">Проверить формат</button><p id="vpn-prepare-result" aria-live="polite"></p></form></details></section><section class="panel"><h2>VPN-подписки · импорт и обновление</h2><p>Загрузка по HTTPS с роутера. Предпросмотр не сохраняет данные. Импорт сохраняет одну подписку в закрытом файле роутера; обновление заменяет её только после успешной загрузки. Подключение не создаётся. В HTTP-панели не вводите приватные ссылки с токеном.</p><form id="vpn-subscription-form"><label>HTTPS-ссылка <input id="vpn-subscription-url" type="password" autocomplete="off" maxlength="4096" required></label><button type="submit" value="preview">Предпросмотр</button><button type="submit" value="save">Импортировать</button></form><div class="form-actions"><button id="vpn-subscription-refresh" type="button">Обновить сохранённую</button><button id="vpn-subscription-delete" type="button">Удалить сохранённую</button></div><p id="vpn-subscription-saved" aria-live="polite"></p><p id="vpn-subscription-result" aria-live="polite"></p></section>`;
+ <button type="submit">Проверить формат</button><p id="vpn-prepare-result" aria-live="polite"></p></form></details></section><section class="panel"><h2>VPN-подписки · импорт и обновление</h2><p>Предпросмотр не меняет маршруты и не запускает VPN. Поддерживаются TXT и base64 со списком URI. Для передачи приватных данных используйте HTTPS или SSH-проброс панели на localhost.</p><form id="vpn-subscription-form"><label>HTTPS-ссылка <input id="vpn-subscription-url" type="password" autocomplete="off" maxlength="4096" required></label><div class="form-actions"><button type="submit" value="preview">Предпросмотр ссылки</button><button type="submit" value="save">Сохранить ссылку</button></div></form><div class="field"><label for="vpn-subscription-file">Импорт с компьютера</label><input id="vpn-subscription-file" type="file" accept=".txt,.conf,.b64,.base64,text/plain"><div class="form-actions"><button id="vpn-file-preview" type="button">Предпросмотр файла</button><button id="vpn-file-import" type="button">Импортировать файл</button></div></div><div class="form-actions"><button id="vpn-subscription-show" type="button">Открыть последнее окно</button><button id="vpn-subscription-refresh" type="button">Обновить сохранённую</button><button id="vpn-subscription-delete" type="button">Удалить сохранённую</button></div><p id="vpn-subscription-saved" aria-live="polite"></p><p id="vpn-subscription-result" aria-live="polite"></p></section>`;
 }
 function bindGeo(){
  const form=$("#geo-form");
@@ -684,29 +699,35 @@ function bindGeo(){
   finally{if(current())dnsButton.disabled=false;}
  });
  const subscription=$("#vpn-subscription-form");
- const describeSubscription=d=>"Записей: "+d.total+" · "+Object.entries(d.types||{}).map(([k,v])=>k+": "+v).join(", ")+" · неизвестных: "+d.unknown+". Доступность серверов не проверена.";
- const renderSaved=d=>{if(!current())return;$("#vpn-subscription-saved").textContent=d.saved?"Сохранена: "+new Date(d.updated).toLocaleString("ru-RU")+" · "+describeSubscription(d.preview):"Сохранённой подписки нет.";$("#vpn-subscription-refresh").disabled=!d.saved;$("#vpn-subscription-delete").disabled=!d.saved;};
+ const renderSaved=d=>{if(!current())return;$("#vpn-subscription-saved").textContent=d.saved?(d.local?"Локальный файл: ":"Сохранённая ссылка: ")+new Date(d.updated).toLocaleString("ru-RU")+" · "+describeSubscription(d.preview):"Сохранённой подписки нет.";$("#vpn-subscription-refresh").disabled=!d.saved||d.local;$("#vpn-subscription-delete").disabled=!d.saved;};
+ const show=message=>{if(!signedIn||panelSession!==session)return;showSubscriptionDialog(message);if(current())$("#vpn-subscription-result").textContent=message;};
+ const run=async(fn)=>{if(subscriptionBusy)return;subscriptionBusy=true;show("Выполняется…");try{await fn();}catch(err){show("Ошибка: "+err.message);}finally{subscriptionBusy=false;}};
  if(subscription){
   $("#vpn-subscription-refresh").disabled=true;$("#vpn-subscription-delete").disabled=true;
   api("vpn/subscription").then(renderSaved).catch(e=>{if(current())$("#vpn-subscription-saved").textContent=e.message;});
+  $("#vpn-subscription-show").onclick=()=>showSubscriptionDialog();
   for(const [id,act] of [["vpn-subscription-refresh","refresh"],["vpn-subscription-delete","delete"]]){
-   $("#"+id).addEventListener("click",async e=>{
-    if(act==="delete"&&!window.confirm("Удалить сохранённую подписку?"))return;
-    const b=e.currentTarget;b.disabled=true;
-    try{renderSaved(await api("vpn/subscription","POST",{action:act}));}catch(err){if(current()){$("#vpn-subscription-result").textContent=err.message;b.disabled=false;}}
-   });
+   $("#"+id).onclick=()=>{if(act==="delete"&&!window.confirm("Удалить сохранённую подписку?"))return;run(async()=>{renderSaved(await api("vpn/subscription","POST",{action:act}));show(act==="delete"?"Подписка удалена.":"Подписка обновлена.");});};
   }
+  subscription.addEventListener("submit",e=>{
+   e.preventDefault();const field=$("#vpn-subscription-url"),url=field.value.trim(),save=e.submitter?.value==="save";
+   if(!url||subscriptionBusy)return;
+   if(save&&!window.confirm("Заменить сохранённую подписку? Маршруты не изменятся."))return;
+   field.value="";
+   run(async()=>{const d=await api(save?"vpn/subscription":"vpn/subscription/preview","POST",save?{url,action:"save"}:{url});if(save)renderSaved(d);show((save?"Подписка сохранена. ":"")+describeSubscription(save?d.preview:d));});
+  });
+  const fileInput=$("#vpn-subscription-file");
+  const fileAction=save=>{if(subscriptionBusy)return;const file=fileInput.files[0];if(!file||file.size>512*1024){show("Выберите файл до 512 КиБ.");return;}
+   if(save&&!window.confirm("Заменить сохранённую подписку локальным файлом? Маршруты не изменятся."))return;
+   run(async()=>{if(!save){show(describeSubscription(previewLocalSubscription(await file.text())));return;}
+    if(location.protocol!=="https:"&&!["localhost","127.0.0.1","[::1]"].includes(location.hostname))throw Error("Для импорта используйте HTTPS или SSH-проброс на localhost. Предпросмотр файла доступен без отправки.");
+    const response=await fetch("/api/vpn/subscription/file",{method:"POST",headers:{Authorization:"Bearer "+token,"Content-Type":"application/octet-stream"},body:file});
+    const data=await response.json().catch(()=>({}));if(!response.ok)throw Error(data.error||"HTTP "+response.status);renderSaved(data);show("Файл импортирован. "+describeSubscription(data.preview));fileInput.value="";
+   });
+  };
+  $("#vpn-file-preview").onclick=()=>fileAction(false);
+  $("#vpn-file-import").onclick=()=>fileAction(true);
  }
-
- subscription?.addEventListener("submit",async e=>{
-  e.preventDefault();const field=$("#vpn-subscription-url"),out=$("#vpn-subscription-result"),button=subscription.querySelector("button");
-  const url=field.value.trim();if(!url)return;
-  const save=e.submitter?.value==="save";
-  if(!window.confirm(save?"Сохранить подписку на роутере, заменив предыдущую? Маршруты не изменятся.":"Получить подписку с роутера? Данные не будут применены."))return;
-  field.value="";button.disabled=true;out.textContent="Загрузка…";
-  try{const d=await api(save?"vpn/subscription":"vpn/subscription/preview","POST",save?{url,action:"save"}:{url});if(current()){if(save){renderSaved(d);out.textContent="Подписка импортирована.";}else out.textContent=describeSubscription(d);}}
-  catch(e){if(current())out.textContent=e.message;}finally{if(current())button.disabled=false;}
- });
  const prep=$("#vpn-prepare"),type=$("#vpn-type"),result=$("#vpn-prepare-result"),file=$("#vpn-config");
  let prepSerial=0;
  const changeVPN=()=>{prepSerial++;result.textContent="";$("#vpn-ssh-fields").hidden=type.value!=="ssh";$("#vpn-config-fields").hidden=type.value==="ssh";file.value="";};
