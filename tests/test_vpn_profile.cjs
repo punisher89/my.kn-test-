@@ -39,3 +39,13 @@ assert.throws(()=>parse("x".repeat(262145)));
 assert.throws(()=>parse(Array.from({length:301},(_,i)=>"a"+i+".example.com").join("\n")));
 assert.throws(()=>merge(Array.from({length:300},(_,i)=>"a"+i+".example.com"),["extra.example.net"]));
 console.log("HostList: 6 checks passed");
+
+const dnsPanelStart=source.indexOf("function dnsProbePanel(){");
+const dnsPanelEnd=source.indexOf("let subscriptionBusy",dnsPanelStart);
+assert.ok(dnsPanelStart>=0&&dnsPanelEnd>dnsPanelStart);
+const dnsPanel=new Function(source.slice(dnsPanelStart,dnsPanelEnd)+";return dnsProbePanel();")();
+assert.ok(dnsPanel.includes("opkg install knot-dig ca-certificates"));
+assert.ok(dnsPanel.includes("kdig -V"));
+assert.ok(dnsPanel.includes("kdig не нужен"));
+assert.ok(!/adguard/i.test(dnsPanel));
+console.log("DNS setup note: 4 checks passed");
