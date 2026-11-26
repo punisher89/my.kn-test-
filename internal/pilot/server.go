@@ -47,6 +47,22 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 				jsonReply(w, 401, map[string]string{"error": "требуется ключ доступа"})
 				return
 			}
+			// Only user-initiated operations that contend for the controller lock
+			// get a foreground reservation. Polling and explicit cancellation do not.
+			foreground := false
+			switch path {
+			case "PUT /api/config", "POST /api/service", "POST /api/tune",
+				"POST /api/check", "POST /api/domain-search", "POST /api/adaptive/domain",
+				"POST /api/services", "POST /api/services/custom", "DELETE /api/services/{id}",
+				"POST /api/services/{id}/domains", "POST /api/settings-backup/restore",
+				"POST /api/catalog/update", "POST /api/youtube/video-test", "POST /api/vpn/subscription":
+				foreground = true
+			}
+			if foreground {
+				release, err := m.reserveManual(r.Context())
+				if err != nil { jsonReply(w, 409, map[string]string{"error": err.Error()}); return }
+				defer release()
+			}
 			fn(w, r)
 		})
 	}
