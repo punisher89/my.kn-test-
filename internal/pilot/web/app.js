@@ -1350,12 +1350,12 @@ function saveAdaptiveView(target) {
     adaptiveDetails.set(detail.dataset.viewKey, detail.open);
   });
 }
-function renderAdaptive() {
+function renderAdaptive(force = false) {
   const target = $("#adaptive-results");
   if (!target || !adaptiveData) return;
   // Keep native selects and buttons in place while the user interacts with them.
-  if (target.querySelector(".domain-control:focus-within")) {
-    $("#adaptive-update").textContent = "Новые данные будут показаны после выхода из управления доменом.";
+  if (target.querySelector(".domain-control:focus-within") || (!force && target.querySelector("#history-hours:focus"))) {
+    $("#adaptive-update").textContent = "Новые данные будут показаны после завершения работы с выбранным элементом.";
     return;
   }
   saveAdaptiveView(target);
@@ -1380,7 +1380,7 @@ function renderAdaptive() {
       : boxes.length
         ? '<div class="panel empty"><h3>Совпадений нет</h3><p>Измените домен или выберите другое состояние. Поиск и состояние должны совпасть у одного домена. Карточка показывает весь контекст коробки.</p></div>'
         : '<div class="panel empty"><h3>Коробки пока не сформированы</h3><p>Включите автоподбор по трафику и откройте нужный сайт. Наблюдения появятся после ошибок или ответов настроенных сервисов. Прежние сохранённые методы продолжают действовать.</p></div>');
-  target.querySelector("#history-hours")?.addEventListener("change",e=>{historyHours=Number(e.target.value);renderAdaptive();});
+  target.querySelector("#history-hours")?.addEventListener("change",e=>{historyHours=Number(e.target.value);renderAdaptive(true);});
   target.querySelector("#history-hide")?.addEventListener("click",()=>{historyCutoff=Math.floor(Date.now()/1000)+1;renderAdaptive();});
   target.querySelector("#history-clear")?.addEventListener("click",()=>{if(!window.confirm("Удалить попытки старше 10 минут? Свежие результаты, текущие наблюдения и правила сохранятся. Возможен краткий перезапуск движка; резервная копия останется на роутере."))return;action(async()=>{await api("adaptive/domain","POST",{host:"",action:"clear_history"});notify("Старая история очищена");await loadAdaptive();});});
   target.querySelector("#history-restore")?.addEventListener("click",()=>{if(!window.confirm("Восстановить наблюдения и историю из последней копии перед очисткой? Более новые наблюдения будут заменены, текущие настройки не изменятся. Возможен краткий перезапуск движка."))return;action(async()=>{await api("adaptive/domain","POST",{host:"",action:"restore_history"});notify("Опыт восстановлен");await loadAdaptive();});});
