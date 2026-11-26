@@ -16,3 +16,5 @@ jobs:
           python-version: '3.11'
       - run: python -m unittest discover -s telegram-bot
       - run: python -m compileall -q telegram-bot
+
+      - run: bash -n telegram-bot/install.sh

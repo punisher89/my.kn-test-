@@ -1,0 +1,23 @@
+[Unit]
+Description=Keenetic Pilot Telegram Companion
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=pilot-bot
+Group=pilot-bot
+StateDirectory=pilot-bot
+WorkingDirectory=/opt/pilot-bot
+EnvironmentFile=/etc/pilot-bot/config.env
+Environment=PILOT_BOT_TOKEN_FILE=/etc/pilot-bot/bot-token
+ExecStart=/usr/bin/python3 /opt/pilot-bot/bot.py
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+RestrictSUIDSGID=yes
+UMask=0077
+[Install]
+WantedBy=multi-user.target

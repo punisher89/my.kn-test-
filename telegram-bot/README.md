@@ -2,7 +2,21 @@
 
 Python 3.9+, без pip. Русское меню, состояние панели, проверка публикаций ChatGPT, уведомления в группе. Управление только через отдельный ограниченный API /api/bot/* (не входит в beta.6). Не заменяет Telegram-туннель.
 
-## Установка на Linux VPS с systemd
+## Быстрая установка на VPS (Debian/Ubuntu)
+
+```sh
+sudo apt-get update
+sudo apt-get install -y git python3 ca-certificates
+git clone --single-branch --branch feature/keenetic-pilot-telegram-bot https://github.com/punisher89/my.kn-test-.git pilot-companion
+cd pilot-companion/telegram-bot
+sudo bash install.sh
+```
+
+Установщик спросит токен BotFather, числовой Telegram ID владельца и ID группы (необязательно), проверит доступ к Telegram API и запустит службу. Существующие токен и настройки сохраняются при повторном запуске. Нужны Python 3.9+ и systemd 235+. Для systemd до 247 предусмотрена отдельная служба без LoadCredential; дополнительные ключи на таких системах настраиваются через защищённые файлы, доступные пользователю pilot-bot.
+
+При ошибке: `sudo journalctl -u pilot-bot -n 50 --no-pager`. Не публикуйте токены.
+
+## Ручная установка на Linux VPS с systemd 247+
 
 Создайте бота через BotFather. Получите числовой ID владельца и группы, добавьте бота в группу с правом отправлять сообщения. Скопируйте bot.py и pilot-bot.service на VPS.
 
