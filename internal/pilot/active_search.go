@@ -218,6 +218,9 @@ func (m *Manager) searchDomain(ctx context.Context, c Config, s DomainScope) (st
 	}
 	task.beginRetryCycle(time.Now())
 	interrupted := func() (string, time.Time) {
+		if errors.Is(context.Cause(ctx), errForegroundPriority) {
+			return finish("waiting", "", "Пауза для ручной операции; поиск продолжится", time.Now())
+		}
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			m.domainReason("time_slice")
 			return finish("waiting", "", "Отрезок поиска завершён по времени; очередь продолжит с текущего кандидата", time.Now().Add(time.Minute))
@@ -575,14 +578,14 @@ func (m *Manager) publishDomainRetryView(c Config) {
 }
 
 func (m *Manager) activeTick(parent context.Context) {
-	if m.updateRequested.Load() {
+	if m.manualPending.Load()>0 || m.updateRequested.Load() {
 		return
 	}
 	if !m.op.TryLock() {
 		return
 	}
 	defer m.op.Unlock()
-	if m.updateRequested.Load() {
+	if m.manualPending.Load()>0 || m.updateRequested.Load() {
 		return
 	}
 	c := m.Config()
@@ -699,6 +702,7 @@ func (m *Manager) activeTick(parent context.Context) {
 		}
 	}
 	sort.Slice(pending, func(i, j int) bool {
+		if pending[i].Manual != pending[j].Manual {return pending[i].Manual}
 		if a, b := priority(pending[i].Scope), priority(pending[j].Scope); a != b {
 			return a < b
 		}
@@ -732,9 +736,13 @@ func (m *Manager) activeTick(parent context.Context) {
 	// Keep background auto-selection cooperative: a single failing domain may
     // otherwise monopolize the operation lock and delay service repairs for
     // six minutes. Resume the same candidate in a later turn.
-    ctx, cancel := context.WithTimeout(parent, 55*time.Second)
+    priorityCtx, priorityCancel := context.WithCancelCause(parent)
+	defer priorityCancel(nil)
+    ctx, cancel := context.WithTimeout(priorityCtx, 55*time.Second)
 	defer cancel()
 	m.mu.Lock()
+	if m.manualPending.Load()>0 {m.mu.Unlock();return}
+	m.backgroundCancel = priorityCancel
 	m.cancel = cancel
 	m.domainJob = &DomainSearch{Scope: task.Scope, Stage: "direct", Started: now.UTC(), Trials: []Trial{}}
 	m.mu.Unlock()
@@ -751,6 +759,7 @@ func (m *Manager) activeTick(parent context.Context) {
 	}
 	m.mu.Lock()
 	m.cancel = nil
+	m.backgroundCancel = nil
 	m.mu.Unlock()
 }
 
