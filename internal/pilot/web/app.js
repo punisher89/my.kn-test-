@@ -673,7 +673,23 @@ function validateIndependentVPN(type, data){
  }
  return "Основные параметры найдены. Это проверка формата, не проверка подключения.";
 }
-function dnsProbePanel(){return `<section class="panel"><h2>Защищённый DNS</h2><p>По умолчанию проверяется DNS самого роутера, без kdig. Настроенные upstream DNS показываются отдельно, если их удалось прочитать из KeeneticOS. Настройки не изменяются. Ручная проверка — для указанного вами сервера.</p><label>Имя DNS-сервера (TLS)<input id="dns-server" placeholder="Имя вашего DNS-сервера" maxlength="253"></label><label>IP для подключения (необязательно)<input id="dns-address" placeholder="Необязательно" maxlength="45"></label><label>Протокол<select id="dns-protocol"><option value="router">DNS роутера (авто)</option><option value="system">Системный резолвер ОС</option><option value="all">Ручная проверка DoH / DoT / DoQ</option><option>DoH</option><option>DoT</option><option>DoQ</option></select></label><details><summary>Примечание: как установить kdig (DoH / DoT / DoQ)</summary><p>Для проверки DNS роутера (авто) kdig не нужен. Для прямой ручной проверки защищённого DNS нужен kdig из пакета knot-dig и доверенные CA-сертификаты.</p><p><strong>Keenetic с Entware:</strong> подключитесь к роутеру по SSH, откройте оболочку Entware (не CLI KeeneticOS) и выполните:</p><pre>opkg update\nopkg install knot-dig ca-certificates\nkdig -V\nkdig -h | grep -E 'https|tls|quic'</pre><p>Если пакет не найден, проверьте <code>opkg list | grep -E 'knot-dig|ca-certificates'</code>. Для OpenWrt имя пакета зависит от репозитория и версии; проверьте список пакетов opkg или apk. Поддержка DoQ зависит от сборки kdig. После установки повторите ручную проверку в панели. Pilot не устанавливает пакеты автоматически и не меняет DNS роутера.</p></details><button id="dns-probe" type="button">Проверить DNS</button><pre id="dns-probe-result" aria-live="polite">Не проверено</pre></section>`;}
+function dnsProbePanel(){
+ return `<section class="panel"><h2>DNS роутера</h2>
+ <p>Проверяет DNS на самом Keenetic и показывает серверы, которые удалось прочитать из KeeneticOS.</p>
+ <button id="dns-probe" type="button">Проверить DNS роутера</button>
+ <pre id="dns-probe-result" aria-live="polite">Проверка ещё не запускалась</pre>
+ <details><summary>Ручная проверка внешнего DoH, DoT или DoQ</summary>
+ <p>Эта проверка обращается напрямую к указанному серверу. DNS-настройки роутера сохраняются.</p>
+ <label>Имя DNS-сервера (TLS)<input id="dns-server" maxlength="253"></label>
+ <label>IP для подключения (необязательно)<input id="dns-address" maxlength="45"></label>
+ <label>Протокол<select id="dns-protocol"><option value="all">Все три протокола</option><option>DoH</option><option>DoT</option><option>DoQ</option></select></label>
+ <details><summary>Установка kdig для ручной проверки</summary><pre>opkg update
+opkg install knot-dig ca-certificates
+kdig -V</pre><p>Поддержка DoQ зависит от сборки kdig.</p></details>
+ <button id="dns-manual-probe" type="button">Проверить внешний DNS</button>
+ <pre id="dns-manual-result" aria-live="polite">Проверка ещё не запускалась</pre>
+ </details></section>`;
+}
 let subscriptionBusy=false;
 function describeSubscription(d){return "Записей: "+d.total+" · "+Object.entries(d.types||{}).map(([k,v])=>k+": "+v).join(", ")+" · неизвестных: "+d.unknown+". Доступность серверов не проверена.";}
 function previewLocalSubscription(raw){
@@ -713,16 +729,25 @@ function bindGeo(){
  const target=$("#geo-services"),status=$("#geo-tunnels"),button=$("#geo-build"),output=$("#geo-output"),commands=$("#geo-commands");
  const session=panelSession;
  const current=()=>signedIn&&panelSession===session&&form===$("#geo-form");
- const dnsButton=$("#dns-probe"),dnsResult=$("#dns-probe-result");
- const dnsMode=$("#dns-protocol"),dnsServer=$("#dns-server"),dnsAddress=$("#dns-address");
- const updateDNSMode=()=>{const automatic=["router","system"].includes(dnsMode.value);dnsServer.disabled=dnsAddress.disabled=automatic;};
- dnsMode.addEventListener("change",updateDNSMode);updateDNSMode();
- dnsButton?.addEventListener("click",async()=>{
-  dnsButton.disabled=true;dnsResult.textContent="Проверяется…";
-  try{const rows=await api("dns/probe","POST",{server:dnsServer.disabled?"":dnsServer.value,address:dnsAddress.disabled?"":dnsAddress.value,protocol:dnsMode.value});if(current())dnsResult.textContent=rows.map(r=>`${r.protocol} · ${r.server} · ${r.status==="ok"?"Есть DNS-ответ":r.status==="configured"||r.status==="unknown"?r.error:r.status==="unavailable"?(r.error||"Инструмент недоступен"):r.status==="timeout"?"Таймаут":r.status==="unsupported"?"Протокол не поддерживается":r.error||"Нет подтверждения"} · ${r.milliseconds} мс`).join("\n");}
-  catch(e){if(current())dnsResult.textContent=e.message;}
-  finally{if(current())dnsButton.disabled=false;}
- });
+ const routerDNS=$("#dns-probe"), manualDNS=$("#dns-manual-probe");
+ const runDNS=async(result,input)=>{
+  routerDNS.disabled=manualDNS.disabled=true;
+  result.textContent="Проверяется…";
+  try{
+   const rows=await api("dns/probe","POST",input);
+   if(!current())return;
+   result.textContent=rows.map(row=>{
+    const label=row.status==="ok"?"Есть DNS-ответ":row.error||"Нет подтверждённого ответа";
+    const latency=["configured","unknown","unavailable"].includes(row.status)?"":` · ${row.milliseconds} мс`;
+    return `${row.protocol} · ${row.server} · ${label}${latency}`;
+   }).join("\n");
+  }catch(error){if(current())result.textContent=error.message;}
+  finally{if(current())routerDNS.disabled=manualDNS.disabled=false;}
+ };
+ routerDNS.addEventListener("click",()=>runDNS($("#dns-probe-result"),{protocol:"router"}));
+ manualDNS.addEventListener("click",()=>runDNS($("#dns-manual-result"),{
+  server:$("#dns-server").value,address:$("#dns-address").value,protocol:$("#dns-protocol").value,
+ }));
  const subscription=$("#vpn-subscription-form");
  const renderSaved=d=>{if(!current())return;$("#vpn-subscription-saved").textContent=d.saved?(d.local?"Локальный файл: ":"Сохранённая ссылка: ")+new Date(d.updated).toLocaleString("ru-RU")+" · "+describeSubscription(d.preview):"Сохранённой подписки нет.";$("#vpn-subscription-refresh").disabled=!d.saved||d.local;$("#vpn-subscription-delete").disabled=!d.saved;};
  const show=message=>{if(!signedIn||panelSession!==session)return;showSubscriptionDialog(message);if(current())$("#vpn-subscription-result").textContent=message;};
@@ -1522,6 +1547,7 @@ const releaseNotes={
  "0.2.0-beta.5":["Самодиагностика, предупреждения и диапазоны количества событий","Закрытие всплывающих окон вне области и по Esc; описание версии сохраняет раскрытие","Ручная очистка старой истории и восстановление наблюдений из копии; срок хранения 1–365 суток, по умолчанию выключено","Резервное копирование и восстановление настроек; облегчённый режим фоновых проверок","Импорт одной VPN-подписки, ручное и опциональное ежедневное обновление; без запуска туннелей","Уведомления текущего сеанса","Защитный откат при отказе службы или повторной потере двух контрольных HTTPS-подключений во время обновления; не проверяет скорость"],
  "0.2.0-beta.6":["Импорт и экспорт HostList для каждого сервиса; применение только после сохранения","Импорт локального файла VPN-подписки и предварительный просмотр TXT/base64; без запуска VPN","Приоритет ручных операций над фоновым поиском","Geo Routing: план маршрутов Telegram через существующий туннель; независимый VPS-туннель пока не реализован"],
  "0.2.0-beta.7":["Smart VPN Auto: поле пароля, проверка SSH-входа через защищённую панель; туннель автоматически не запускается","Экспериментальный CLI-помощник WireGuard для IPv4-сетей Telegram; требуется настроенный VPS и проверка на роутере","Ограниченный API Telegram-бота: состояние, управление обходом, проверка и подбор YouTube; отдельный ключ, доступ только через localhost"],
+ "0.2.0-beta.10":["Отдельная проверка DNS самого роутера по адресу панели","Текущие резолверы KeeneticOS из show dns-proxy","Ручные DoH, DoT и DoQ в отдельном разделе"],
  "0.2.0-beta.8":["Убран встроенный AdGuard: по умолчанию проверяется реальный DNS роутера без kdig","Чтение глобальных upstream DoH/DoT/DoQ из KeeneticOS, без изменения настроек и раскрытия URL-путей","Smart VPN Auto: ввод и вставка пароля доступны в HTTP-панели; отправка только через защищённый канал"],
  "0.2.0-beta.9":["DNS: точные команды установки kdig и CA-сертификатов для Keenetic с Entware; инструкция в примечании панели","Все исправления DNS и ввода пароля из beta.8"]
 };
