@@ -19,6 +19,7 @@ type savedSubscription struct {
 }
 type subscriptionState struct {
  Saved bool `json:"saved"`
+ Local bool `json:"local,omitempty"`
  Updated time.Time `json:"updated,omitempty"`
  Preview subscriptionPreview `json:"preview"`
 }
@@ -30,7 +31,7 @@ func readSavedSubscription(path string)(savedSubscription,error){
  f,e:=os.Open(path);if e!=nil{return s,e};defer f.Close()
  info,e:=f.Stat();if e!=nil||!info.Mode().IsRegular()||info.Mode().Perm()&0077!=0{return s,errors.New("небезопасный файл подписки")}
  data,e:=io.ReadAll(io.LimitReader(f,800001));if e!=nil||len(data)>800000{return s,errors.New("файл подписки недоступен")}
- if json.Unmarshal(data,&s)!=nil||s.URL==""||len(s.URL)>4096||len(s.Data)>maxSubscriptionBytes{return s,errors.New("повреждён файл подписки")}
+ if json.Unmarshal(data,&s)!=nil||len(s.Data)==0||len(s.URL)>4096||len(s.Data)>maxSubscriptionBytes{return s,errors.New("повреждён файл подписки")}
  return s,nil
 }
 func (m *Manager) SubscriptionState()(subscriptionState,error){
@@ -38,7 +39,7 @@ func (m *Manager) SubscriptionState()(subscriptionState,error){
  if os.IsNotExist(e){return subscriptionState{},nil}
  if e!=nil{return subscriptionState{},errors.New("не удалось прочитать сохранённую подписку")}
  p,e:=previewSubscription(s.Data);if e!=nil{return subscriptionState{},e}
- return subscriptionState{Saved:true,Updated:s.Updated,Preview:p},nil
+ return subscriptionState{Saved:true,Local:s.URL=="",Updated:s.Updated,Preview:p},nil
 }
 func (m *Manager) SaveSubscription(ctx context.Context,raw string,refresh bool)(subscriptionState,error){
  if !m.op.TryLock(){return subscriptionState{},ErrBusy};defer m.op.Unlock()
@@ -48,6 +49,7 @@ func (m *Manager) SaveSubscription(ctx context.Context,raw string,refresh bool)(
 func (m *Manager) saveSubscriptionLocked(ctx context.Context,raw string,refresh bool)(subscriptionState,error){
  if refresh {
   old,e:=readSavedSubscription(m.subscriptionPath());if e!=nil{return subscriptionState{},errors.New("нет сохранённой подписки")}
+  if old.URL=="" {return subscriptionState{},errors.New("локальный файл нельзя обновить по сети; импортируйте новый файл")}
   raw=old.URL
  }
  data,p,e:=fetchSubscription(ctx,raw);if e!=nil{return subscriptionState{},e}
@@ -68,7 +70,17 @@ func (m *Manager) refreshSubscriptionIfDue(ctx context.Context,now time.Time) er
  old,e:=readSavedSubscription(m.subscriptionPath())
  if os.IsNotExist(e){return nil}
  if e!=nil{return errors.New("сохранённая подписка недоступна")}
+ if old.URL=="" {return nil}
  if !old.Updated.IsZero()&&now.Sub(old.Updated)<24*time.Hour{return nil}
  _,e=m.saveSubscriptionLocked(ctx,"",true)
  return e
+}
+
+func (m *Manager) ImportSubscriptionFile(data []byte)(subscriptionState,error){
+ p,e:=previewSubscription(data);if e!=nil{return subscriptionState{},e}
+ if !m.op.TryLock(){return subscriptionState{},ErrBusy};defer m.op.Unlock()
+ if m.updateRequested.Load(){return subscriptionState{},ErrBusy}
+ s:=savedSubscription{Data:data,Updated:time.Now().UTC()}
+ if e=WriteJSON(m.subscriptionPath(),s);e!=nil{return subscriptionState{},errors.New("не удалось сохранить локальную подписку")}
+ return subscriptionState{Saved:true,Local:true,Updated:s.Updated,Preview:p},nil
 }
