@@ -666,7 +666,7 @@ function geoPage(){
  <form id="vpn-prepare"><div class="field"><label for="vpn-type">Тип подключения</label><select id="vpn-type"><option value="ssh">VPS по SSH</option><option value="wg">WireGuard</option><option value="awg">AmneziaWG</option><option value="openvpn">OpenVPN</option></select></div>
  <div id="vpn-ssh-fields"><div class="field"><label for="vpn-host">IP или домен сервера</label><input id="vpn-host" maxlength="253" autocomplete="off"></div><div class="field"><label for="vpn-port">Порт SSH</label><input id="vpn-port" type="number" min="1" max="65535" value="22"></div><div class="field"><label for="vpn-user">Логин</label><input id="vpn-user" maxlength="64" autocomplete="off"></div></div>
  <div id="vpn-config-fields" hidden><label for="vpn-config">Локальный файл конфигурации</label><input id="vpn-config" type="file" accept=".conf,.ovpn,.txt"><p class="subtle">Файл проверяется только в браузере, не отправляется на роутер.</p></div>
- <button type="submit">Проверить формат</button><p id="vpn-prepare-result" aria-live="polite"></p></form></details></section>`;
+ <button type="submit">Проверить формат</button><p id="vpn-prepare-result" aria-live="polite"></p></form></details></section><section class="panel"><h2>VPN-подписки · предпросмотр</h2><p>Загрузка по HTTPS с роутера. Показываются только число записей и типы протоколов; ссылка и ключи не сохраняются. Подключение не создаётся. В HTTP-панели не вводите приватные ссылки с токеном.</p><form id="vpn-subscription-form"><label>HTTPS-ссылка <input id="vpn-subscription-url" type="password" autocomplete="off" maxlength="4096" required></label><button type="submit">Загрузить и проверить формат</button></form><p id="vpn-subscription-result" aria-live="polite"></p></section>`;
 }
 function bindGeo(){
  const form=$("#geo-form");
@@ -680,6 +680,15 @@ function bindGeo(){
   try{const rows=await api("dns/probe","POST",{server:$("#dns-server").value,address:$("#dns-address").value,protocol:$("#dns-protocol").value});if(current())dnsResult.textContent=rows.map(r=>`${r.protocol} · ${r.server} · ${r.status==="ok"?"Есть DNS-ответ":r.status==="unavailable"?"kdig не найден":r.status==="timeout"?"Таймаут":r.status==="unsupported"?"Протокол не поддерживается":r.error||"Нет подтверждения"} · ${r.milliseconds} мс`).join("\n");}
   catch(e){if(current())dnsResult.textContent=e.message;}
   finally{if(current())dnsButton.disabled=false;}
+ });
+ const subscription=$("#vpn-subscription-form");
+ subscription?.addEventListener("submit",async e=>{
+  e.preventDefault();const field=$("#vpn-subscription-url"),out=$("#vpn-subscription-result"),button=subscription.querySelector("button");
+  const url=field.value.trim();if(!url)return;
+  if(!window.confirm("Получить подписку с роутера? Данные не будут применены."))return;
+  field.value="";button.disabled=true;out.textContent="Загрузка…";
+  try{const d=await api("vpn/subscription/preview","POST",{url});if(current())out.textContent="Записей: "+d.total+" · "+Object.entries(d.types||{}).map(([k,v])=>k+": "+v).join(", ")+" · неизвестных: "+d.unknown+". Формат распознан, доступность серверов не проверена.";}
+  catch(e){if(current())out.textContent=e.message;}finally{if(current())button.disabled=false;}
  });
  const prep=$("#vpn-prepare"),type=$("#vpn-type"),result=$("#vpn-prepare-result"),file=$("#vpn-config");
  let prepSerial=0;
