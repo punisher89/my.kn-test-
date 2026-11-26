@@ -241,15 +241,19 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
   preview,err:=fetchSubscriptionPreview(r.Context(),input.URL)
   if err!=nil{replyError(w,err);return};jsonReply(w,200,preview)
  })
+	dnsProbeSlot := make(chan struct{}, 1)
 	api("POST /api/dns/probe", func(w http.ResponseWriter, r *http.Request) {
 		var input secureDNSRequest
 		if !read(w,r,&input){return}
 		if _,err:=normalizeDNSProbe(input);err!=nil{replyError(w,err);return}
 		select {
-		case vpnProbeSlot <- struct{}{}:
-			defer func(){<-vpnProbeSlot}()
+		case dnsProbeSlot <- struct{}{}:
+			defer func(){<-dnsProbeSlot}()
 		default:
 			replyError(w,ErrBusy);return
+		}
+		if local, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr); ok {
+			input.panelIP, _, _ = net.SplitHostPort(local.String())
 		}
 		jsonReply(w,200,secureDNSProbe(r.Context(),input))
 	})
