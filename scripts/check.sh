@@ -37,6 +37,7 @@ if [ "${PILOT_TEST_BROWSER:-0}" = "1" ]; then
     node tests/test_health_ui.cjs
 fi
 GO=$GO sh scripts/build.sh
+python3 tests/test_vps_telegram.py
 python3 tests/test_ssh_release.py
 PILOT_TEST_PACKAGE="$BASE/dist/keenetic-pilot-$(cat VERSION)-linux-amd64.tar.gz" "$GO" test ./internal/pilot -run TestNativeUpdatePackagePreflight -count=1
 python3 scripts/publish-packages.py
