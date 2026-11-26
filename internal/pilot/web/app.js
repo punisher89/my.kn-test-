@@ -1394,8 +1394,25 @@ async function loadOverviewBoxes(){const target=$("#overview-boxes");if(!target|
 let deviceData=null,deviceLoading=false,updatesData=null,updatesLoading=false,updatesSerial=0;
 let sourceUpdatesData=null,sourceUpdatesLoading=false,sourceUpdatesSerial=0;
 const lastSourceChecks=new Map(),sourceCheckErrors=new Map();
-const releaseNotes={"0.2.0-beta.3":"Стабильная контрольная версия KN-1811: коробки, Geo Routing, исправления панели.","0.2.0-beta.4":"DNS-тестер, фильтры истории и оформление. Движок не менялся."};
-function releaseNotesHTML(version){return `<details><summary>Что нового</summary><p>${esc(releaseNotes[version]||"Описание для этой версии не включено в панель.")}</p></details>`;}
+const releaseNotes={
+ "0.2.0-beta.3":["Контрольный выпуск для KN-1811","Коробки, Geo Routing, исправления панели"],
+ "0.2.0-beta.4":["DNS-тестер: системный резолвер, DoH, DoT и DoQ","Фильтры истории без удаления обучения","Темы Matrix, тёмная, светлая, Aero, Luna и свои цвета","Сведения о последних проверках обновлений; движок не менялся"],
+ "0.2.0-beta.5":["Самодиагностика и диапазоны количества событий","Закрытие всплывающих окон вне области и по Esc","Улучшенное отображение изменений версии"]
+};
+const releaseNotesOpen=new Map();
+function rememberReleaseNotes(root){
+ root.querySelectorAll("details[data-release-notes]").forEach(el=>releaseNotesOpen.set(el.dataset.releaseNotes,el.open));
+}
+document.addEventListener("toggle",e=>{
+ const el=e.target;
+ if(el instanceof Element&&el.isConnected&&el.matches("details[data-release-notes]"))releaseNotesOpen.set(el.dataset.releaseNotes,el.open);
+},true);
+function releaseNotesHTML(version,scope="installed",defaultOpen=false){
+ const key=scope+":"+String(version||"unknown");
+ const notes=scope==="Codex"?null:releaseNotes[version];
+ const open=releaseNotesOpen.has(key)?releaseNotesOpen.get(key):defaultOpen;
+ return `<details class="release-notes" data-release-notes="${esc(key)}" ${open?"open":""}><summary>Что нового${version?" · "+esc(version):""}</summary>${Array.isArray(notes)?`<ul>${notes.map(note=>`<li>${esc(note)}</li>`).join("")}</ul><small>Локальное описание выпуска ChatGPT, не подтверждение источника установленного пакета.</small>`:"<p>Описание этого выпуска пока отсутствует в панели.</p>"}</details>`;
+}
 const prettyBytes=n=>n==null?"недоступно":n>=1048576?(n/1048576).toFixed(1)+" МиБ":n>=1024?(n/1024).toFixed(1)+" КиБ":Math.round(n)+" Б";
 function devicePage(){return heading("Роутер","Данные устройства, на котором запущен Pilot. Недоступные датчики не заменяются примерными значениями.")+`<p class="panel-address">Адрес этой панели · <a href="#overview">${esc(location.origin)}</a></p><div id="device-data">Загрузка…</div><section class="panel"><h2>Проверка среды Keenetic / Entware</h2><p class="subtle">Пассивная проверка по идеям MY.KN. Никакие службы, правила NFQUEUE и подключённые носители не изменяются.</p><div id="preflight-data">Загрузка…</div></section>`;}
 async function loadDevice(){const target=$("#device-data");if(!target||deviceLoading)return;deviceLoading=true;try{const d=await api("device");if(target!==$("#device-data"))return;deviceData=d;target.innerHTML=`<div class="stats-grid"><div class="panel"><h3>Процессор</h3><strong>${d.cpu_percent==null?(d.cpu_sample_available?"ожидается второй замер":"недоступно"):d.cpu_percent.toFixed(1)+" %"}</strong><p>Ядер: ${d.cpu_cores}</p><small>Load 1/5/15 мин: ${d.load.length?d.load.map(v=>v.toFixed(2)).join(" / "):"недоступно"}</small><p class="subtle">Из общего CPU: Pilot ${d.pilot_cpu_percent==null?"ожидается замер":d.pilot_cpu_percent.toFixed(1)+" %"} · nfqws2 ${d.engine_cpu_percent==null?"не измерено":d.engine_cpu_percent.toFixed(1)+" %"}</p><small>Доли от всех ядер суммарно, не от одного ядра. Остальная нагрузка — системные и другие процессы.</small></div><div class="panel"><h3>Память</h3><strong>${d.memory_available==null?"недоступно":prettyBytes(d.memory_total-d.memory_available)+" занято"}</strong><p>Всего: ${prettyBytes(d.memory_total||null)}</p><small>Доступно: ${prettyBytes(d.memory_available)}</small></div><div class="panel"><h3>Температура</h3>${d.temperatures.length?d.temperatures.map(t=>`<p><strong>${t.celsius.toFixed(1)} °C</strong> · ${esc(t.name)}</p>`).join(""):'<p>Недоступно: прошивка не предоставляет датчик Pilot.</p>'}</div></div><div class="panel"><h3>${esc(d.model||"Модель не предоставлена прошивкой")}</h3><p>${esc(d.platform)} · ядро ${esc(d.kernel||"неизвестно")}</p><p>Время работы: ${d.uptime_seconds==null?"недоступно":Math.floor(d.uptime_seconds/86400)+" д "+Math.floor(d.uptime_seconds%86400/3600)+" ч "+Math.floor(d.uptime_seconds%3600/60)+" мин"}</p><p>WAN ${esc(d.wan||"не задан")}: получено ${prettyBytes(d.rx_bytes)}, передано ${prettyBytes(d.tx_bytes)}</p><p>Сейчас: ↓ ${prettyBytes(d.rx_bytes_per_second)}/с · ↑ ${prettyBytes(d.tx_bytes_per_second)}/с</p></div>`;}catch(e){if(target===$("#device-data"))target.textContent="Не удалось получить данные: "+e.message;}finally{deviceLoading=false;loadPreflight();}}
@@ -1446,6 +1463,13 @@ function ensureUpdateDialog(){
  dialog.innerHTML='<h2 id="update-monitor-title">Обновление Keenetic Pilot</h2><p id="update-monitor-version" class="subtle"></p><p id="update-monitor-state" role="status" aria-live="polite"></p><progress id="update-monitor-progress" aria-label="Выполняется обновление"></progress><ol id="update-monitor-steps"></ol><p id="update-monitor-detail" class="subtle"></p><div class="form-actions"><button id="update-monitor-copy" type="button">Скачать диагностику</button><button id="update-monitor-close" type="button">Свернуть</button></div><small>Закрытие окна не отменяет обновление. Не отключайте питание роутера во время установки.</small>';
  document.body.appendChild(dialog);
  $("#update-monitor-close").onclick=()=>dialog.close();
+ // A backdrop click minimizes the monitor only; polling and installation continue.
+ let pressedOutside=false;
+ const outside=e=>{const r=dialog.getBoundingClientRect();return e.target===dialog&&(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom);};
+ dialog.addEventListener("pointerdown",e=>{pressedOutside=e.button===0&&outside(e);});
+ dialog.addEventListener("pointercancel",()=>{pressedOutside=false;});
+ dialog.addEventListener("click",e=>{const dismiss=pressedOutside&&outside(e);pressedOutside=false;if(dismiss&&dialog.open)dialog.close();});
+ dialog.addEventListener("close",()=>{pressedOutside=false;});
  $("#update-monitor-copy").onclick=()=>{
   if(!updateMonitor)return;
   const m=updateMonitor,d=m.last||{};
@@ -1524,7 +1548,7 @@ async function startMonitoredUpdate(path,payload,source,button){
  }
 }
 
-function updatesPage(){return heading("Обновления","Обновление Pilot, панели и закреплённого nfqws2 с сохранением настроек.")+`<div class="panel"><div id="update-info">Загрузка…</div><div class="form-actions"><button id="update-check">Проверить версию</button><button id="update-install" class="primary" disabled>Установить обновление</button><button id="update-monitor-open" type="button">Ход обновления</button></div><p class="subtle">Выпуск проверяется по подписи и SHA-256. Перед остановкой службы проверяются пакет и конфигурация; установщик сохраняет прежнюю версию для отката при ошибке. Текущий подбор будет отменён перед установкой. Будет краткий перерыв. После перезапуска войдите с прежним паролем.</p></div><div class="panel"><h3>ChatGPT / Codex · отдельные обновления</h3><p class="subtle">Это дополнительный канал GitHub HTTPS + SHA-256, без независимой подписи Ed25519. Автор указан издателем в GitHub, а не подтверждён криптографически. Старый подписанный канал выше оставлен без изменений.</p><div id="source-update-info">Загрузка сведений об источниках…</div></div><div class="panel"><h3>Каталог методов</h3><p>Подписанные стратегии можно загрузить отдельно от приложения.</p><button id="catalog-update">Загрузить стратегии сейчас</button></div>`;}
+function updatesPage(){return heading("Обновления","Обновление Pilot, панели и закреплённого nfqws2 с сохранением настроек.")+`<div class="panel"><h3>Установленная версия</h3><div id="installed-release-notes">${releaseNotesHTML(state.version,"installed",true)}</div></div><div class="panel"><div id="update-info">Загрузка…</div><div class="form-actions"><button id="update-check">Проверить версию</button><button id="update-install" class="primary" disabled>Установить обновление</button><button id="update-monitor-open" type="button">Ход обновления</button></div><p class="subtle">Выпуск проверяется по подписи и SHA-256. Перед остановкой службы проверяются пакет и конфигурация; установщик сохраняет прежнюю версию для отката при ошибке. Текущий подбор будет отменён перед установкой. Будет краткий перерыв. После перезапуска войдите с прежним паролем.</p></div><div class="panel"><h3>ChatGPT / Codex · отдельные обновления</h3><p class="subtle">Это дополнительный канал GitHub HTTPS + SHA-256, без независимой подписи Ed25519. Автор указан издателем в GitHub, а не подтверждён криптографически. Старый подписанный канал выше оставлен без изменений.</p><div id="source-update-info">Загрузка сведений об источниках…</div></div><div class="panel"><h3>Каталог методов</h3><p>Подписанные стратегии можно загрузить отдельно от приложения.</p><button id="catalog-update">Загрузить стратегии сейчас</button></div>`;}
 async function loadSourceUpdates(force=false){
   const target=$("#source-update-info");
   if(!target||(sourceUpdatesLoading&&!force))return;
@@ -1534,6 +1558,7 @@ async function loadSourceUpdates(force=false){
     const d=await api("updates/sources");
     if(target!==$("#source-update-info")||serial!==sourceUpdatesSerial)return;
     sourceUpdatesData=d;
+    rememberReleaseNotes(target);
     target.innerHTML=(d.sources||[]).map(item=>{
       const src=esc(item.source);
       if(item.checked){lastSourceChecks.set(item.source,{version:item.latest,commit:item.commit});}
@@ -1543,7 +1568,7 @@ async function loadSourceUpdates(force=false){
       return `<div class="source-update-row" data-source-row="${src}">
         <div class="panel-head"><strong>${src}</strong><span>${esc(status)}</span></div>
         <p>Версия: ${latest}${item.checked&&item.commit?" · коммит "+esc(item.commit.slice(0,8)):""}</p>
-        ${releaseNotesHTML(item.checked?item.latest:previous?.version)}
+        ${releaseNotesHTML(item.checked?item.latest:previous?.version,item.source)}
         ${!item.checked&&previous?`<p>Последний подтверждённый ранее выпуск: ${esc(previous.version)} · ${esc(previous.commit?.slice(0,8))}. Установка недоступна до новой проверки.</p>`:""}
         ${sourceCheckErrors.has(item.source)?`<p class="fail-text">${esc(sourceCheckErrors.get(item.source))}</p>`:""}
         <div class="form-actions">
@@ -1568,7 +1593,7 @@ async function loadSourceUpdates(force=false){
   }catch(e){if(target===$("#source-update-info"))target.textContent="Не удалось получить сведения об источниках: "+e.message;}
   finally{if(serial===sourceUpdatesSerial)sourceUpdatesLoading=false;}
 }
-async function loadUpdates(force=false){const target=$("#update-info");if(!target||(updatesLoading&&!force))return;updatesLoading=true;const serial=++updatesSerial;try{const d=await api("updates");if(target!==$("#update-info")||serial!==updatesSerial)return;updatesData=d;const stages={idle:"Готово к проверке",downloading:"Загрузка и проверка пакета",installing:"Установка и перезапуск службы",waiting:"Ожидание завершения текущего подбора перед обновлением",completed:"Обновление завершено",failed:"Обновление не завершено. Подробности — в /opt/etc/keenetic-pilot/update.log; проверьте состояние службы.",interrupted:"Процесс обновления прерван; проверьте состояние службы перед повтором."};target.innerHTML=`<h3>Pilot ${esc(d.current)}</h3>${releaseNotesHTML(d.current)}<p>nfqws2: ${esc(d.engine||"версия не получена")}</p><p>${esc(stages[d.stage]||d.stage)}</p>${d.stage==="failed"||d.stage==="interrupted"?`<p>${d.phase?"Этап: "+esc(({"log-open":"открытие журнала",prepare:"подготовка пакета",waiting:"завершение текущей операции","worker-start":"запуск установки",install:"установка приложения и движка","version-check":"проверка установленной версии"})[d.phase]||"неизвестен"):""}${d.exit_code?" · код завершения: "+esc(d.exit_code):""}</p>`:""}<p>${d.latest?"Последний проверенный выпуск: "+esc(d.latest)+(d.latest_engine?" · nfqws2 "+esc(d.latest_engine):""):"Проверка новых выпусков ещё не выполнялась"}</p>${!d.supported?'<p class="subtle">Установка из панели доступна для управляемой установки на роутере.</p>':""}`;$("#update-install").disabled=!d.supported||!d.available||d.running;$("#update-install").textContent=d.available?"Установить "+d.latest:"Установить обновление";$("#update-check").disabled=d.running||d.checking;}catch(e){if(target===$("#update-info"))target.textContent="Связь с панелью временно недоступна: "+e.message;}finally{if(serial===updatesSerial)updatesLoading=false;}}
+async function loadUpdates(force=false){const target=$("#update-info");if(!target||(updatesLoading&&!force))return;updatesLoading=true;const serial=++updatesSerial;try{const d=await api("updates");if(target!==$("#update-info")||serial!==updatesSerial)return;updatesData=d;const installed=$("#installed-release-notes");if(installed){const key="installed:"+String(d.current||"unknown");if(installed.querySelector("details")?.dataset.releaseNotes!==key){rememberReleaseNotes(installed);installed.innerHTML=releaseNotesHTML(d.current,"installed",true);}}const stages={idle:"Готово к проверке",downloading:"Загрузка и проверка пакета",installing:"Установка и перезапуск службы",waiting:"Ожидание завершения текущего подбора перед обновлением",completed:"Обновление завершено",failed:"Обновление не завершено. Подробности — в /opt/etc/keenetic-pilot/update.log; проверьте состояние службы.",interrupted:"Процесс обновления прерван; проверьте состояние службы перед повтором."};target.innerHTML=`<h3>Pilot ${esc(d.current)}</h3><p>nfqws2: ${esc(d.engine||"версия не получена")}</p><p>${esc(stages[d.stage]||d.stage)}</p>${d.stage==="failed"||d.stage==="interrupted"?`<p>${d.phase?"Этап: "+esc(({"log-open":"открытие журнала",prepare:"подготовка пакета",waiting:"завершение текущей операции","worker-start":"запуск установки",install:"установка приложения и движка","version-check":"проверка установленной версии"})[d.phase]||"неизвестен"):""}${d.exit_code?" · код завершения: "+esc(d.exit_code):""}</p>`:""}<p>${d.latest?"Последний проверенный выпуск: "+esc(d.latest)+(d.latest_engine?" · nfqws2 "+esc(d.latest_engine):""):"Проверка новых выпусков ещё не выполнялась"}</p>${!d.supported?'<p class="subtle">Установка из панели доступна для управляемой установки на роутере.</p>':""}`;$("#update-install").disabled=!d.supported||!d.available||d.running;$("#update-install").textContent=d.available?"Установить "+d.latest:"Установить обновление";$("#update-check").disabled=d.running||d.checking;}catch(e){if(target===$("#update-info"))target.textContent="Связь с панелью временно недоступна: "+e.message;}finally{if(serial===updatesSerial)updatesLoading=false;}}
 async function loadLogs() {
   try {
     const logs = await api("logs");
@@ -1699,3 +1724,18 @@ schedulePoll();
  $("#theme-reset").addEventListener("click",()=>{prefs={...defaults};apply();});
  apply();
 })();
+
+ // Close only transient header popovers, not inline details or editable forms.
+ const transientPopovers=()=>document.querySelectorAll("#pilot-music[open],.theme-picker[open]");
+ document.addEventListener("click",e=>{
+  if(!(e.target instanceof Node))return;
+  for(const panel of transientPopovers())if(!panel.contains(e.target))panel.open=false;
+ });
+ document.addEventListener("keydown",e=>{
+  if(e.key!=="Escape"||e.defaultPrevented||document.querySelector("dialog[open]"))return;
+  for(const panel of transientPopovers()){
+   const restore=panel.contains(document.activeElement);
+   panel.open=false;
+   if(restore)panel.querySelector("summary")?.focus();
+  }
+ });
