@@ -1,0 +1,18 @@
+name: Telegram companion tests
+on:
+  push:
+    branches: [feature/keenetic-pilot-telegram-bot]
+    paths: ['telegram-bot/**', '.github/workflows/telegram-bot.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest discover -s telegram-bot
+      - run: python -m compileall -q telegram-bot
