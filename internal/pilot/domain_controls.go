@@ -105,10 +105,10 @@ func profileControlReason(c Config, p Profile) string {
 
 func (m *Manager) ControlDomain(a DomainAction) error {
 	a.Host = strings.ToLower(strings.TrimSpace(a.Host))
-	if a.Action == "clear_history" {
+	if a.Action == "clear_history" || a.Action=="restore_history" {
   if a.Host != "" {return errors.New("очистка истории не принимает домен")}
   if !m.op.TryLock() {return ErrBusy};defer m.op.Unlock()
-  return m.rewriteAdaptiveLocked(m.Config(),"",true)
+  return m.rewriteAdaptiveLocked(m.Config(),"",true,a.Action=="restore_history")
  }
  if a.Action == "reset_all" {
 		if a.Host != "" { return errors.New("сброс всех коробок не принимает домен") }

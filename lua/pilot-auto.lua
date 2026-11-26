@@ -11,6 +11,16 @@ local unpack_fields = table.unpack or unpack
 local history = {}
 local history_limit = 128
 local learned_lifetime = 7*24*60*60
+local last_prune=0
+local function prune_history(now)
+    local days=tonumber(pilot_history_days) or 0
+    if days<1 or days>365 or (last_prune>0 and now>=last_prune and now-last_prune<60) then return end
+    last_prune=now
+    local cutoff=now-days*86400
+    for i=#history,1,-1 do
+        if history[i].stamp<cutoff then table.remove(history,i);dirty=true end
+    end
+end
 local reasons = {unknown=true, rst=true, retransmission=true, tls_alert=true}
 local origins = {initial=true, pool=true, learned=true, restored=true, manual=true}
 local function network() return pilot_network and #pilot_network>0 and pilot_network or '-' end
@@ -115,7 +125,7 @@ local function load()
     end
 end
 local function flush()
-    local now=os.time();if not dirty or now-last_write<2 or not pilot_runtime then return end
+    local now=os.time();prune_history(now);if not dirty or now-last_write<2 or not pilot_runtime then return end
     local n=generation+1;local f=io.open(pilot_runtime..'/state'..(n%2)..'.tsv','w')
     if not f then return end
     f:write('PILOT4\t',n,'\n')
