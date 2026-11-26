@@ -56,6 +56,18 @@ SWAPPED=0
 INSTALL_STEP=stage-copy
 OLD_STOPPED=0
 HAD_APP=0
+# Compare two independent HTTPS destinations before and after an upgrade.
+# A pre-existing outage, a single failed destination, missing curl, and
+# staging installs never trigger a network rollback. TLS remains verified.
+BASELINE_OK=0
+connectivity_count() {
+    COUNT=0
+    for URL in 'https://www.google.com/generate_204' 'https://www.cloudflare.com/cdn-cgi/trace'; do
+        CODE=$(curl -q --noproxy '*' --proto '=https' --connect-timeout 3 --max-time 5 -sS -o /dev/null -w '%{http_code}' "$URL" 2>/dev/null) || CODE=000
+        case "$CODE" in 200|204) COUNT=$((COUNT + 1));; esac
+    done
+    printf '%s\n' "$COUNT"
+}
 BACKUP=$PREFIX/keenetic-pilot.backup.$(date +%s).$$
 cleanup() {
     RESULT=$?
@@ -104,6 +116,10 @@ INSTALL_STEP=engine-check
 # All network downloads and validation finish before stopping any existing app.
 [ ! -f "$INIT" ] || cp "$INIT" "$STAGE/old-init"
 [ ! -f "$HOOK" ] || cp "$HOOK" "$STAGE/old-hook"
+INSTALL_STEP=connectivity-baseline
+if [ "$PREFIX" = /opt ] && [ "$START" = 1 ] && [ -d "$APP" ] && [ -x "$INIT" ] && command -v curl >/dev/null && "$INIT" status >/dev/null 2>&1; then
+    if [ "$(connectivity_count)" = 2 ]; then BASELINE_OK=1; else echo "Connectivity baseline incomplete; network rollback guard skipped." >&2; fi
+fi
 INSTALL_STEP=service-stop
 if [ -x "$INIT" ] && "$INIT" status >/dev/null 2>&1; then "$INIT" stop; OLD_STOPPED=1; fi
 INSTALL_STEP=application-swap
@@ -121,6 +137,20 @@ if [ -d "$STAGE/new-config" ]; then
 fi
 INSTALL_STEP=service-start
 if [ "$START" = 1 ]; then "$INIT" start; fi
+INSTALL_STEP=post-install-check
+if [ "$START" = 1 ]; then "$INIT" status; fi
+if [ "$BASELINE_OK" = 1 ] && [ "$OLD_STOPPED" = 1 ]; then
+    AFTER=$(connectivity_count)
+    if [ "$AFTER" = 0 ]; then
+        sleep 3
+        AFTER=$(connectivity_count)
+        if [ "$AFTER" = 0 ]; then
+            echo "Both previously reachable HTTPS destinations failed twice; restoring previous application." >&2
+            exit 1
+        fi
+    fi
+    if [ "$AFTER" != 2 ]; then echo "One control destination is unavailable; no automatic rollback." >&2; fi
+fi
 echo "Keenetic Pilot установлен."
 "$APP/bin/pilot" --config "$CONFIG_DIR/config.json" --panel-info
 if [ ! -f "$CONFIG_DIR/password.json" ]; then "$APP/bin/pilot" --config "$CONFIG_DIR/config.json" --pair; fi
