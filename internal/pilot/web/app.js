@@ -329,7 +329,29 @@ function serviceCatalog() {
 }
 function profileCard(p) {
   const edit = profileDrafts.get(p.id) || p;
-  return `<details class="panel service-profile" data-profile-card="${esc(p.id)}" ${profileOpen.get(p.id) ? "open" : ""}><summary><span class="profile-summary">${logo(p)}<span><strong>${esc(p.name)}</strong><small>${esc(strategyName(p.strategy))} · доменов: ${p.domains.length}</small></span></span></summary><div class="profile-editor"><p class="subtle">${esc(presetNote(p.id))}</p><label for="strategy-${esc(p.id)}">Текущая стратегия</label><select id="strategy-${esc(p.id)}">${strategyOptions(edit.strategy)}</select><details><summary>Домены и проверки</summary><label for="domains-${esc(p.id)}">Один домен на строку, поддомены включаются автоматически</label><textarea rows="4" id="domains-${esc(p.id)}">${esc(edit.domains.join("\n"))}</textarea>${(state.service_presets||[]).some(s=>s.profile.id===p.id)?`<button type="button" data-expand-domains="${esc(p.id)}" ${manualBlocked()?"disabled":""}>Дополнить домены из каталога</button>`:""}<div class="field"></div><label>Контрольные запросы</label>${edit.targets.map((t, i) => `<div class="target-editor" data-profile="${esc(p.id)}" data-target="${i}"><label>Адрес HTTPS</label><input type="url" data-field="url" value="${esc(t.url)}"><div class="target-small"><div><label>HTTP</label><input type="number" min="200" max="399" data-field="status" value="${t.status}"></div><div><label>Фрагмент ответа</label><input data-field="contains" value="${esc(t.contains || "")}" placeholder="Необязательно"></div></div></div>`).join("")}<small>Каждый адрес проверяется с TLS 1.2 и TLS 1.3. HTTP 403/451 и ошибки сертификата не считаются успешным обходом. Контрольные адреса можно изменить под нужный сценарий.</small></details>${domainSourceEditor(edit)}<div class="profile-buttons"><button data-save-profile="${esc(p.id)}" ${manualBlocked() ? "disabled" : ""}>Сохранить</button><button data-check-profile="${esc(p.id)}">Проверить сервис</button><button data-tune-profile="${esc(p.id)}" class="primary" ${!state.running || manualBlocked() ? "disabled" : ""}>Подобрать ↗</button><button data-remove-service="${esc(p.id)}" ${manualBlocked() || state.config.profiles.length <= 1 ? "disabled" : ""}>Удалить профиль</button></div><div data-check-status="${esc(p.id)}">${checkStatus(p)}</div><div data-check-report="${esc(p.id)}">${checkReport(p)}</div></div></details>`;
+  return `<details class="panel service-profile" data-profile-card="${esc(p.id)}" ${profileOpen.get(p.id) ? "open" : ""}><summary><span class="profile-summary">${logo(p)}<span><strong>${esc(p.name)}</strong><small>${esc(strategyName(p.strategy))} · доменов: ${p.domains.length}</small></span></span></summary><div class="profile-editor"><p class="subtle">${esc(presetNote(p.id))}</p><label for="strategy-${esc(p.id)}">Текущая стратегия</label><select id="strategy-${esc(p.id)}">${strategyOptions(edit.strategy)}</select><details><summary>Домены и проверки</summary><label for="domains-${esc(p.id)}">Один домен на строку, поддомены включаются автоматически</label><textarea rows="4" id="domains-${esc(p.id)}">${esc(edit.domains.join("\n"))}</textarea><div class="form-actions"><label>Импорт списка hosts / TXT<input type="file" data-hostlist-import="${esc(p.id)}" accept=".txt,.hosts,.list,text/plain"></label><button type="button" data-hostlist-export="${esc(p.id)}">Скачать список доменов</button></div><small>Импорт добавляет домены к черновику, не меняет DNS-адреса. Для применения нажмите «Сохранить».</small>${(state.service_presets||[]).some(s=>s.profile.id===p.id)?`<button type="button" data-expand-domains="${esc(p.id)}" ${manualBlocked()?"disabled":""}>Дополнить домены из каталога</button>`:""}<div class="field"></div><label>Контрольные запросы</label>${edit.targets.map((t, i) => `<div class="target-editor" data-profile="${esc(p.id)}" data-target="${i}"><label>Адрес HTTPS</label><input type="url" data-field="url" value="${esc(t.url)}"><div class="target-small"><div><label>HTTP</label><input type="number" min="200" max="399" data-field="status" value="${t.status}"></div><div><label>Фрагмент ответа</label><input data-field="contains" value="${esc(t.contains || "")}" placeholder="Необязательно"></div></div></div>`).join("")}<small>Каждый адрес проверяется с TLS 1.2 и TLS 1.3. HTTP 403/451 и ошибки сертификата не считаются успешным обходом. Контрольные адреса можно изменить под нужный сценарий.</small></details>${domainSourceEditor(edit)}<div class="profile-buttons"><button data-save-profile="${esc(p.id)}" ${manualBlocked() ? "disabled" : ""}>Сохранить</button><button data-check-profile="${esc(p.id)}">Проверить сервис</button><button data-tune-profile="${esc(p.id)}" class="primary" ${!state.running || manualBlocked() ? "disabled" : ""}>Подобрать ↗</button><button data-remove-service="${esc(p.id)}" ${manualBlocked() || state.config.profiles.length <= 1 ? "disabled" : ""}>Удалить профиль</button></div><div data-check-status="${esc(p.id)}">${checkStatus(p)}</div><div data-check-report="${esc(p.id)}">${checkReport(p)}</div></div></details>`;
+}
+function parseLocalHostlist(raw){
+ if(raw.length>262144)throw Error("Список слишком большой (максимум 256 КиБ).");
+ const result=new Set();let skipped=0;
+ for(const row of raw.split(/\r?\n/)){
+  const line=row.replace(/#.*$/,"").trim();if(!line||line.startsWith(";"))continue;
+  const parts=line.split(/\s+/);
+  if(parts.length>1&&(/^(?:\d{1,3}\.){3}\d{1,3}$/.test(parts[0])||/^[0-9a-f:]+:[0-9a-f:]*$/i.test(parts[0])))parts.shift();
+  for(let domain of parts){
+   domain=domain.toLowerCase().replace(/^\*\./,"").replace(/\.$/,"");
+   if(domain.length>253||!domain.includes(".")||/^(?:\d{1,3}\.){3}\d{1,3}$/.test(domain)||!domain.split(".").every(label=>/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))||/\.(?:local|localhost|internal)$/.test(domain)){skipped++;continue;}
+   result.add(domain);if(result.size>300)throw Error("В списке больше 300 доменов; разделите файл.");
+  }
+ }
+ if(!result.size)throw Error("В файле нет допустимых доменов.");
+ return {domains:[...result],skipped};
+}
+function mergeLocalHostlist(existing,incoming){
+ const all=[...new Set([...existing,...incoming])];
+ const result=all.filter(d=>!all.some(parent=>parent!==d&&d.endsWith("."+parent)));
+ if(result.length>300)throw Error("В профиле может быть максимум 300 доменов.");
+ return result;
 }
 function expandedProfileDomains(p,preset,profiles){
  const incoming=preset.profile.domains.filter(d=>!(p.source_exclusions||[]).some(x=>d===x||d.endsWith("."+x)||x.endsWith("."+d))&&!profiles.some(other=>other.id!==p.id&&other.domains.some(x=>d===x||d.endsWith("."+x)||x.endsWith("."+d))));
@@ -864,6 +886,24 @@ function bindActions() {
     let message="Сервис добавлен";if(source){try{await api("services/"+id+"/domains","POST",{});}catch(e){message+="; домены пока не загружены: "+e.message;}}
     notify(message);f.reset();
   });});
+  document.querySelectorAll("[data-hostlist-import]").forEach(input=>input.addEventListener("change",async()=>{
+    const id=input.dataset.hostlistImport,file=input.files[0];if(!file)return;
+    const session=panelSession;
+    try{
+      if(file.size>262144)throw Error("Файл больше 256 КиБ.");
+      const parsed=parseLocalHostlist(await file.text());
+      if(!signedIn||session!==panelSession||!input.isConnected)return;
+      const draft=readProfileDraft(id);
+      draft.domains=mergeLocalHostlist(draft.domains,parsed.domains);
+      $("#domains-"+id).value=draft.domains.join("\n");profileDrafts.set(id,draft);
+      notify("В черновике "+draft.domains.length+" доменов; пропущено "+parsed.skipped+". Нажмите «Сохранить».");
+    }catch(e){if(session===panelSession)notify(e.message,true);}finally{input.value="";}
+  }));
+  document.querySelectorAll("[data-hostlist-export]").forEach(button=>button.addEventListener("click",()=>{
+    const id=button.dataset.hostlistExport,draft=readProfileDraft(id);
+    const url=URL.createObjectURL(new Blob([draft.domains.join("\n")+"\n"],{type:"text/plain"}));
+    const link=document.createElement("a");link.href=url;link.download=id+"-hostlist.txt";link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }));
   document.querySelectorAll("[data-expand-domains]").forEach(button=>button.addEventListener("click",()=>serviceAction(async()=>{
     const id=button.dataset.expandDomains,c=structuredClone(state.config),draft=readProfileDraft(id),preset=state.service_presets.find(s=>s.profile.id===id);
     if(!preset)throw new Error("Сервис отсутствует в каталоге");
