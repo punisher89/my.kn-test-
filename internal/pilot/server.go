@@ -209,12 +209,16 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 			jsonReply(w, http.StatusConflict, map[string]string{"error": "проверка маршрутов уже выполняется"})
 			return
 		}
-		report, err := m.checkTelegramRoutes(r.Context())
+		report, err := m.checkTelegramRoutes(r.Context(), r.URL.Query().Get("client"))
 		if err != nil {
 			replyError(w, err)
 			return
 		}
-		jsonReply(w, http.StatusOK, report)
+		if report.Source != "" {
+			jsonReply(w, http.StatusOK, report)
+			return
+		}
+		jsonReply(w, http.StatusOK, report.Router)
 	})
 	api("POST /api/telegram/tunnel", func(w http.ResponseWriter, r *http.Request) {
 		var input struct {

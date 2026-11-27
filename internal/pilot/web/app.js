@@ -35,7 +35,7 @@ let signedIn = false,
 const pollingEndpoints = new Set(["telegram/tunnel", "telegram/routes", "device", "adaptive", "preflight", "updates", "updates/sources"]);
 async function api(path, method = "GET", data, signal) {
   const session = panelSession;
-  const deadline = !signal && method === "GET" && pollingEndpoints.has(path) ? new AbortController() : null;
+  const deadline = !signal && method === "GET" && pollingEndpoints.has(path.split("?", 1)[0]) ? new AbortController() : null;
   const timeout = deadline ? setTimeout(() => deadline.abort(), 30000) : null;
   try {
     const response = await fetch(`/api/${path}`, {
@@ -756,10 +756,12 @@ function telegramTunnelPage(){
  <button type="button" id="telegram-tunnel-measure" disabled>Проверить трафик</button>
  <button type="button" id="telegram-route-check" disabled>Проверить маршруты</button>
  </div>
+ <label for="telegram-route-client">IPv4 устройства для сравнения маршрутов</label>
+ <input id="telegram-route-client" maxlength="15" inputmode="decimal" placeholder="Например, 192.168.1.42" autocomplete="off" spellcheck="false">
  <p id="telegram-tunnel-measure-result" role="status" hidden></p>
  <section id="telegram-route-result" hidden>
   <p id="telegram-route-summary" role="status"></p>
-  <p class="subtle">Проверяются два адреса в каждой сети с точки зрения самого роутера. Для устройств с отдельной политикой Keenetic маршрут может отличаться.</p>
+  <p class="subtle">Проверяются два IPv4-адреса в каждой сети. Для устройства ядро моделирует входящий пакет с указанным IP. Метки, которые firewall присваивает живому трафику, в расчёт не входят.</p>
   <details id="telegram-route-details" hidden><summary>Адреса и интерфейсы</summary><ul id="telegram-route-list"></ul></details>
  </section>
  ${secure?'<form id="telegram-tunnel-form"><label>Клиентский профиль WireGuard<textarea name="profile" rows="7" maxlength="8192" required autocomplete="off" spellcheck="false"></textarea></label><button type="submit" disabled>Сохранить профиль</button></form>':`<p><a href="${esc(url.href)}">Открыть HTTPS-панель для сохранения профиля</a></p>`}
@@ -788,6 +790,7 @@ function bindTelegramTunnel(){
  const measureResult=$("#telegram-tunnel-measure-result");
  const routeCheck=$("#telegram-route-check");
  const routeResult=$("#telegram-route-result");
+ const routeClient=$("#telegram-route-client");
  const routeSummary=$("#telegram-route-summary");
  const routeDetails=$("#telegram-route-details");
  const routeList=$("#telegram-route-list");
@@ -800,6 +803,7 @@ function bindTelegramTunnel(){
   refresh.disabled=busy;
   measure.disabled=busy||!tunnel.running||!tunnel.traffic;
   routeCheck.disabled=busy||!tunnel.running;
+  routeClient.disabled=busy||!tunnel.running;
   start.disabled=busy||!tunnel.available||!tunnel.configured||tunnel.managed;
   stop.disabled=busy||!tunnel.managed;
   remove.disabled=busy||(!tunnel.configured&&!tunnel.managed);
@@ -822,21 +826,46 @@ function bindTelegramTunnel(){
   routeDetails.hidden=true;
   routeSummary.textContent="Читаем таблицу маршрутизации…";
   try{
-   const report=await api("telegram/routes");
+   const address=routeClient.value.trim();
+   const response=await api(address?"telegram/routes?"+new URLSearchParams({client:address}):"telegram/routes");
    if(!current())return;
-   const samples=report.flatMap(network=>network.samples);
-   const through=samples.filter(sample=>sample.status==="tunnel").length;
-   const other=samples.filter(sample=>sample.status==="other").length;
-   const unknown=samples.length-through-other;
-   routeSummary.textContent=`Через туннель: ${through} из ${samples.length} адресов. Другой интерфейс: ${other}. Маршрут не определён: ${unknown}.`;
-   routeList.replaceChildren(...report.map(({network,samples})=>{
+   const router=address?response.router:response;
+   const client=address?response.client:null;
+   const totals=report=>{
+    const samples=report.flatMap(network=>network.samples);
+    const through=samples.filter(sample=>sample.status==="tunnel").length;
+    const other=samples.filter(sample=>sample.status==="other").length;
+    return {through,other,unknown:samples.length-through-other,total:samples.length};
+   };
+   const format=({through,other,unknown,total})=>`Через туннель: ${through} из ${total} адресов. Другой интерфейс: ${other}. Маршрут не определён: ${unknown}.`;
+   const localCounts=totals(router);
+   routeSummary.replaceChildren();
+   for(const [title,counts] of client? [["Роутер",localCounts],[`Устройство ${response.source} через ${response.ingress}`,totals(client)]] : [["",localCounts]]){
+    const line=document.createElement("span");
+    line.textContent=(title?title+". ":"")+format(counts);
+    if(routeSummary.childNodes.length)routeSummary.append(document.createElement("br"));
+    routeSummary.append(line);
+   }
+   const labels={tunnel:"туннель Pilot",other:"другой интерфейс",unavailable:"маршрут не определён"};
+   const path=sample=>labels[sample.status]+(sample.outputs?.length?" ("+sample.outputs.join(", ")+")":"");
+   let mismatches=0;
+   routeList.replaceChildren(...router.map(({network,samples},i)=>{
     const item=document.createElement("li");
-    const labels={tunnel:"туннель Pilot",other:"другой интерфейс",unavailable:"маршрут не определён"};
-    item.textContent=`${network} — ${samples.map(sample=>`${sample.address}: ${labels[sample.status]}${sample.outputs?.length?" ("+sample.outputs.join(", ")+")":""}`).join(" · ")}`;
+    item.textContent=network+" — "+samples.map((sample,j)=>{
+     if(!client)return `${sample.address}: ${path(sample)}`;
+     const clientPath=path(client[i].samples[j]), routerPath=path(sample);
+     if(clientPath!==routerPath)mismatches++;
+     return `${sample.address}: роутер — ${routerPath}, устройство — ${clientPath}`;
+    }).join(" · ");
     return item;
    }));
+   if(client){
+    const difference=document.createElement("span");
+    difference.textContent=`Путь отличается для ${mismatches} из ${localCounts.total} адресов.`;
+    routeSummary.append(document.createElement("br"),difference);
+   }
    routeDetails.hidden=false;
-   routeDetails.open=other>0||unknown>0;
+   routeDetails.open=mismatches>0||localCounts.other>0||localCounts.unknown>0;
   }catch(error){
    if(current())routeSummary.textContent=error.message;
   }finally{
@@ -918,6 +947,10 @@ function bindTelegramTunnel(){
  refresh.onclick=()=>run();
  measure.onclick=measureTraffic;
  routeCheck.onclick=checkRoutes;
+ routeClient.oninput=()=>{routeResult.hidden=true;};
+ routeClient.addEventListener("keydown",event=>{
+  if(event.key==="Enter"&&!routeCheck.disabled)checkRoutes();
+ });
  run();
 }
 
@@ -1609,6 +1642,7 @@ const releaseNotes={
  "0.2.0-beta.5":["Самодиагностика, предупреждения и диапазоны количества событий","Закрытие всплывающих окон вне области и по Esc; описание версии сохраняет раскрытие","Ручная очистка старой истории и восстановление наблюдений из копии; срок хранения 1–365 суток, по умолчанию выключено","Резервное копирование и восстановление настроек; облегчённый режим фоновых проверок","Импорт одной VPN-подписки, ручное и опциональное ежедневное обновление; без запуска туннелей","Уведомления текущего сеанса","Защитный откат при отказе службы или повторной потере двух контрольных HTTPS-подключений во время обновления; не проверяет скорость"],
  "0.2.0-beta.6":["Импорт и экспорт HostList для каждого сервиса; применение только после сохранения","Импорт локального файла VPN-подписки и предварительный просмотр TXT/base64; без запуска VPN","Приоритет ручных операций над фоновым поиском","Geo Routing: план маршрутов Telegram через существующий туннель; независимый VPS-туннель пока не реализован"],
  "0.2.0-beta.7":["Smart VPN Auto: поле пароля, проверка SSH-входа через защищённую панель; туннель автоматически не запускается","Экспериментальный CLI-помощник WireGuard для IPv4-сетей Telegram; требуется настроенный VPS и проверка на роутере","Ограниченный API Telegram-бота: состояние, управление обходом, проверка и подбор YouTube; отдельный ключ, доступ только через localhost"],
+ "0.2.0-beta.22":["Сравнение путей Telegram с роутера и по IPv4 конкретного устройства"],
  "0.2.0-beta.21":["Проверка маршрутов Telegram через ядро роутера и список выходных интерфейсов"],
  "0.2.0-beta.20":["Проверка трафика туннеля Telegram за 10 секунд","Отдельные показатели профиля, интерфейса и рукопожатия WireGuard"],
  "0.2.0-beta.19":["Совместимый формат передачи сетей Telegram в WireGuard ядра","Сообщение об этапе настройки, на котором возникла ошибка"],

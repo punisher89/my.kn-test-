@@ -59,3 +59,32 @@ func TestTelegramRoutePathsDistinguishesTunnelFromOtherOutputs(t *testing.T) {
 		t.Fatalf("lost cancellation: %v", err)
 	}
 }
+
+func TestTelegramClientIngressChoosesTheMostSpecificConnectedInterface(t *testing.T) {
+	local := []telegramLocalNetwork{
+		{Index: 3, Address: netip.MustParsePrefix("192.168.1.1/16")},
+		{Index: 4, Address: netip.MustParsePrefix("192.168.2.1/24")},
+		{Index: 4, Address: netip.MustParsePrefix("192.168.2.2/24")},
+	}
+	for _, tt := range []struct {
+		ip    string
+		index int
+	}{
+		{"192.168.2.42", 4},
+		{"192.168.3.42", 3},
+		{"192.168.2.1", 0},
+		{"192.168.2.255", 0},
+		{"192.168.255.255", 0},
+		{"192.168.0.0", 0},
+		{"10.2.3.4", 0},
+	} {
+		index, err := telegramClientIngress(netip.MustParseAddr(tt.ip), local)
+		if index != tt.index || (err != nil) != (tt.index == 0) {
+			t.Errorf("%s: got %d (%v), want %d", tt.ip, index, err, tt.index)
+		}
+	}
+	local = append(local, telegramLocalNetwork{Index: 5, Address: netip.MustParsePrefix("192.168.2.3/24")})
+	if _, err := telegramClientIngress(netip.MustParseAddr("192.168.2.42"), local); err == nil {
+		t.Fatal("overlapping same-length interface prefixes were accepted")
+	}
+}
