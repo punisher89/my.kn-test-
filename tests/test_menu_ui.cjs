@@ -7,6 +7,8 @@ let update={supported:true,current:'0.2.0-alpha.10',engine:'v1.0.7-z2k-r0',stage
 let sourceUpdate={current:'0.2.0-alpha.10',supported:true,running:false,stage:'idle',sources:[{source:'ChatGPT',verification:'github-https-sha256',available:false,checked:false},{source:'Codex',verification:'github-https-sha256',available:false,checked:false}]};let sourceInstalls=0;
 demo.checks={};
 const dnsRequests=[];
+const vlessActions=[];
+const vlessState={available:true,configured:true,running:false,verified:false,milliseconds:123,socks:"127.0.0.1:10891"};
 let subscriptionRequests=0;
 (async()=>{const browser=await chromium.launch({headless:true,executablePath:process.env.PILOT_CHROMIUM});try{
  const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
@@ -22,6 +24,15 @@ let subscriptionRequests=0;
        {protocol:'Прокси KeeneticOS',server:'127.0.0.1:40500',status:'configured',error:'Резолвер из текущего состояния DNS-прокси',milliseconds:0}]
     : request.protocol==='system' ? [{protocol:'System',server:'Системный резолвер ОС',status:'ok',milliseconds:2}]
     : [{protocol:'DoT',server:request.server,status:'unavailable',error:'kdig не найден в PATH'}]);
+  }
+  if(url.pathname==='/api/vpn/vless'){
+   if(req.method()==="POST") {
+    const {action}=req.postDataJSON();
+    vlessActions.push(action);
+    vlessState.running=action!=="stop";
+    vlessState.verified=action==="check";
+   }
+   return json(vlessState);
   }
   if(url.pathname==='/api/vpn/subscription') { subscriptionRequests++; return json({saved:false}); }
   if(url.pathname.startsWith('/api/vpn/subscription/')) { subscriptionRequests++; return json({error:'unexpected upload'},400); }
@@ -196,6 +207,13 @@ let subscriptionRequests=0;
  assert.deepEqual(dnsRequests.at(-1),{protocol:'system'});
  assert.match(await page.locator('#dns-probe-result').innerText(),/192.168.44.1/);
 
+ await page.getByRole('button',{name:'Подключить VLESS',exact:true}).click();
+ await page.locator('#vless-connection-status').getByText(/Xray запущен/).waitFor();
+ await page.getByRole('button',{name:'Проверить выход',exact:true}).click();
+ await page.locator('#vless-connection-status').getByText(/HTTPS через VLESS подтверждён/).waitFor();
+ await page.locator('#vless-stop').click();
+ await page.locator('#vless-connection-status').getByText(/Профиль готов к запуску/).waitFor();
+ assert.deepEqual(vlessActions,['start','check','stop']);
  const initialSubscriptionRequests=subscriptionRequests;
  const paste=page.locator('#vpn-subscription-text');
  await paste.fill('vless://example-id@test.example:443?security=reality#demo');

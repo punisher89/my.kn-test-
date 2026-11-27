@@ -49,6 +49,7 @@ type Snapshot struct {
 	Strategies      []Strategy              `json:"strategies"`
 }
 type Manager struct {
+	vless vlessProcess
 	domainJob        *DomainSearch
 	domainQueue      int
 	domainTasks      map[DomainScope]*domainTask
@@ -609,6 +610,9 @@ func (m *Manager) Watch(ctx context.Context) {
     }
 }
 func (m *Manager) Close() error {
+	vlessCtx, cancelVLESS := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancelVLESS()
+	vlessErr := m.vless.stop(vlessCtx, true)
 	m.mu.Lock()
 	m.closed = true
 	if m.cancel != nil {
@@ -616,11 +620,11 @@ func (m *Manager) Close() error {
 	}
 	m.mu.Unlock()
 	if m.updating.Load() {
-		return m.backend.Stop()
+		return errors.Join(vlessErr, m.backend.Stop())
 	}
 	m.op.Lock()
 	defer m.op.Unlock()
-	return m.backend.Stop()
+	return errors.Join(vlessErr, m.backend.Stop())
 }
 
 // reserveManual gives an authenticated foreground request a bounded opportunity

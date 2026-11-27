@@ -50,7 +50,15 @@ func run() error {
 	prepareLAN := flag.String("prepare-lan-config", "", "подготовить копию конфигурации с доступом к панели из LAN")
 	importCatalog := flag.String("import-catalog", "", "импортировать локальный подписанный каталог без сети")
 	tokenStdin := flag.Bool("github-token-stdin", false, "сохранить токен чтения приватного репозитория из stdin")
+	vlessStdin := flag.Bool("vless-import-stdin", false, "импортировать одну ссылку VLESS из stdin")
 	flag.Parse()
+	if *vlessStdin {
+		if err := pilot.SaveVLESSFromSSH(filepath.Dir(*configPath), os.Stdin); err != nil {
+			return err
+		}
+		fmt.Println("Профиль VLESS сохранён. Откройте Geo Routing → Подключение VLESS.")
+		return nil
+	}
 	if *importCatalog != "" {
 		return pilot.ImportCatalog(*configPath, *importCatalog)
 	}
