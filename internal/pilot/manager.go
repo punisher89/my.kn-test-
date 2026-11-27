@@ -401,6 +401,7 @@ func (m *Manager) tune(ctx context.Context, old Config, idx int) {
 	directConfig := cloneConfig(old)
 	directConfig.Attempts = 1
 	directConfig.probeFailFast = true
+	directConfig.probeRetryFailure = true
 	baseline := m.prober.Check(ctx, p, directConfig, true)
 	directOK := allPassed(baseline, p, directConfig) && ctx.Err() == nil
 	m.record(Trial{Strategy: "direct", Passed: directOK, Results: baseline})
@@ -420,6 +421,7 @@ func (m *Manager) tune(ctx context.Context, old Config, idx int) {
 		trial.tuning = true
 		trial.Attempts = 1
 		trial.probeFailFast = true
+		trial.probeRetryFailure = true
 		if err := m.backend.Start(trial); err != nil {
 			m.record(Trial{Strategy: s.ID, Error: err.Error(), Results: []ProbeResult{}})
 			continue

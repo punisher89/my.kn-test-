@@ -18,7 +18,7 @@ type Strategy struct {
 
 // Fixed argument vectors, never shell fragments. All actions are from nfqws2's
 // zapret-antidpi library. No alteration of the actual negotiated TLS version.
-var Strategies = []Strategy{
+var Strategies = append([]Strategy{
 	{ID: "none", Name: "Без вмешательства", Description: "Обычное соединение; выбирается, если все прямые проверки проходят."},
 	{ID: "split-sni", Name: "Разделение SNI", Description: "Разделение ClientHello внутри имени сервера.", Actions: []string{"multisplit:pos=1,midsld"}},
 	{ID: "split-host", Name: "Разделение имени", Description: "Разделение перед и после SNI.", Actions: []string{"multisplit:pos=1,host,endhost"}},
@@ -89,7 +89,7 @@ var Strategies = []Strategy{
 	{ID: "b6-disorder-5-host", Name: "Disorder · 5,host", Description: "Экспериментальный вариант разделения TLS; доступность проверяется отдельно.", Actions: []string{"multidisorder:pos=5,host"}},
 	{ID: "b6-disorder-5-endhost", Name: "Disorder · 5,endhost", Description: "Экспериментальный вариант разделения TLS; доступность проверяется отдельно.", Actions: []string{"multidisorder:pos=5,endhost"}},
 	{ID: "b6-disorder-10-midsld", Name: "Disorder · 10,midsld", Description: "Экспериментальный вариант разделения TLS; доступность проверяется отдельно.", Actions: []string{"multidisorder:pos=10,midsld"}},
-}
+}, flowsealStrategies...)
 
 func StrategyFamily(s Strategy) string {
 	if len(s.Actions) == 0 {
@@ -145,6 +145,13 @@ func strategyFor(c Config, id string) (Strategy, bool) {
 
 func EngineArgs(c Config) []string {
 	args := []string{fmt.Sprintf("--qnum=%d", c.Queue), "--fwmark=0x40000000", "--lua-init=@" + filepath.Join(c.EngineDir, "lua", "zapret-lib.lua.gz"), "--lua-init=@" + filepath.Join(c.EngineDir, "lua", "zapret-antidpi.lua.gz")}
+	addFlowseal := c.usesAdaptiveController()
+	for _, p := range c.Profiles {
+		addFlowseal = addFlowseal || strings.HasPrefix(p.Strategy, "flowseal-")
+	}
+	if addFlowseal {
+		args = append(args, flowsealBlobArgs...)
+	}
 	if c.usesAdaptiveController() {
 		args = append(args, "--lua-init=@"+filepath.Join(c.EngineDir, "lua", "zapret-auto.lua.gz"), "--lua-init=pilot_runtime="+luaString(c.RuntimeDir), "--lua-init=pilot_network="+luaString(c.WAN), fmt.Sprintf("--lua-init=pilot_reuse=%t", c.AdaptiveReuse), fmt.Sprintf("--lua-init=pilot_history_days=%d",c.HistoryRetentionDays), fmt.Sprintf("--lua-init=pilot_adaptive=%t", c.Adaptive && !c.tuning), "--lua-init=pilot_plan_context="+luaString(activeContext(c)), fmt.Sprintf("--lua-init=pilot_active=%t", c.AdaptiveActive && c.Adaptive && !c.tuning), fmt.Sprintf("--lua-init=pilot_fast_start=%t", c.AdaptiveFastStart), fmt.Sprintf("--lua-init=pilot_cooldown=%d", c.AdaptiveCooldownSeconds), fmt.Sprintf("--lua-init=pilot_max_switches=%d", c.AdaptiveMaxSwitches), fmt.Sprintf("--lua-init=pilot_global_max_switches=%d", c.AdaptiveGlobalMaxSwitches), fmt.Sprintf("--lua-init=pilot_youtube_stable=%t", c.YouTubeStable), "--lua-init="+domainControlsLua(c), "--lua-init=@"+filepath.Join(filepath.Dir(c.EngineDir), "lua", "pilot-measure.lua"), "--lua-init=@"+filepath.Join(filepath.Dir(c.EngineDir), "lua", "pilot-auto.lua"))
 	}

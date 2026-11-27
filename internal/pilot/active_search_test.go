@@ -43,9 +43,13 @@ func evidence(ok, executed bool) activeEvidence {
 func TestActiveSearchMeasuresAllCandidatesWithoutRestartingLiveEngine(t *testing.T) {
 	m, c, b, s := activeFixture(t)
 	calls := []string{}
+	winnerCalls := 0
 	m.activeProbeHook = func(_ context.Context, _ Config, _ DomainScope, _ Target, id string) activeEvidence {
 		calls = append(calls, id)
-		return evidence(id == "fake-md5", true)
+		if id == "fake-md5" {
+			winnerCalls++
+		}
+		return evidence(id == "fake-md5" && winnerCalls > 1, true)
 	}
 	stage, _ := m.searchDomain(context.Background(), c, s)
 	if stage != "applied" {
@@ -54,8 +58,12 @@ func TestActiveSearchMeasuresAllCandidatesWithoutRestartingLiveEngine(t *testing
 	if len(b.configs) != 0 || !b.Running() {
 		t.Fatal("candidate search restarted live engine")
 	}
-	if len(calls) != 9 || calls[0] != "direct" || calls[1] != "direct" || calls[len(calls)-1] != "fake-md5" {
+	if len(calls) != 13 || winnerCalls != 5 || calls[0] != "direct" || calls[1] != "direct" || calls[len(calls)-1] != "fake-md5" {
 		t.Fatalf("missing screening/full confirmation: %+v", calls)
+	}
+	screening := m.domainJob.Trials[len(m.domainJob.Trials)-2]
+	if !screening.Passed || len(screening.Results) != 2 || screening.Results[0].OK || !screening.Results[1].OK {
+		t.Fatalf("candidate did not recover on the second attempt: %+v", screening)
 	}
 	plan, ok := m.planFor(c, s)
 	if !ok || plan.Strategy != "fake-md5" {
@@ -588,7 +596,7 @@ func TestBoxFreshCycleUsesFullCatalogAndDoesNotReplaceWorkingMethodOnFailure(t *
  stage,_:=m.searchDomain(context.Background(),c,s)
  if stage!="exhausted"||!m.domainTasks[s].FreshCycle||len(m.domainPlans.Plans)!=0||len(b.configs)!=0||!b.Running(){t.Fatal("fresh search altered live service",stage)}
  var expected []string
- for _,candidate:=range StrategiesFor(c){if candidate.ID!="none"{expected=append(expected,candidate.ID)}}
+ for _,candidate:=range StrategiesFor(c){if candidate.ID!="none"{expected=append(expected,candidate.ID,candidate.ID)}}
  if strings.Join(tested,",")!=strings.Join(expected,","){t.Fatal("fresh search used stale ranking or skipped candidates")}
 }
 

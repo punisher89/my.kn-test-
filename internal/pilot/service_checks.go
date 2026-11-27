@@ -49,6 +49,7 @@ func (m *Manager) checkLocked(ctx context.Context, p Profile, c Config) []ProbeR
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 	report := ServiceCheck{Profile: p.ID, Started: time.Now(), Running: m.backend.Running(), Strategy: p.Strategy, Adaptive: c.Adaptive, fingerprint: checkFingerprint(c, p)}
+	c.probeRetryFailure = true
 	report.Results = m.prober.Check(ctx, p, c, false)
 	if report.Results == nil {
 		report.Results = []ProbeResult{}

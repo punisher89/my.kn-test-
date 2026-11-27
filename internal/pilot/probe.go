@@ -23,6 +23,7 @@ type ProbeResult struct {
 	Family      string `json:"family"`
 	Direct      bool   `json:"direct"`
 	Attempt     int    `json:"attempt"`
+	Retried     bool   `json:"retried,omitempty"`
 	OK          bool   `json:"ok"`
 	Status      int    `json:"status,omitempty"`
 	DurationMS  int64  `json:"duration_ms"`
@@ -60,6 +61,12 @@ func (p HTTPProber) Check(ctx context.Context, profile Profile, c Config, direct
 						return results
 					}
 					r := p.probe(ctx, target, family, version, time.Duration(c.TimeoutSeconds)*time.Second, direct)
+					if !r.OK && c.probeRetryFailure && ctx.Err() == nil {
+						firstDuration := r.DurationMS
+						r = p.probe(ctx, target, family, version, time.Duration(c.TimeoutSeconds)*time.Second, direct)
+						r.Retried = true
+						r.DurationMS += firstDuration
+					}
 					r.Attempt = attempt
 					results = append(results, r)
 					if c.probeFailFast && !r.OK {

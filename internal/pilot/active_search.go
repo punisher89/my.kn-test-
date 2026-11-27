@@ -323,13 +323,21 @@ func (m *Manager) searchDomain(ctx context.Context, c Config, s DomainScope) (st
 				task.ProofFailures = 0
 			}
 			if !evidence.Result.OK {
+				if phase == "search" {
+					continue
+				}
 				passed = false
 				if phase != "direct" {
 					break
 				}
 			}
+			if phase == "search" {
+				break
+			}
 		}
-		if len(results) != attempts {
+		if phase == "search" {
+			passed = measured && len(results) > 0 && results[len(results)-1].OK
+		} else if len(results) != attempts {
 			passed = false
 		}
 		m.domainRecord(phase, id, results, passed, message)
@@ -393,7 +401,7 @@ func (m *Manager) searchDomain(ctx context.Context, c Config, s DomainScope) (st
 		if ctx.Err() != nil {
 			return interrupted()
 		}
-		passed, measured, message := check(candidate.ID, "search", 1)
+		passed, measured, message := check(candidate.ID, "search", 2)
 		if ctx.Err() != nil {
 			return interrupted()
 		}

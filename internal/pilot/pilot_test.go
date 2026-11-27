@@ -76,6 +76,24 @@ func TestPrivateProbeAddressesAreRejected(t *testing.T) {
 	}
 }
 
+func TestAvailabilityCheckRetriesFailureInSameProbeSlot(t *testing.T) {
+	c := DefaultConfig()
+	c.IPv6 = false
+	c.Attempts = 1
+	p := Profile{ID: "test", Targets: []Target{{URL: "https://127.0.0.1/", Status: 200}}}
+	c.Profiles = []Profile{p}
+	m := NewManager(c, filepath.Join(t.TempDir(), "config.json"), Development{}, HTTPProber{}, &LogBuffer{})
+	results := m.checkLocked(context.Background(), p, c)
+	if len(results) != 2 || !m.checks[p.ID].Complete || m.checks[p.ID].Passed {
+		t.Fatalf("failed HTTPS check returned an invalid report: %+v", m.checks[p.ID])
+	}
+	for _, r := range results {
+		if !r.Retried || r.OK || r.Attempt != 1 {
+			t.Fatalf("retry changed the probe identity or hid the failure: %+v", r)
+		}
+	}
+}
+
 func TestAPIRequiresTokenAndRejectsCrossOrigin(t *testing.T) {
 	log := &LogBuffer{}
 	m := NewManager(DefaultConfig(), filepath.Join(t.TempDir(), "config.json"), Development{}, HTTPProber{}, log)

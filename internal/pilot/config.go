@@ -39,7 +39,8 @@ type Profile struct {
 }
 
 type Config struct {
-	probeFailFast bool
+	probeFailFast     bool
+	probeRetryFailure bool
 
 	Adaptive                  bool        `json:"adaptive"`
 	AdaptiveActive            bool        `json:"adaptive_active"`
