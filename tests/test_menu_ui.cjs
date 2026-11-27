@@ -36,10 +36,12 @@ const tunnel={available:false,can_save:true,missing:["iptables"],configured:fals
     if(action==="start"){
      tunnel.managed=tunnel.running=true;
      tunnel.handshake="2026-11-27T08:00:00Z";
+     tunnel.traffic={interface_index:17,received_bytes:100,sent_bytes:200};
     }
     if(action==="stop"||action==="delete"){
      tunnel.managed=tunnel.running=false;
      delete tunnel.handshake;
+     delete tunnel.traffic;
      if(action==="delete")tunnel.configured=false;
     }
    }
@@ -237,8 +239,30 @@ const tunnel={available:false,can_save:true,missing:["iptables"],configured:fals
  await page.getByRole('button',{name:'Обновить состояние'}).click();
  await page.getByRole('button',{name:'Запустить туннель'}).click();
  await telegramStatus.getByText(/Туннель запущен.*рукопожатие/).waitFor();
+ assert.equal(await page.locator('#telegram-profile-state').textContent(),'Сохранён');
+ assert.equal(await page.locator('#telegram-interface-state').textContent(),'Поднят');
+ assert.equal(await page.locator('#telegram-peer-state').textContent(),'Было рукопожатие');
+ assert.match(await page.locator('#telegram-peer-traffic').textContent(),/100 Б.*200 Б/);
+
+ await page.clock.install();
+ const measurement=page.locator('#telegram-tunnel-measure-result');
+ const measure=page.getByRole('button',{name:'Проверить трафик'});
+ await measure.click();
+ await measurement.getByText(/Замер займёт 10 секунд/).waitFor();
+ tunnel.traffic.received_bytes+=300;
+ tunnel.traffic.sent_bytes+=400;
+ await page.clock.fastForward(10010);
+ await measurement.getByText(/Получено 300 Б · передано 400 Б.*Есть трафик в обе стороны/).waitFor();
+
+ await measure.click();
+ await measurement.getByText(/Замер займёт 10 секунд/).waitFor();
+ tunnel.traffic.interface_index++;
+ await page.clock.fastForward(10010);
+ await measurement.getByText(/Туннель изменился во время замера/).waitFor();
  await page.getByRole('button',{name:'Остановить туннель'}).click();
  await telegramStatus.getByText(/туннель остановлен/).waitFor();
+ assert.equal(await measure.isDisabled(),true);
+ assert.equal(await measurement.isVisible(),false);
  await page.getByRole('button',{name:'Удалить туннель'}).click();
  await telegramStatus.getByText(/Туннель и профиль удалены/).waitFor();
  assert.deepEqual(tunnelActions,['save','start','stop','delete']);

@@ -742,12 +742,20 @@ function telegramTunnelPage(){
  url.hash="telegram";
  return heading("Туннель Telegram","Отдельный WireGuard-туннель для IPv4-сетей Telegram.")+`<section class="panel">
  <p id="telegram-tunnel-status" role="status">Загрузка…</p>
- <div class="actions">
+ <div class="network-telemetry telegram-telemetry">
+  <div class="telemetry-cell"><span>Профиль</span><strong id="telegram-profile-state">—</strong></div>
+  <div class="telemetry-cell"><span>Интерфейс</span><strong id="telegram-interface-state">—</strong></div>
+  <div class="telemetry-cell"><span>Ответ сервера</span><strong id="telegram-peer-state">—</strong><small id="telegram-peer-time"></small></div>
+  <div class="telemetry-cell"><span>Счётчики WireGuard</span><strong id="telegram-peer-traffic">—</strong></div>
+ </div>
+ <div class="form-actions">
  <button type="button" id="telegram-tunnel-start" disabled>Запустить туннель</button>
  <button type="button" id="telegram-tunnel-stop" disabled>Остановить туннель</button>
  <button type="button" id="telegram-tunnel-delete" class="danger-button" disabled>Удалить туннель</button>
  <button type="button" id="telegram-tunnel-refresh">Обновить состояние</button>
+ <button type="button" id="telegram-tunnel-measure" disabled>Проверить трафик</button>
  </div>
+ <p id="telegram-tunnel-measure-result" role="status" hidden></p>
  ${secure?'<form id="telegram-tunnel-form"><label>Клиентский профиль WireGuard<textarea name="profile" rows="7" maxlength="8192" required autocomplete="off" spellcheck="false"></textarea></label><button type="submit" disabled>Сохранить профиль</button></form>':`<p><a href="${esc(url.href)}">Открыть HTTPS-панель для сохранения профиля</a></p>`}
  <p class="subtle">Вставьте клиентский .conf WireGuard. Pilot подставит маршруты Telegram и сохранит текущий DNS роутера.</p>
  <details><summary>Пример клиентского профиля</summary>
@@ -770,6 +778,8 @@ function bindTelegramTunnel(){
  const stop=$("#telegram-tunnel-stop");
  const remove=$("#telegram-tunnel-delete");
  const refresh=$("#telegram-tunnel-refresh");
+ const measure=$("#telegram-tunnel-measure");
+ const measureResult=$("#telegram-tunnel-measure-result");
  const save=form?.querySelector("button");
  const session=panelSession;
  let busy=false;
@@ -777,24 +787,69 @@ function bindTelegramTunnel(){
  const current=()=>signedIn&&session===panelSession&&status===$("#telegram-tunnel-status");
  const buttons=()=>{
   refresh.disabled=busy;
+  measure.disabled=busy||!tunnel.running||!tunnel.traffic;
   start.disabled=busy||!tunnel.available||!tunnel.configured||tunnel.managed;
   stop.disabled=busy||!tunnel.managed;
   remove.disabled=busy||(!tunnel.configured&&!tunnel.managed);
   if(save)save.disabled=busy||!tunnel.can_save||tunnel.managed;
+ };
+ const showState=data=>{
+  tunnel=data;
+  const {traffic, handshake}=data;
+  $("#telegram-profile-state").textContent=data.configured?"Сохранён":"Отсутствует";
+  $("#telegram-interface-state").textContent=data.running?"Поднят":data.interface_present?"Выключен":data.managed?"Отсутствует":"Остановлен";
+  $("#telegram-peer-state").textContent=handshake?"Было рукопожатие":traffic?"Ожидается":data.running?"Нет данных ядра":"—";
+  $("#telegram-peer-time").textContent=handshake?new Date(handshake).toLocaleString("ru-RU"):"";
+  $("#telegram-peer-traffic").textContent=traffic?`↓ ${prettyBytes(traffic.received_bytes)} · ↑ ${prettyBytes(traffic.sent_bytes)}`:"—";
+ };
+ const measureTraffic=async()=>{
+  if(busy)return;
+  busy=true;
+  buttons();
+  measureResult.hidden=false;
+  measureResult.textContent="Считываем счётчики…";
+  try{
+   const before=await api("telegram/tunnel");
+   if(!current())return;
+   showState(before);
+   if(!before.running||!before.traffic)throw new Error("Счётчики WireGuard недоступны.");
+   measureResult.textContent="Откройте Telegram на устройстве и загрузите фото или отправьте сообщение. Замер займёт 10 секунд.";
+   await new Promise(resolve=>setTimeout(resolve,10000));
+   if(!current())return;
+   const after=await api("telegram/tunnel");
+   if(!current())return;
+   showState(after);
+   const first=before.traffic, last=after.traffic;
+   if(!after.running||!last||first.interface_index!==last.interface_index||last.received_bytes<first.received_bytes||last.sent_bytes<first.sent_bytes){
+    throw new Error("Туннель изменился во время замера. Повторите проверку.");
+   }
+   const rx=last.received_bytes-first.received_bytes, tx=last.sent_bytes-first.sent_bytes;
+   const counts=`Получено ${prettyBytes(rx)} · передано ${prettyBytes(tx)} за 10 секунд.`;
+   if(rx>0&&tx>0)measureResult.textContent=counts+" Есть трафик в обе стороны. Счётчики учитывают служебные пакеты, поэтому проверьте результат в самом Telegram.";
+   else if(rx===0&&tx>0)measureResult.textContent=counts+" За время замера ответного трафика не было.";
+   else if(rx===0&&tx===0)measureResult.textContent=counts+" За время замера счётчики не изменились.";
+   else measureResult.textContent=counts;
+  }catch(error){
+   if(current())measureResult.textContent=error.message;
+  }finally{
+   busy=false;
+   if(current())buttons();
+  }
  };
  const run=async(action,profile)=>{
   if(busy)return;
   busy=true;
   buttons();
   status.textContent="Выполняется…";
+  if(action)measureResult.hidden=true;
   try{
    const data=action?await api("telegram/tunnel","POST",{action,profile}):await api("telegram/tunnel");
    if(!current())return;
-   tunnel=data;
+   showState(data);
    if(action==="save"||action==="delete")form?.reset();
    const handshake=data.handshake? ` · последнее рукопожатие ${new Date(data.handshake).toLocaleString("ru-RU")}`:"";
    if(data.running)status.textContent="Туннель запущен"+(handshake||" · ожидается рукопожатие WireGuard");
-   else if(data.managed)status.textContent="Интерфейс отсутствует. Остановите туннель, чтобы снять правила перед повторным запуском.";
+   else if(data.managed)status.textContent=(data.interface_present?"Интерфейс выключен.":"Интерфейс отсутствует.")+" Остановите туннель, чтобы снять правила перед повторным запуском.";
    else if(!data.can_save)status.textContent="Туннель доступен в режиме роутера.";
    else {
     const message=data.configured?"Профиль сохранён · туннель остановлен":"Добавьте профиль WireGuard.";
@@ -816,6 +871,7 @@ function bindTelegramTunnel(){
   if(window.confirm("Остановить туннель Telegram и удалить сохранённый профиль?"))run("delete");
  };
  refresh.onclick=()=>run();
+ measure.onclick=measureTraffic;
  run();
 }
 
@@ -1507,6 +1563,7 @@ const releaseNotes={
  "0.2.0-beta.5":["Самодиагностика, предупреждения и диапазоны количества событий","Закрытие всплывающих окон вне области и по Esc; описание версии сохраняет раскрытие","Ручная очистка старой истории и восстановление наблюдений из копии; срок хранения 1–365 суток, по умолчанию выключено","Резервное копирование и восстановление настроек; облегчённый режим фоновых проверок","Импорт одной VPN-подписки, ручное и опциональное ежедневное обновление; без запуска туннелей","Уведомления текущего сеанса","Защитный откат при отказе службы или повторной потере двух контрольных HTTPS-подключений во время обновления; не проверяет скорость"],
  "0.2.0-beta.6":["Импорт и экспорт HostList для каждого сервиса; применение только после сохранения","Импорт локального файла VPN-подписки и предварительный просмотр TXT/base64; без запуска VPN","Приоритет ручных операций над фоновым поиском","Geo Routing: план маршрутов Telegram через существующий туннель; независимый VPS-туннель пока не реализован"],
  "0.2.0-beta.7":["Smart VPN Auto: поле пароля, проверка SSH-входа через защищённую панель; туннель автоматически не запускается","Экспериментальный CLI-помощник WireGuard для IPv4-сетей Telegram; требуется настроенный VPS и проверка на роутере","Ограниченный API Telegram-бота: состояние, управление обходом, проверка и подбор YouTube; отдельный ключ, доступ только через localhost"],
+ "0.2.0-beta.20":["Проверка трафика туннеля Telegram за 10 секунд","Отдельные показатели профиля, интерфейса и рукопожатия WireGuard"],
  "0.2.0-beta.19":["Совместимый формат передачи сетей Telegram в WireGuard ядра","Сообщение об этапе настройки, на котором возникла ошибка"],
  "0.2.0-beta.18":["Исправлен вход на HTTP после посещения HTTPS","Туннель через WireGuard ядра без wg, wg-quick и bash","Удаление туннеля и сохранённого профиля"],
  "0.2.0-beta.17":["Импорт обычного .conf WireGuard с автоматической настройкой маршрутов Telegram","Сохранение профиля до установки компонентов для запуска"],

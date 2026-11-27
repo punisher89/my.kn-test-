@@ -1616,3 +1616,8 @@ html { scrollbar-gutter: stable; }
 :root[data-pilot-theme="aero"] :is(.sidebar,.topbar,.panel,button) {background:linear-gradient(180deg,#ffffffc9,var(--panel));border-radius:9px}
 :root[data-pilot-theme="luna"] :is(.sidebar,.topbar,button) {background:linear-gradient(180deg,#397be1,#1552b8);color:#fff;border-radius:6px}
 :root[data-pilot-theme="luna"] .sidebar nav a {color:#fff}
+
+
+.telegram-telemetry { min-height:0; margin-bottom:12px; }
+.telegram-telemetry .telemetry-cell > strong { font-size:16px; }
+#telegram-tunnel-measure-result { margin:10px 0 16px; overflow-wrap:anywhere; }

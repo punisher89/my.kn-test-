@@ -14,14 +14,22 @@ import (
 
 const telegramWGName = "pilotwg0"
 
+type telegramPeerTraffic struct {
+	InterfaceIndex int   `json:"interface_index"`
+	ReceivedBytes  int64 `json:"received_bytes"`
+	SentBytes      int64 `json:"sent_bytes"`
+}
+
 type telegramTunnelState struct {
-	Available  bool      `json:"available"`
-	CanSave    bool      `json:"can_save"`
-	Missing    []string  `json:"missing,omitempty"`
-	Configured bool      `json:"configured"`
-	Managed    bool      `json:"managed"`
-	Running    bool      `json:"running"`
-	Handshake  time.Time `json:"handshake,omitzero"`
+	Available        bool                 `json:"available"`
+	CanSave          bool                 `json:"can_save"`
+	Missing          []string             `json:"missing,omitempty"`
+	Configured       bool                 `json:"configured"`
+	Managed          bool                 `json:"managed"`
+	InterfacePresent bool                 `json:"interface_present,omitempty"`
+	Running          bool                 `json:"running"`
+	Handshake        time.Time            `json:"handshake,omitzero"`
+	Traffic          *telegramPeerTraffic `json:"traffic,omitempty"`
 }
 
 func (m *Manager) telegramProfilePath() string {
@@ -46,14 +54,25 @@ func (m *Manager) telegramTunnelStatus() telegramTunnelState {
 	if !state.Managed {
 		return state
 	}
-	if _, err := net.InterfaceByName(telegramWGName); err != nil {
+	iface, err := net.InterfaceByName(telegramWGName)
+	if err != nil {
 		return state
 	}
-	state.Running = true
+	state.InterfacePresent = true
+	state.Running = iface.Flags&net.FlagUp != 0
+	if !state.Running {
+		return state
+	}
 	if client, err := wgctrl.New(); err == nil {
 		defer client.Close()
 		if device, err := client.Device(telegramWGName); err == nil && len(device.Peers) == 1 {
-			state.Handshake = device.Peers[0].LastHandshakeTime.UTC()
+			peer := device.Peers[0]
+			state.Handshake = peer.LastHandshakeTime.UTC()
+			state.Traffic = &telegramPeerTraffic{
+				InterfaceIndex: iface.Index,
+				ReceivedBytes:  peer.ReceiveBytes,
+				SentBytes:      peer.TransmitBytes,
+			}
 		}
 	}
 	return state
