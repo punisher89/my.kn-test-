@@ -725,7 +725,14 @@ function geoPage(){
  <form id="vpn-prepare"><div class="field"><label for="vpn-type">Тип подключения</label><select id="vpn-type"><option value="ssh">VPS по SSH</option><option value="wg">WireGuard</option><option value="awg">AmneziaWG</option><option value="openvpn">OpenVPN</option></select></div>
  <div id="vpn-ssh-fields"><div class="field"><label for="vpn-host">IP или домен сервера</label><input id="vpn-host" maxlength="253" autocomplete="off"></div><div class="field"><label for="vpn-port">Порт SSH</label><input id="vpn-port" type="number" min="1" max="65535" value="22"></div><div class="field"><label for="vpn-user">Логин</label><input id="vpn-user" maxlength="64" autocomplete="off"></div><div class="field"><label for="vpn-password">Пароль VPS</label><input id="vpn-password" type="password" maxlength="512" autocomplete="new-password" spellcheck="false"><div class="form-actions"><button id="vpn-password-toggle" type="button">Показать пароль</button><button id="vpn-ssh-test" type="button" disabled>Проверить вход на VPS</button></div><small id="vpn-password-hint">Ввод доступен; отправка пароля только через защищённое подключение.</small></div></div>
  <div id="vpn-config-fields" hidden><label for="vpn-config">Локальный файл конфигурации</label><input id="vpn-config" type="file" accept=".conf,.ovpn,.txt"><p class="subtle">Файл проверяется только в браузере, не отправляется на роутер.</p></div>
- <button type="submit">Проверить формат</button><p id="vpn-prepare-result" aria-live="polite"></p></form></details></section><section class="panel"><h2>VPN-подписки · импорт и обновление</h2><p>Предпросмотр не меняет маршруты и не запускает VPN. Поддерживаются TXT и base64 со списком URI. Для передачи приватных данных используйте HTTPS или SSH-проброс панели на localhost.</p><form id="vpn-subscription-form"><label>HTTPS-ссылка <input id="vpn-subscription-url" type="password" autocomplete="off" maxlength="4096" required></label><div class="form-actions"><button type="submit" value="preview">Предпросмотр ссылки</button><button type="submit" value="save">Сохранить ссылку</button></div></form><div class="field"><label for="vpn-subscription-file">Импорт с компьютера</label><input id="vpn-subscription-file" type="file" accept=".txt,.conf,.b64,.base64,text/plain"><div class="form-actions"><button id="vpn-file-preview" type="button">Предпросмотр файла</button><button id="vpn-file-import" type="button">Импортировать файл</button></div></div><div class="form-actions"><button id="vpn-subscription-show" type="button">Открыть последнее окно</button><button id="vpn-subscription-refresh" type="button">Обновить сохранённую</button><button id="vpn-subscription-delete" type="button">Удалить сохранённую</button></div><p id="vpn-subscription-saved" aria-live="polite"></p><p id="vpn-subscription-result" aria-live="polite"></p></section>`;
+ <button type="submit">Проверить формат</button><p id="vpn-prepare-result" aria-live="polite"></p></form></details></section><section class="panel"><h2>VPN-подписки · импорт и обновление</h2><p>Предпросмотр не меняет маршруты и не запускает VPN. Поддерживаются TXT и base64 со списком URI. Для передачи приватных данных используйте HTTPS или SSH-проброс панели на localhost.</p><form id="vpn-subscription-paste">
+ <div class="field"><label for="vpn-subscription-text">Вставить VLESS</label>
+ <textarea id="vpn-subscription-text" rows="3" maxlength="524288" placeholder="vless://…" autocomplete="off" spellcheck="false" required></textarea>
+ <small>Одна ссылка или список по одной ссылке на строку. Предпросмотр выполняется в браузере.</small></div>
+ <div class="form-actions"><button type="submit" value="preview">Проверить VLESS</button><button type="submit" value="save">Сохранить как подписку</button></div>
+ </form>
+ <h3>Ссылка на подписку с автообновлением</h3>
+ <form id="vpn-subscription-form"><label>HTTPS-ссылка <input id="vpn-subscription-url" type="password" autocomplete="off" maxlength="4096" required></label><div class="form-actions"><button type="submit" value="preview">Предпросмотр ссылки</button><button type="submit" value="save">Сохранить ссылку</button></div></form><div class="field"><label for="vpn-subscription-file">Импорт с компьютера</label><input id="vpn-subscription-file" type="file" accept=".txt,.conf,.b64,.base64,text/plain"><div class="form-actions"><button id="vpn-file-preview" type="button">Предпросмотр файла</button><button id="vpn-file-import" type="button">Импортировать файл</button></div></div><div class="form-actions"><button id="vpn-subscription-show" type="button">Открыть последнее окно</button><button id="vpn-subscription-refresh" type="button">Обновить сохранённую</button><button id="vpn-subscription-delete" type="button">Удалить сохранённую</button></div><p id="vpn-subscription-saved" aria-live="polite"></p><p id="vpn-subscription-result" aria-live="polite"></p></section>`;
 }
 function bindGeo(){
  const form=$("#geo-form");
@@ -754,7 +761,7 @@ function bindGeo(){
   server:$("#dns-server").value,address:$("#dns-address").value,protocol:$("#dns-protocol").value,
  }));
  const subscription=$("#vpn-subscription-form");
- const renderSaved=d=>{if(!current())return;$("#vpn-subscription-saved").textContent=d.saved?(d.local?"Локальный файл: ":"Сохранённая ссылка: ")+new Date(d.updated).toLocaleString("ru-RU")+" · "+describeSubscription(d.preview):"Сохранённой подписки нет.";$("#vpn-subscription-refresh").disabled=!d.saved||d.local;$("#vpn-subscription-delete").disabled=!d.saved;};
+ const renderSaved=d=>{if(!current())return;$("#vpn-subscription-saved").textContent=d.saved?(d.local?"Локальный импорт: ":"Сохранённая ссылка: ")+new Date(d.updated).toLocaleString("ru-RU")+" · "+describeSubscription(d.preview):"Сохранённой подписки нет.";$("#vpn-subscription-refresh").disabled=!d.saved||d.local;$("#vpn-subscription-delete").disabled=!d.saved;};
  const show=message=>{if(!signedIn||panelSession!==session)return;showSubscriptionDialog(message);if(current())$("#vpn-subscription-result").textContent=message;};
  const run=async(fn)=>{if(subscriptionBusy)return;subscriptionBusy=true;show("Выполняется…");try{await fn();}catch(err){show("Ошибка: "+err.message);}finally{subscriptionBusy=false;}};
  if(subscription){
@@ -771,13 +778,49 @@ function bindGeo(){
    field.value="";
    run(async()=>{const d=await api(save?"vpn/subscription":"vpn/subscription/preview","POST",save?{url,action:"save"}:{url});if(save)renderSaved(d);show((save?"Подписка сохранена. ":"")+describeSubscription(save?d.preview:d));});
   });
+  const importLocalSubscription=async body=>{
+   if(location.protocol!=="https:"&&!["localhost","127.0.0.1","[::1]"].includes(location.hostname)) {
+    throw Error("Сохранение доступно через HTTPS или SSH-проброс на localhost. Проверить VLESS можно прямо здесь.");
+   }
+   const response=await fetch("/api/vpn/subscription/file",{
+    method:"POST",headers:{Authorization:"Bearer "+token,"Content-Type":"application/octet-stream"},body,
+   });
+   const data=await response.json().catch(()=>({}));
+   if(!response.ok)throw Error(data.error||"HTTP "+response.status);
+   renderSaved(data);
+   show("Подписка сохранена. "+describeSubscription(data.preview));
+  };
+  $("#vpn-subscription-paste").addEventListener("submit",event=>{
+   event.preventDefault();
+   if(subscriptionBusy)return;
+   const field=$("#vpn-subscription-text"), value=field.value.trim();
+   const save=event.submitter?.value==="save";
+   run(async()=>{
+    const body=new Blob([value],{type:"application/octet-stream"});
+    if(body.size>512*1024)throw Error("Список ссылок превышает 512 КиБ.");
+    const preview=previewLocalSubscription(value);
+    if(!save){
+     show(describeSubscription(preview));
+     return;
+    }
+    if(!window.confirm("Заменить сохранённую подписку вставленным списком?")){
+     show("Сохранение отменено.");
+     return;
+    }
+    await importLocalSubscription(body);
+    field.value="";
+   });
+  });
   const fileInput=$("#vpn-subscription-file");
-  const fileAction=save=>{if(subscriptionBusy)return;const file=fileInput.files[0];if(!file||file.size>512*1024){show("Выберите файл до 512 КиБ.");return;}
+  const fileAction=save=>{
+   if(subscriptionBusy)return;
+   const file=fileInput.files[0];
+   if(!file||file.size>512*1024){show("Выберите файл до 512 КиБ.");return;}
    if(save&&!window.confirm("Заменить сохранённую подписку локальным файлом? Маршруты не изменятся."))return;
-   run(async()=>{if(!save){show(describeSubscription(previewLocalSubscription(await file.text())));return;}
-    if(location.protocol!=="https:"&&!["localhost","127.0.0.1","[::1]"].includes(location.hostname))throw Error("Для импорта используйте HTTPS или SSH-проброс на localhost. Предпросмотр файла доступен без отправки.");
-    const response=await fetch("/api/vpn/subscription/file",{method:"POST",headers:{Authorization:"Bearer "+token,"Content-Type":"application/octet-stream"},body:file});
-    const data=await response.json().catch(()=>({}));if(!response.ok)throw Error(data.error||"HTTP "+response.status);renderSaved(data);show("Файл импортирован. "+describeSubscription(data.preview));fileInput.value="";
+   run(async()=>{
+    if(!save){show(describeSubscription(previewLocalSubscription(await file.text())));return;}
+    await importLocalSubscription(file);
+    fileInput.value="";
    });
   };
   $("#vpn-file-preview").onclick=()=>fileAction(false);
@@ -1552,6 +1595,7 @@ const releaseNotes={
  "0.2.0-beta.5":["Самодиагностика, предупреждения и диапазоны количества событий","Закрытие всплывающих окон вне области и по Esc; описание версии сохраняет раскрытие","Ручная очистка старой истории и восстановление наблюдений из копии; срок хранения 1–365 суток, по умолчанию выключено","Резервное копирование и восстановление настроек; облегчённый режим фоновых проверок","Импорт одной VPN-подписки, ручное и опциональное ежедневное обновление; без запуска туннелей","Уведомления текущего сеанса","Защитный откат при отказе службы или повторной потере двух контрольных HTTPS-подключений во время обновления; не проверяет скорость"],
  "0.2.0-beta.6":["Импорт и экспорт HostList для каждого сервиса; применение только после сохранения","Импорт локального файла VPN-подписки и предварительный просмотр TXT/base64; без запуска VPN","Приоритет ручных операций над фоновым поиском","Geo Routing: план маршрутов Telegram через существующий туннель; независимый VPS-туннель пока не реализован"],
  "0.2.0-beta.7":["Smart VPN Auto: поле пароля, проверка SSH-входа через защищённую панель; туннель автоматически не запускается","Экспериментальный CLI-помощник WireGuard для IPv4-сетей Telegram; требуется настроенный VPS и проверка на роутере","Ограниченный API Telegram-бота: состояние, управление обходом, проверка и подбор YouTube; отдельный ключ, доступ только через localhost"],
+ "0.2.0-beta.13":["Вставка одной или нескольких vless:// ссылок с предпросмотром прямо в браузере","Сохранение вставленного списка через защищённую панель"],
  "0.2.0-beta.12":["Прямая проверка DNS Keenetic простым A-запросом","Диагностика показывает код ответа DNS или сетевую ошибку"],
  "0.2.0-beta.11":["Обновления Codex для общей бета-ветки Pilot","Отдельная проверка системного DNS процесса Pilot для сравнения с ответом Keenetic"],
  "0.2.0-beta.10":["Отдельная проверка DNS самого роутера по адресу панели","Текущие резолверы KeeneticOS из show dns-proxy","Ручные DoH, DoT и DoQ в отдельном разделе"],

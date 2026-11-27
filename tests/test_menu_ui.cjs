@@ -7,6 +7,7 @@ let update={supported:true,current:'0.2.0-alpha.10',engine:'v1.0.7-z2k-r0',stage
 let sourceUpdate={current:'0.2.0-alpha.10',supported:true,running:false,stage:'idle',sources:[{source:'ChatGPT',verification:'github-https-sha256',available:false,checked:false},{source:'Codex',verification:'github-https-sha256',available:false,checked:false}]};let sourceInstalls=0;
 demo.checks={};
 const dnsRequests=[];
+let subscriptionRequests=0;
 (async()=>{const browser=await chromium.launch({headless:true,executablePath:process.env.PILOT_CHROMIUM});try{
  const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.route('http://pilot.test/**',async route=>{
@@ -22,7 +23,8 @@ const dnsRequests=[];
     : request.protocol==='system' ? [{protocol:'System',server:'Системный резолвер ОС',status:'ok',milliseconds:2}]
     : [{protocol:'DoT',server:request.server,status:'unavailable',error:'kdig не найден в PATH'}]);
   }
-  if(url.pathname==='/api/vpn/subscription')return json({saved:false});
+  if(url.pathname==='/api/vpn/subscription') { subscriptionRequests++; return json({saved:false}); }
+  if(url.pathname.startsWith('/api/vpn/subscription/')) { subscriptionRequests++; return json({error:'unexpected upload'},400); }
   if(url.pathname==='/api/device'){deviceReads++;return json({model:'KN-1811 · пример',platform:'linux/arm64',kernel:'test',cpu_cores:4,cpu_sample_available:true,cpu_percent:deviceNull?null:12.5,load:[0.2,0.1,0.1],memory_total:268435456,memory_available:134217728,uptime_seconds:90000,temperatures:[],wan:'ppp0',rx_bytes:1000,tx_bytes:500,rx_bytes_per_second:null,tx_bytes_per_second:null});}
   if(url.pathname==='/api/adaptive')return json(JSON.parse(read('design/demo-adaptive.json')));
   if(url.pathname==='/api/check'){checkRequests++;const id=req.postDataJSON().profile,p=demo.config.profiles.find(p=>p.id===id);if(checkGate)await new Promise(resolve=>{checkGate.resolve=resolve;});const results=[{url:p.targets[0].url,tls:'1.2',family:'tcp4',ok:true,status:200,duration_ms:145,attempt:1},{url:p.targets[0].url,tls:'1.3',family:'tcp4',ok:false,status:451,duration_ms:160,error:'HTTP 451 <img src=x onerror=alert(1)>',attempt:1}];demo.checks[id]={profile:id,started:new Date().toISOString(),finished:new Date().toISOString(),strategy:p.strategy,adaptive:false,running:true,complete:true,passed:false,stale:false,results};return json(results);}
@@ -194,5 +196,17 @@ const dnsRequests=[];
  assert.deepEqual(dnsRequests.at(-1),{protocol:'system'});
  assert.match(await page.locator('#dns-probe-result').innerText(),/192.168.44.1/);
 
+ const initialSubscriptionRequests=subscriptionRequests;
+ const paste=page.locator('#vpn-subscription-text');
+ await paste.fill('vless://example-id@test.example:443?security=reality#demo');
+ await page.getByRole('button',{name:'Проверить VLESS'}).click();
+ await page.getByRole('dialog').getByText(/vless: 1/).waitFor();
+ assert.equal(subscriptionRequests,initialSubscriptionRequests);
+ assert.ok(!(await page.getByRole('dialog').innerText()).includes('example-id'));
+ await page.getByRole('button',{name:'Свернуть',exact:true}).click();
+ await paste.fill('vless://first@test.example:443\nvless://second@test.example:443');
+ await page.getByRole('button',{name:'Проверить VLESS'}).click();
+ await page.getByRole('dialog').getByText(/vless: 2/).waitFor();
+ assert.equal(subscriptionRequests,initialSubscriptionRequests);
  assert.deepEqual(errors,[]);console.log('PASS: router telemetry, missing temperature, signed-update UI flow, custom services, domain sources, Telegram Web, compact trials/methods, preserved expansion, mobile menus, Matrix overview, read-only service reports, safe error rendering, animated rain, reduced motion, hidden-tab pause, fast-start opt-out');
 }finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1});
