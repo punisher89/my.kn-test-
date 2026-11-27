@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -156,15 +157,18 @@ type vlessStatus struct {
 	Verified     bool   `json:"verified"`
 	SOCKS        string `json:"socks"`
 	Milliseconds int64  `json:"milliseconds"`
+	Routing      bool   `json:"routing"`
 }
 
 type vlessProcess struct {
-	mu       sync.Mutex
-	cmd      *exec.Cmd
-	done     chan struct{}
-	closed   bool
-	verified bool
-	elapsed  int64
+	mu          sync.Mutex
+	cmd         *exec.Cmd
+	done        chan struct{}
+	closed      bool
+	verified    bool
+	elapsed     int64
+	activeRules *vlessRules
+	routeDir    string
 }
 
 func (v *vlessProcess) status(dir string) vlessStatus {
@@ -172,16 +176,23 @@ func (v *vlessProcess) status(dir string) vlessStatus {
 	defer v.mu.Unlock()
 	_, binary := exec.LookPath("xray")
 	_, config := os.Stat(vlessConfigPath(dir))
-	return vlessStatus{Available: binary == nil, Configured: config == nil, Running: v.cmd != nil, Verified: v.verified, SOCKS: vlessSOCKS, Milliseconds: v.elapsed}
+	return vlessStatus{Available: binary == nil, Configured: config == nil, Running: v.cmd != nil, Verified: v.verified, SOCKS: vlessSOCKS, Milliseconds: v.elapsed, Routing: v.cmd != nil && v.activeRules != nil}
 }
 
 func (v *vlessProcess) start(ctx context.Context, dir string) error {
+	return v.startWithRoutes(ctx, dir, nil, nil)
+}
+
+func (v *vlessProcess) startWithRoutes(ctx context.Context, dir string, routing *vlessRules, domains []string) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	if v.closed {
 		return errors.New("Pilot останавливается")
 	}
 	if v.cmd != nil {
+		if routing != nil {
+			return errors.New("сначала отключите текущее подключение VLESS")
+		}
 		return nil
 	}
 	path, err := exec.LookPath("xray")
@@ -191,6 +202,38 @@ func (v *vlessProcess) start(ctx context.Context, dir string) error {
 	cfg := vlessConfigPath(dir)
 	if info, err := os.Lstat(cfg); err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0600 {
 		return errors.New("сначала импортируйте ссылку VLESS через SSH")
+	}
+	cleanupRuntime := false
+	defer func() {
+		if cleanupRuntime {
+			_ = os.Remove(cfg)
+		}
+	}()
+	if routing != nil {
+		if err := cleanupVLESSRoutes(dir); err != nil {
+			return err
+		}
+		raw, err := os.ReadFile(cfg)
+		if err != nil {
+			return err
+		}
+		var generated map[string]any
+		if err := json.Unmarshal(raw, &generated); err != nil {
+			return errors.New("повреждён профиль VLESS")
+		}
+		if err := addVLESSRouting(generated, routing.LAN, domains); err != nil {
+			return err
+		}
+		cfg = filepath.Join(dir, "vless-runtime.private.json")
+		if err := WriteJSON(cfg, generated); err != nil {
+			return err
+		}
+		cleanupRuntime = true
+		routeListener, err := net.Listen("tcp4", net.JoinHostPort(routing.LAN, vlessRoutePort))
+		if err != nil {
+			return errors.New("порт VLESS-маршрутизации 10892 занят")
+		}
+		_ = routeListener.Close()
 	}
 	listener, err := net.Listen("tcp4", vlessSOCKS)
 	if err != nil {
@@ -205,27 +248,87 @@ func (v *vlessProcess) start(ctx context.Context, dir string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if routing != nil {
+		if err := routing.prepare(dir); err != nil {
+			return err
+		}
+		v.activeRules, v.routeDir = routing, dir
+	}
 	cmd := exec.Command(path, "run", "-config", cfg)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL}
 	if err := cmd.Start(); err != nil {
+		if routing != nil && routing.remove(dir) == nil {
+			v.activeRules = nil
+		}
 		return errors.New("не удалось запустить Xray")
 	}
+	cleanupRuntime = false
 	done := make(chan struct{})
 	v.cmd, v.done, v.verified, v.elapsed = cmd, done, false, 0
+	v.routeDir = dir
 	go func() {
 		_ = cmd.Wait()
 		v.mu.Lock()
+		if v.activeRules != nil {
+			if v.activeRules.remove(dir) == nil {
+				v.activeRules = nil
+			}
+		}
+		if routing != nil {
+			_ = os.Remove(cfg)
+		}
 		v.cmd, v.done, v.verified = nil, nil, false
 		close(done)
 		v.mu.Unlock()
 	}()
+	if routing != nil {
+		if err := waitVLESSListen(ctx, net.JoinHostPort(routing.LAN, vlessRoutePort)); err != nil {
+			_ = cmd.Process.Kill()
+			return err
+		}
+		if err := probeVLESS(ctx); err != nil {
+			_ = cmd.Process.Kill()
+			return err
+		}
+		_, _, jumps := routing.rules()
+		if err := EnsureRules(RunCommand, jumps); err != nil {
+			_ = cmd.Process.Kill()
+			return err
+		}
+		v.verified = true
+	}
 	return nil
+}
+
+func waitVLESSListen(ctx context.Context, address string) error {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		conn, err := (&net.Dialer{}).DialContext(ctx, "tcp4", address)
+		if err == nil {
+			return conn.Close()
+		}
+		select {
+		case <-ctx.Done():
+			return errors.New("Xray не открыл порт маршрутизации")
+		case <-ticker.C:
+		}
+	}
 }
 
 func (v *vlessProcess) stop(ctx context.Context, closeManager bool) error {
 	v.mu.Lock()
 	v.closed = v.closed || closeManager
 	cmd, done := v.cmd, v.done
+	if v.activeRules != nil {
+		_, _, jumps := v.activeRules.rules()
+		if err := RemoveRules(RunCommand, jumps); err != nil {
+			v.mu.Unlock()
+			return err
+		}
+	}
 	if cmd != nil {
 		_ = cmd.Process.Kill()
 	}
@@ -236,6 +339,14 @@ func (v *vlessProcess) stop(ctx context.Context, closeManager bool) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		}
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.activeRules != nil {
+		if err := v.activeRules.remove(v.routeDir); err != nil {
+			return err
+		}
+		v.activeRules = nil
 	}
 	return nil
 }
