@@ -24,7 +24,7 @@ var flowsealStrategies = []Strategy{
 			"tls_client_hello_clone:blob=live_tls:sni_del:sni_first=www.google.com",
 			"fake:blob=live_tls:optional:tcp_ts=-600000:ip_id=zero:repeats=5",
 			"fake:blob=fake_default_tls:tls_mod=rnd,dupsid,sni=www.google.com:tcp_ts=-600000:ip_id=zero:repeats=3",
-			"fakedsplit:pos=1,sld+1,midsld-1:tcp_ts=-600000:ip_id=zero",
+			"fakedsplit:pos=sld+1:tcp_ts=-600000:ip_id=zero",
 		},
 	},
 	{ID: "flowseal-alt-domain", Name: "Flowseal ALT · Domain TLS",
