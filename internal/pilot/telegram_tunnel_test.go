@@ -1,6 +1,7 @@
 package pilot
 
 import (
+	"context"
 	"crypto/tls"
 	"net/http"
 	"net/http/httptest"
@@ -77,5 +78,27 @@ func TestTelegramProfileSaveRequiresHTTPSAndKeepsInvalidReplacementOut(t *testin
 	}
 	if err := exec.Command("sh", m.telegramScript(), "validate", m.telegramProfilePath()).Run(); err != nil {
 		t.Fatalf("installed shell helper rejects normalized profile: %v", err)
+	}
+}
+
+func TestTelegramDeleteRemovesOnlySavedProfileWhenStopped(t *testing.T) {
+	dir := t.TempDir()
+	config := filepath.Join(dir, "config.json")
+	m := NewManager(DefaultConfig(), config, telegramTestRouter{}, HTTPProber{}, &LogBuffer{})
+	for _, name := range []string{config, m.telegramProfilePath()} {
+		if err := os.WriteFile(name, []byte("test"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 2; i++ {
+		if err := m.changeTelegramTunnel(context.Background(), "delete", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if m.telegramTunnelStatus().Configured {
+		t.Fatal("profile survived deletion")
+	}
+	if _, err := os.Stat(config); err != nil {
+		t.Fatal("Pilot configuration was removed")
 	}
 }

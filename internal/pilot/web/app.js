@@ -745,6 +745,7 @@ function telegramTunnelPage(){
  <div class="actions">
  <button type="button" id="telegram-tunnel-start" disabled>Запустить туннель</button>
  <button type="button" id="telegram-tunnel-stop" disabled>Остановить туннель</button>
+ <button type="button" id="telegram-tunnel-delete" class="danger-button" disabled>Удалить туннель</button>
  <button type="button" id="telegram-tunnel-refresh">Обновить состояние</button>
  </div>
  ${secure?'<form id="telegram-tunnel-form"><label>Клиентский профиль WireGuard<textarea name="profile" rows="7" maxlength="8192" required autocomplete="off" spellcheck="false"></textarea></label><button type="submit" disabled>Сохранить профиль</button></form>':`<p><a href="${esc(url.href)}">Открыть HTTPS-панель для сохранения профиля</a></p>`}
@@ -767,6 +768,7 @@ function bindTelegramTunnel(){
  const form=$("#telegram-tunnel-form");
  const start=$("#telegram-tunnel-start");
  const stop=$("#telegram-tunnel-stop");
+ const remove=$("#telegram-tunnel-delete");
  const refresh=$("#telegram-tunnel-refresh");
  const save=form?.querySelector("button");
  const session=panelSession;
@@ -777,6 +779,7 @@ function bindTelegramTunnel(){
   refresh.disabled=busy;
   start.disabled=busy||!tunnel.available||!tunnel.configured||tunnel.managed;
   stop.disabled=busy||!tunnel.managed;
+  remove.disabled=busy||(!tunnel.configured&&!tunnel.managed);
   if(save)save.disabled=busy||!tunnel.can_save||tunnel.managed;
  };
  const run=async(action,profile)=>{
@@ -788,7 +791,7 @@ function bindTelegramTunnel(){
    const data=action?await api("telegram/tunnel","POST",{action,profile}):await api("telegram/tunnel");
    if(!current())return;
    tunnel=data;
-   if(action==="save")form.reset();
+   if(action==="save"||action==="delete")form?.reset();
    const handshake=data.handshake? ` · последнее рукопожатие ${new Date(data.handshake).toLocaleString("ru-RU")}`:"";
    if(data.running)status.textContent="Туннель запущен"+(handshake||" · ожидается рукопожатие WireGuard");
    else if(data.managed)status.textContent="Интерфейс отсутствует. Остановите туннель, чтобы снять правила перед повторным запуском.";
@@ -796,7 +799,8 @@ function bindTelegramTunnel(){
    else {
     const message=data.configured?"Профиль сохранён · туннель остановлен":"Добавьте профиль WireGuard.";
     const missing=data.missing?.length?` Для запуска не хватает: ${data.missing.join(", ")}.`:"";
-    status.textContent=message+missing;
+    const next=action==="save"&&data.available?" Нажмите «Запустить туннель», чтобы применить маршруты.":"";
+    status.textContent=(action==="delete"?"Туннель и профиль удалены. ": "")+message+missing;
    }
   }catch(error){
    if(current())status.textContent=error.message;
@@ -808,6 +812,9 @@ function bindTelegramTunnel(){
  form?.addEventListener("submit",e=>{e.preventDefault();run("save",form.elements.profile.value);});
  start.onclick=()=>run("start");
  stop.onclick=()=>run("stop");
+ remove.onclick=()=>{
+  if(window.confirm("Остановить туннель Telegram и удалить сохранённый профиль?"))run("delete");
+ };
  refresh.onclick=()=>run();
  run();
 }
@@ -1500,6 +1507,7 @@ const releaseNotes={
  "0.2.0-beta.5":["Самодиагностика, предупреждения и диапазоны количества событий","Закрытие всплывающих окон вне области и по Esc; описание версии сохраняет раскрытие","Ручная очистка старой истории и восстановление наблюдений из копии; срок хранения 1–365 суток, по умолчанию выключено","Резервное копирование и восстановление настроек; облегчённый режим фоновых проверок","Импорт одной VPN-подписки, ручное и опциональное ежедневное обновление; без запуска туннелей","Уведомления текущего сеанса","Защитный откат при отказе службы или повторной потере двух контрольных HTTPS-подключений во время обновления; не проверяет скорость"],
  "0.2.0-beta.6":["Импорт и экспорт HostList для каждого сервиса; применение только после сохранения","Импорт локального файла VPN-подписки и предварительный просмотр TXT/base64; без запуска VPN","Приоритет ручных операций над фоновым поиском","Geo Routing: план маршрутов Telegram через существующий туннель; независимый VPS-туннель пока не реализован"],
  "0.2.0-beta.7":["Smart VPN Auto: поле пароля, проверка SSH-входа через защищённую панель; туннель автоматически не запускается","Экспериментальный CLI-помощник WireGuard для IPv4-сетей Telegram; требуется настроенный VPS и проверка на роутере","Ограниченный API Telegram-бота: состояние, управление обходом, проверка и подбор YouTube; отдельный ключ, доступ только через localhost"],
+ "0.2.0-beta.18":["Исправлен вход на HTTP после посещения HTTPS","Туннель через WireGuard ядра без wg, wg-quick и bash","Удаление туннеля и сохранённого профиля"],
  "0.2.0-beta.17":["Импорт обычного .conf WireGuard с автоматической настройкой маршрутов Telegram","Сохранение профиля до установки компонентов для запуска"],
  "0.2.0-beta.16":["Отдельный WireGuard-туннель для IPv4-сетей Telegram","Снятие правил экспериментальной VLESS-маршрутизации","Проверка DNS перенесена в раздел «Роутер»"],
  "0.2.0-beta.15":["Защищённая панель для ввода VLESS и выбора устройств и сервисов","Экспериментальная маршрутизация TCP/IPv4 через Xray после проверки соединения"],

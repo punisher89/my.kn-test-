@@ -72,14 +72,21 @@ func (a *Auth) pairing() pairingRecord {
 	}
 	return p
 }
+func sessionCookieName(r *http.Request) string {
+	if r.TLS != nil {
+		return "pilot-https-session"
+	}
+	return "pilot-http-session"
+}
+
 func (a *Auth) validSession(r *http.Request) bool {
-	c, err := r.Cookie("pilot-session")
+	c, err := r.Cookie(sessionCookieName(r))
 	if err != nil {
 		return false
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.sessions[c.Value].After(time.Now())
+	return a.sessions[sessionCookieName(r)+c.Value].After(time.Now())
 }
 func (a *Auth) allow(r *http.Request) bool {
 	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
@@ -118,8 +125,8 @@ func (a *Auth) cookie(w http.ResponseWriter, r *http.Request) error {
 			break
 		}
 	}
-	a.sessions[key] = now.Add(12 * time.Hour)
-	http.SetCookie(w, &http.Cookie{Name: "pilot-session", Value: key, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: r.TLS != nil, MaxAge: 12 * 3600})
+	a.sessions[sessionCookieName(r)+key] = now.Add(12 * time.Hour)
+	http.SetCookie(w, &http.Cookie{Name: sessionCookieName(r), Value: key, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: r.TLS != nil, MaxAge: 12 * 3600})
 	return nil
 }
 func sameOrigin(r *http.Request) bool {
@@ -225,11 +232,11 @@ func (a *Auth) Register(mux *http.ServeMux) {
 			return
 		}
 		a.mu.Lock()
-		if c, err := r.Cookie("pilot-session"); err == nil {
-			delete(a.sessions, c.Value)
+		if c, err := r.Cookie(sessionCookieName(r)); err == nil {
+			delete(a.sessions, sessionCookieName(r)+c.Value)
 		}
 		a.mu.Unlock()
-		http.SetCookie(w, &http.Cookie{Name: "pilot-session", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+		http.SetCookie(w, &http.Cookie{Name: sessionCookieName(r), Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: r.TLS != nil})
 		reply(w, 200, map[string]bool{"ok": true})
 	})
 }

@@ -3,15 +3,13 @@ package pilot
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
-	"strings"
-	"syscall"
 	"time"
+
+	"golang.zx2c4.com/wireguard/wgctrl"
 )
 
 const telegramWGName = "pilotwg0"
@@ -34,15 +32,10 @@ func (m *Manager) telegramScript() string {
 	return filepath.Join(filepath.Dir(m.Config().EngineDir), "scripts", "vps-telegram-wg.sh")
 }
 
-func (m *Manager) telegramTunnelStatus(ctx context.Context) telegramTunnelState {
+func (m *Manager) telegramTunnelStatus() telegramTunnelState {
 	state := telegramTunnelState{CanSave: m.backend.Kind() == "router"}
-	if _, err := os.Stat(m.telegramScript()); err != nil {
-		state.Missing = append(state.Missing, "vps-telegram-wg.sh")
-	}
-	for _, name := range []string{"wg", "wg-quick", "iptables", "ip", "bash"} {
-		if _, err := exec.LookPath(name); err != nil {
-			state.Missing = append(state.Missing, name)
-		}
+	if _, err := exec.LookPath("iptables"); err != nil {
+		state.Missing = []string{"iptables"}
 	}
 	state.Available = state.CanSave && len(state.Missing) == 0
 	if file, err := os.Lstat(m.telegramProfilePath()); err == nil {
@@ -57,14 +50,10 @@ func (m *Manager) telegramTunnelStatus(ctx context.Context) telegramTunnelState 
 		return state
 	}
 	state.Running = true
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
-	defer cancel()
-	if data, err := exec.CommandContext(ctx, "wg", "show", telegramWGName, "latest-handshakes").Output(); err == nil {
-		fields := strings.Fields(string(data))
-		if len(fields) == 2 {
-			if stamp, err := strconv.ParseInt(fields[1], 10, 64); err == nil && stamp > 0 {
-				state.Handshake = time.Unix(stamp, 0).UTC()
-			}
+	if client, err := wgctrl.New(); err == nil {
+		defer client.Close()
+		if device, err := client.Device(telegramWGName); err == nil && len(device.Peers) == 1 {
+			state.Handshake = device.Peers[0].LastHandshakeTime.UTC()
 		}
 	}
 	return state
@@ -98,31 +87,44 @@ func (m *Manager) saveTelegramProfile(ctx context.Context, input string) error {
 	return nil
 }
 
-func (m *Manager) changeTelegramTunnel(action string) error {
-	if action != "start" && action != "stop" {
-		return errors.New("неизвестное действие Telegram")
-	}
-	if _, err := os.Stat(m.telegramScript()); err != nil {
-		return errors.New("скрипт Telegram-туннеля отсутствует в установленном пакете")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "sh", m.telegramScript(), action)
-	cmd.Env = append(os.Environ(), "PILOT_WG_CONFIG_DIR="+filepath.Dir(m.path))
-	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
-	cmd.WaitDelay = 5 * time.Second
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		if ctx.Err() != nil {
-			return errors.New("истекло время операции Telegram; обновите состояние туннеля")
+func (m *Manager) changeTelegramTunnel(ctx context.Context, action, profile string) error {
+	dir := filepath.Dir(m.path)
+	lock := filepath.Join(dir, telegramWGName+".lock")
+	if err := os.Mkdir(lock, 0700); err != nil {
+		if os.IsExist(err) {
+			return ErrBusy
 		}
-		for _, line := range strings.Split(string(output), "\n") {
-			if strings.HasPrefix(line, "Route conflict: ") || strings.HasPrefix(line, "Missing ") ||
-				line == "Config must have mode 600" || line == "Interface already exists; refusing to modify it" {
-				return fmt.Errorf("Telegram: %s", line)
+		return errors.New("не удалось заблокировать файл настроек Telegram")
+	}
+	defer os.Remove(lock)
+
+	marker := filepath.Join(dir, telegramWGName+".active")
+	_, err := os.Lstat(marker)
+	if err != nil && !os.IsNotExist(err) {
+		return errors.New("не удалось проверить состояние туннеля Telegram")
+	}
+	managed := err == nil
+	switch action {
+	case "save":
+		return m.saveTelegramProfile(ctx, profile)
+	case "start":
+		if managed {
+			return errors.New("сначала остановите текущий туннель Telegram")
+		}
+		return m.startTelegramTunnel(ctx, marker)
+	case "stop", "delete":
+		if managed {
+			if err := stopTelegramTunnel(marker); err != nil {
+				return err
 			}
 		}
-		return fmt.Errorf("Telegram: операция %s завершилась ошибкой. Проверьте конфигурацию WireGuard и состояние туннеля", action)
+		if action == "delete" {
+			if err := os.Remove(m.telegramProfilePath()); err != nil && !os.IsNotExist(err) {
+				return errors.New("не удалось удалить профиль Telegram")
+			}
+		}
+		return nil
+	default:
+		return errors.New("неизвестное действие Telegram")
 	}
-	return nil
 }

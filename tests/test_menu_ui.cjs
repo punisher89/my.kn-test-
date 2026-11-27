@@ -8,7 +8,7 @@ let sourceUpdate={current:'0.2.0-alpha.10',supported:true,running:false,stage:'i
 demo.checks={};
 const dnsRequests=[];
 const tunnelActions=[];
-const tunnel={available:false,can_save:true,missing:["wg-quick"],configured:false,managed:false,running:false};
+const tunnel={available:false,can_save:true,missing:["iptables"],configured:false,managed:false,running:false};
 (async()=>{const browser=await chromium.launch({headless:true,executablePath:process.env.PILOT_CHROMIUM});try{
  const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.route(/^(http|https):\/\/pilot\.test(?::9443)?\//,async route=>{
@@ -37,9 +37,10 @@ const tunnel={available:false,can_save:true,missing:["wg-quick"],configured:fals
      tunnel.managed=tunnel.running=true;
      tunnel.handshake="2026-11-27T08:00:00Z";
     }
-    if(action==="stop"){
+    if(action==="stop"||action==="delete"){
      tunnel.managed=tunnel.running=false;
      delete tunnel.handshake;
+     if(action==="delete")tunnel.configured=false;
     }
    }
    return json(tunnel);
@@ -229,7 +230,7 @@ const tunnel={available:false,can_save:true,missing:["wg-quick"],configured:fals
  await page.getByRole('button',{name:'Сохранить профиль'}).click();
  await telegramStatus.getByText(/Профиль сохранён/).waitFor();
  assert.equal(await profile.inputValue(),'');
- assert.match(await telegramStatus.innerText(),/Для запуска не хватает: wg-quick/);
+ assert.match(await telegramStatus.innerText(),/Для запуска не хватает: iptables/);
  assert.equal(await page.getByRole('button',{name:'Запустить туннель'}).isDisabled(),true);
  tunnel.available=true;
  delete tunnel.missing;
@@ -238,6 +239,8 @@ const tunnel={available:false,can_save:true,missing:["wg-quick"],configured:fals
  await telegramStatus.getByText(/Туннель запущен.*рукопожатие/).waitFor();
  await page.getByRole('button',{name:'Остановить туннель'}).click();
  await telegramStatus.getByText(/туннель остановлен/).waitFor();
- assert.deepEqual(tunnelActions,['save','start','stop']);
+ await page.getByRole('button',{name:'Удалить туннель'}).click();
+ await telegramStatus.getByText(/Туннель и профиль удалены/).waitFor();
+ assert.deepEqual(tunnelActions,['save','start','stop','delete']);
  assert.deepEqual(errors,[]);console.log('PASS: router telemetry, missing temperature, signed-update UI flow, custom services, domain sources, Telegram Web, compact trials/methods, preserved expansion, mobile menus, Matrix overview, read-only service reports, safe error rendering, animated rain, reduced motion, hidden-tab pause, fast-start opt-out');
 }finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1});

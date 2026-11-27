@@ -141,3 +141,53 @@ func TestNetworkDetectionPrefersLANBridgeAndExcludesWAN(t *testing.T) {
 		t.Fatal("ambiguous LAN guessed")
 	}
 }
+
+func TestHTTPAndHTTPSUseSeparateSessionCookies(t *testing.T) {
+	dir := t.TempDir()
+	code, err := Pair(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager(DefaultConfig(), filepath.Join(dir, "config.json"), Development{}, HTTPProber{}, &LogBuffer{})
+	h := Handler(m, strings.Repeat("a", 64), NewAuth(dir))
+	call := func(origin, path, body string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
+		method := http.MethodPost
+		if path == "/api/status" {
+			method = http.MethodGet
+		}
+		r := httptest.NewRequest(method, origin+path, strings.NewReader(body))
+		for _, cookie := range cookies {
+			r.AddCookie(cookie)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	const secure = "https://router.test:9443"
+	const insecure = "http://router.test:9080"
+	tlsLogin := call(secure, "/auth/setup", fmt.Sprintf(`{"code":%q,"password":"test-password-long"}`, code))
+	if tlsLogin.Code != 200 {
+		t.Fatalf("HTTPS login: %d", tlsLogin.Code)
+	}
+	tlsCookie := tlsLogin.Result().Cookies()[0]
+	httpLogin := call(insecure, "/auth/login", `{"password":"test-password-long"}`)
+	if httpLogin.Code != 200 {
+		t.Fatalf("HTTP login: %d", httpLogin.Code)
+	}
+	httpCookie := httpLogin.Result().Cookies()[0]
+	if tlsCookie.Name == httpCookie.Name || !tlsCookie.Secure || httpCookie.Secure {
+		t.Fatal("HTTP and HTTPS cookies conflict")
+	}
+	if call(insecure, "/api/status", "", httpCookie).Code != 200 ||
+		call(secure, "/api/status", "", httpCookie, tlsCookie).Code != 200 {
+		t.Fatal("one of the parallel sessions was lost")
+	}
+	if call(secure, "/api/status", "", httpCookie).Code != 401 {
+		t.Fatal("HTTP cookie authorized HTTPS")
+	}
+	call(insecure, "/auth/logout", "", httpCookie)
+	if call(insecure, "/api/status", "", httpCookie).Code != 401 ||
+		call(secure, "/api/status", "", tlsCookie).Code != 200 {
+		t.Fatal("HTTP logout did not stay scoped to HTTP")
+	}
+}

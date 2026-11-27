@@ -25,6 +25,14 @@ for ARCH in $ARCHES; do
     chmod 755 "$PKG/lua"
     chmod 644 "$PKG/lua/"*
     cp -R licenses "$PKG/licenses"
+    CGO_ENABLED=0 GOOS=linux GOARCH=$ARCH GOARM=7 GOMIPS=softfloat GOTOOLCHAIN=local \
+      "$GO" list -deps -f '{{with .Module}}{{if not .Main}}{{.Path}}{{"\t"}}{{.Dir}}{{end}}{{end}}' ./cmd/pilot > "$STAGE/modules"
+    LC_ALL=C sort -u "$STAGE/modules" | while IFS="$(printf '\t')" read -r MODULE DIRECTORY; do
+        [ -n "$MODULE" ] || continue
+        mkdir -p "$PKG/licenses/go/$MODULE"
+        find "$DIRECTORY" -maxdepth 1 -type f \( -iname 'license*' -o -iname 'notice*' -o -iname 'copying*' \) \
+          -exec cp {} "$PKG/licenses/go/$MODULE" \;
+    done
     "$GO" version > "$PKG/TOOLCHAIN"
     printf '%s\n' "$ARCH" > "$PKG/PLATFORM"
     chmod 755 "$PKG/bin/pilot" "$PKG/scripts/"* "$PKG/packaging/"*

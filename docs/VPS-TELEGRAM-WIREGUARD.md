@@ -8,7 +8,7 @@ Set up a dedicated WireGuard peer on your own VPS (Linux with WireGuard, UDP por
 
 ## Router
 
-Requires wg, wg-quick (and its bash/ip dependencies), a supported kernel WireGuard implementation, and iptables. Availability varies with KeeneticOS/Entware. The helper does not install packages or touch existing tunnels. Paste the ordinary single-peer client .conf in the local HTTPS panel (port 9443). Pilot keeps the IPv4 client address as /32, replaces AllowedIPs with Telegram routes, sets keepalive to 25, and leaves router DNS and routing tables under their current configuration. Saving is available before the runtime tools are installed. For manual CLI setup, create /opt/etc/keenetic-pilot/pilotwg0.conf with mode 600 using this template:
+Pilot uses the router kernel WireGuard implementation and iptables. The WireGuard VPN component must be present in KeeneticOS. Starting and stopping in the panel does not require wg, wg-quick, bash or the ip utility. «Удалить туннель» stops the Pilot tunnel and removes its saved profile. The optional manual shell helper still needs wg, wg-quick, bash and ip. Paste the ordinary single-peer client .conf in the local HTTPS panel (port 9443). Pilot keeps the IPv4 client address as /32, replaces AllowedIPs with Telegram routes, sets keepalive to 25, and leaves router DNS and routing tables under their current configuration. Saving is available before the runtime tools are installed. For manual CLI setup, create /opt/etc/keenetic-pilot/pilotwg0.conf with mode 600 using this template:
 
 ```ini
 [Interface]
@@ -24,7 +24,7 @@ PersistentKeepalive = 25
 
 Use the private IPv4 /32 assigned to the router by your WireGuard server, and substitute your server port. Keys stay on the device. No hooks, DNS, default route, extra peers or unapproved AllowedIPs are accepted.
 
-For SSH operation from the installed Pilot application directory:
+For the optional legacy shell helper, use the installed Pilot application directory:
 
 ```sh
 sh scripts/vps-telegram-wg.sh validate /opt/etc/keenetic-pilot/pilotwg0.conf

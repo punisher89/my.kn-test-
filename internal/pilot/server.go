@@ -197,9 +197,8 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 	api("GET /api/vpn/capabilities", func(w http.ResponseWriter, r *http.Request) {
 		jsonReply(w, 200, map[string]any{"engines": independentVPNCapabilities(), "managed_tunnels": false})
 	})
-	telegramSlot := make(chan struct{}, 1)
 	api("GET /api/telegram/tunnel", func(w http.ResponseWriter, r *http.Request) {
-		jsonReply(w, 200, m.telegramTunnelStatus(r.Context()))
+		jsonReply(w, 200, m.telegramTunnelStatus())
 	})
 	api("POST /api/telegram/tunnel", func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
@@ -213,28 +212,16 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 			replyError(w, errors.New("Telegram-туннель доступен в режиме роутера"))
 			return
 		}
-		select {
-		case telegramSlot <- struct{}{}:
-			defer func() { <-telegramSlot }()
-		default:
-			replyError(w, ErrBusy)
+		if input.Action == "save" && r.TLS == nil {
+			jsonReply(w, http.StatusForbidden, map[string]string{"error": "WireGuard-профиль сохраняется через HTTPS-панель"})
 			return
 		}
-		var err error
-		if input.Action == "save" {
-			if r.TLS == nil {
-				jsonReply(w, http.StatusForbidden, map[string]string{"error": "WireGuard-профиль сохраняется через HTTPS-панель"})
-				return
-			}
-			err = m.saveTelegramProfile(r.Context(), input.Profile)
-		} else {
-			err = m.changeTelegramTunnel(input.Action)
-		}
+		err := m.changeTelegramTunnel(r.Context(), input.Action, input.Profile)
 		if err != nil {
 			replyError(w, err)
 			return
 		}
-		jsonReply(w, 200, m.telegramTunnelStatus(r.Context()))
+		jsonReply(w, 200, m.telegramTunnelStatus())
 	})
 	vpnProbeSlot := make(chan struct{}, 1)
  api("GET /api/vpn/subscription",func(w http.ResponseWriter,r *http.Request){
