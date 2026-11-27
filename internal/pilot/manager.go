@@ -438,16 +438,19 @@ func (m *Manager) tune(ctx context.Context, old Config, idx int) {
 		cause = err
 		return
 	}
-	if err := m.save(candidate); err != nil {
-		cause = err
-		return
-	}
 	candidate.tuning = false
 	if candidate.Adaptive {
 		if err := m.backend.Start(candidate); err != nil {
-			cause = errors.Join(err, m.save(old))
+			cause = err
 			return
 		}
+	}
+	if ctx.Err() != nil {
+		return
+	}
+	if err := m.save(candidate); err != nil {
+		cause = err
+		return
 	}
 	committed = true
 	m.finish(selected, nil)

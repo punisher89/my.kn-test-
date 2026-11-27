@@ -7,7 +7,7 @@ base=${PILOT_WG_CONFIG_DIR:-/opt/etc/keenetic-pilot}
 iface=pilotwg0
 config=$base/$iface.conf
 state=$base/$iface.active
-lock=$base/$iface.lock
+lock=$base/$iface.flock
 chain=PILOT_WG_TG
 allowed='91.108.56.0/22,91.108.4.0/22,91.108.8.0/22,91.108.16.0/22,91.108.12.0/22,149.154.160.0/20,91.105.192.0/23,91.108.20.0/22,185.76.151.0/24'
 die(){ printf '%s\n' "$*" >&2; exit 1; }
@@ -59,9 +59,10 @@ case "${1:-}" in
 esac
 [ "$#" -eq 1 ] || die 'Unexpected arguments'
 [ "$(id -u)" -eq 0 ] || die 'Root required'
-for cmd in wg wg-quick ip iptables; do command -v "$cmd" >/dev/null 2>&1 || die "Missing $cmd"; done
+for cmd in wg wg-quick ip iptables flock; do command -v "$cmd" >/dev/null 2>&1 || die "Missing $cmd"; done
 [ -d "$base" ] || die 'Pilot config directory missing'
-mkdir "$lock" 2>/dev/null || die 'Another operation or stale lock; inspect before removing'
+exec 9>>"$lock"
+flock -n 9 || die 'Another Telegram tunnel operation is in progress'
 madechain=0 madejump=0 started=0 success=0
 cleanup(){
  if [ "$success" -ne 1 ]; then
@@ -69,7 +70,6 @@ cleanup(){
   if [ "$madechain" -eq 1 ]; then iptables -t nat -F "$chain" 2>/dev/null || :; iptables -t nat -X "$chain" 2>/dev/null || :; fi
   if [ "$started" -eq 1 ]; then wg-quick down "$config" >/dev/null 2>&1 || :; fi
  fi
- rmdir "$lock" 2>/dev/null || :
 }
 trap cleanup EXIT
 trap 'exit 130' INT

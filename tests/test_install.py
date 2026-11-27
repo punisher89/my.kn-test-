@@ -95,8 +95,18 @@ class Installation(unittest.TestCase):
         self.assertEqual(config, self.config.read_bytes())
         self.assertTrue(list(self.prefix.glob("keenetic-pilot.backup.*")))
         self.assertFalse(self.health()["running"])
-        self.run_cmd([self.prefix / "keenetic-pilot/scripts/uninstall.sh"],
-                     env={**self.env, "PILOT_PREFIX": str(self.prefix)})
+        uninstall = [self.prefix / "keenetic-pilot/scripts/uninstall.sh"]
+        uninstall_env = {**self.env, "PILOT_PREFIX": str(self.prefix)}
+        tunnel_marker = self.config.parent / "pilotwg0.active"
+        tunnel_marker.touch()
+        blocked = self.run_cmd(uninstall, ok=False, env=uninstall_env)
+        self.assertNotEqual(blocked.returncode, 0)
+        self.assertIn("Stop the Telegram tunnel", blocked.stderr)
+        self.assertTrue(tunnel_marker.is_file())
+        self.assertTrue(self.binary.is_file())
+        self.assertFalse(self.health()["running"])
+        tunnel_marker.unlink()
+        self.run_cmd(uninstall, env=uninstall_env)
         self.assertFalse(self.binary.exists())
         self.assertFalse(hook.exists())
         self.assertEqual(token, self.token_path.read_bytes())

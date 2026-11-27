@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"golang.zx2c4.com/wireguard/wgctrl"
@@ -108,17 +109,25 @@ func (m *Manager) saveTelegramProfile(ctx context.Context, input string) error {
 
 func (m *Manager) changeTelegramTunnel(ctx context.Context, action, profile string) error {
 	dir := filepath.Dir(m.path)
-	lock := filepath.Join(dir, telegramWGName+".lock")
-	if err := os.Mkdir(lock, 0700); err != nil {
-		if os.IsExist(err) {
+	// The shell helper uses the same file. Keep its inode in place so both
+	// entry points contend for the same lock, including after a restart.
+	lock, err := os.OpenFile(filepath.Join(dir, telegramWGName+".flock"), os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return errors.New("не удалось открыть блокировку настроек Telegram")
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		if errors.Is(err, syscall.EWOULDBLOCK) {
 			return ErrBusy
 		}
-		return errors.New("не удалось заблокировать файл настроек Telegram")
+		return errors.New("не удалось заблокировать настройки Telegram")
 	}
-	defer os.Remove(lock)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	marker := filepath.Join(dir, telegramWGName+".active")
-	_, err := os.Lstat(marker)
+	_, err = os.Lstat(marker)
 	if err != nil && !os.IsNotExist(err) {
 		return errors.New("не удалось проверить состояние туннеля Telegram")
 	}

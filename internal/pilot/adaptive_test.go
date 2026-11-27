@@ -4,6 +4,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -52,6 +53,44 @@ func TestActiveTuningSuspendsPassiveRotationAndRestoresIt(t *testing.T) {
 	saved, err := LoadConfig(path)
 	if err != nil || !saved.Adaptive || saved.Profiles[1].Strategy != "fake-md5" || m.Config().tuning {
 		t.Fatalf("saved wrong state: %+v, %v", saved, err)
+	}
+}
+
+type adaptiveRestartFailure struct {
+	testBackend
+	checkCandidate func()
+}
+
+func (b *adaptiveRestartFailure) Start(c Config) error {
+	if !c.tuning && c.Profiles[0].Strategy == "none" {
+		b.checkCandidate()
+		return errors.New("adaptive restart failed")
+	}
+	return b.testBackend.Start(c)
+}
+
+func TestTuningDoesNotPersistCandidateBeforeAdaptiveRestart(t *testing.T) {
+	c := DefaultConfig()
+	c.Enabled, c.Adaptive = true, true
+	c.Profiles[0].Strategy = "fake-md5"
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := WriteJSON(path, c); err != nil {
+		t.Fatal(err)
+	}
+	restarted := false
+	b := &adaptiveRestartFailure{checkCandidate: func() {
+		restarted = true
+		saved, err := LoadConfig(path)
+		if err != nil || saved.Profiles[0].Strategy != c.Profiles[0].Strategy {
+			t.Errorf("candidate persisted before adaptive restart: %v", err)
+		}
+	}}
+	m := NewManager(c, path, b, successfulProber{}, &LogBuffer{})
+	m.job = &Job{}
+	m.tune(context.Background(), c, 0)
+	last := b.configs[len(b.configs)-1]
+	if !restarted || m.job.Stage != "failed" || last.tuning || last.Profiles[0].Strategy != c.Profiles[0].Strategy {
+		t.Fatalf("tuning failed to restore the previous strategy: %+v", m.job)
 	}
 }
 

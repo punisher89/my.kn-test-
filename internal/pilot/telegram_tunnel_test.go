@@ -3,12 +3,14 @@ package pilot
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -100,5 +102,40 @@ func TestTelegramDeleteRemovesOnlySavedProfileWhenStopped(t *testing.T) {
 	}
 	if _, err := os.Stat(config); err != nil {
 		t.Fatal("Pilot configuration was removed")
+	}
+}
+
+func TestTelegramOperationsRecoverFromLegacyLockAndRespectActiveLock(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManager(DefaultConfig(), filepath.Join(dir, "config.json"), telegramTestRouter{}, HTTPProber{}, &LogBuffer{})
+	if err := os.Mkdir(filepath.Join(dir, telegramWGName+".lock"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(m.telegramProfilePath(), []byte("test"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := os.OpenFile(filepath.Join(dir, telegramWGName+".flock"), os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lock.Close() })
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := m.changeTelegramTunnel(ctx, "delete", ""); !errors.Is(err, ErrBusy) {
+		t.Fatalf("operation during active lock: %v", err)
+	}
+	if _, err := os.Stat(m.telegramProfilePath()); err != nil {
+		t.Fatal(err)
+	}
+	if err := lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.changeTelegramTunnel(ctx, "delete", ""); err != nil {
+		t.Fatalf("operation after lock owner exited: %v", err)
+	}
+	if _, err := os.Stat(m.telegramProfilePath()); !os.IsNotExist(err) {
+		t.Fatalf("profile should be removed: %v", err)
 	}
 }
