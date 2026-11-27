@@ -200,6 +200,22 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 	api("GET /api/telegram/tunnel", func(w http.ResponseWriter, r *http.Request) {
 		jsonReply(w, 200, m.telegramTunnelStatus())
 	})
+	telegramRouteCheck := make(chan struct{}, 1)
+	api("GET /api/telegram/routes", func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case telegramRouteCheck <- struct{}{}:
+			defer func() { <-telegramRouteCheck }()
+		default:
+			jsonReply(w, http.StatusConflict, map[string]string{"error": "проверка маршрутов уже выполняется"})
+			return
+		}
+		report, err := m.checkTelegramRoutes(r.Context())
+		if err != nil {
+			replyError(w, err)
+			return
+		}
+		jsonReply(w, http.StatusOK, report)
+	})
 	api("POST /api/telegram/tunnel", func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			Action  string `json:"action"`

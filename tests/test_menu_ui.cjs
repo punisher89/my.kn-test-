@@ -24,6 +24,10 @@ const tunnel={available:false,can_save:true,missing:["iptables"],configured:fals
     : request.protocol==='system' ? [{protocol:'System',server:'Системный резолвер ОС',status:'ok',milliseconds:2}]
     : [{protocol:'DoT',server:request.server,status:'unavailable',error:'kdig не найден в PATH'}]);
   }
+  if(url.pathname==='/api/telegram/routes')return json([{
+   network:'91.108.56.0/22',
+   samples:[{address:'91.108.56.1',status:'tunnel',outputs:['pilotwg0']},{address:'91.108.59.254',status:'other',outputs:['ppp0']}]
+  }]);
   if(url.pathname==='/api/telegram/tunnel'){
    if(req.method()==="POST"){
     const {action,profile}=req.postDataJSON();
@@ -244,6 +248,11 @@ const tunnel={available:false,can_save:true,missing:["iptables"],configured:fals
  assert.equal(await page.locator('#telegram-peer-state').textContent(),'Было рукопожатие');
  assert.match(await page.locator('#telegram-peer-traffic').textContent(),/100 Б.*200 Б/);
 
+ const routeCheck=page.getByRole('button',{name:'Проверить маршруты'});
+ await routeCheck.click();
+ await page.locator('#telegram-route-summary').getByText(/Через туннель: 1 из 2 адресов/).waitFor();
+ await page.locator('#telegram-route-list').getByText(/91.108.59.254: другой интерфейс \(ppp0\)/).waitFor();
+
  await page.clock.install();
  const measurement=page.locator('#telegram-tunnel-measure-result');
  const measure=page.getByRole('button',{name:'Проверить трафик'});
@@ -262,6 +271,8 @@ const tunnel={available:false,can_save:true,missing:["iptables"],configured:fals
  await page.getByRole('button',{name:'Остановить туннель'}).click();
  await telegramStatus.getByText(/туннель остановлен/).waitFor();
  assert.equal(await measure.isDisabled(),true);
+ assert.equal(await routeCheck.isDisabled(),true);
+ assert.equal(await page.locator('#telegram-route-result').isVisible(),false);
  assert.equal(await measurement.isVisible(),false);
  await page.getByRole('button',{name:'Удалить туннель'}).click();
  await telegramStatus.getByText(/Туннель и профиль удалены/).waitFor();

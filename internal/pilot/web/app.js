@@ -32,7 +32,7 @@ let signedIn = false,
   authInfo = { configured: true },
   networkInfo;
 
-const pollingEndpoints = new Set(["telegram/tunnel", "device", "adaptive", "preflight", "updates", "updates/sources"]);
+const pollingEndpoints = new Set(["telegram/tunnel", "telegram/routes", "device", "adaptive", "preflight", "updates", "updates/sources"]);
 async function api(path, method = "GET", data, signal) {
   const session = panelSession;
   const deadline = !signal && method === "GET" && pollingEndpoints.has(path) ? new AbortController() : null;
@@ -754,8 +754,14 @@ function telegramTunnelPage(){
  <button type="button" id="telegram-tunnel-delete" class="danger-button" disabled>Удалить туннель</button>
  <button type="button" id="telegram-tunnel-refresh">Обновить состояние</button>
  <button type="button" id="telegram-tunnel-measure" disabled>Проверить трафик</button>
+ <button type="button" id="telegram-route-check" disabled>Проверить маршруты</button>
  </div>
  <p id="telegram-tunnel-measure-result" role="status" hidden></p>
+ <section id="telegram-route-result" hidden>
+  <p id="telegram-route-summary" role="status"></p>
+  <p class="subtle">Проверяются два адреса в каждой сети с точки зрения самого роутера. Для устройств с отдельной политикой Keenetic маршрут может отличаться.</p>
+  <details id="telegram-route-details" hidden><summary>Адреса и интерфейсы</summary><ul id="telegram-route-list"></ul></details>
+ </section>
  ${secure?'<form id="telegram-tunnel-form"><label>Клиентский профиль WireGuard<textarea name="profile" rows="7" maxlength="8192" required autocomplete="off" spellcheck="false"></textarea></label><button type="submit" disabled>Сохранить профиль</button></form>':`<p><a href="${esc(url.href)}">Открыть HTTPS-панель для сохранения профиля</a></p>`}
  <p class="subtle">Вставьте клиентский .conf WireGuard. Pilot подставит маршруты Telegram и сохранит текущий DNS роутера.</p>
  <details><summary>Пример клиентского профиля</summary>
@@ -780,6 +786,11 @@ function bindTelegramTunnel(){
  const refresh=$("#telegram-tunnel-refresh");
  const measure=$("#telegram-tunnel-measure");
  const measureResult=$("#telegram-tunnel-measure-result");
+ const routeCheck=$("#telegram-route-check");
+ const routeResult=$("#telegram-route-result");
+ const routeSummary=$("#telegram-route-summary");
+ const routeDetails=$("#telegram-route-details");
+ const routeList=$("#telegram-route-list");
  const save=form?.querySelector("button");
  const session=panelSession;
  let busy=false;
@@ -788,6 +799,7 @@ function bindTelegramTunnel(){
  const buttons=()=>{
   refresh.disabled=busy;
   measure.disabled=busy||!tunnel.running||!tunnel.traffic;
+  routeCheck.disabled=busy||!tunnel.running;
   start.disabled=busy||!tunnel.available||!tunnel.configured||tunnel.managed;
   stop.disabled=busy||!tunnel.managed;
   remove.disabled=busy||(!tunnel.configured&&!tunnel.managed);
@@ -801,6 +813,36 @@ function bindTelegramTunnel(){
   $("#telegram-peer-state").textContent=handshake?"Было рукопожатие":traffic?"Ожидается":data.running?"Нет данных ядра":"—";
   $("#telegram-peer-time").textContent=handshake?new Date(handshake).toLocaleString("ru-RU"):"";
   $("#telegram-peer-traffic").textContent=traffic?`↓ ${prettyBytes(traffic.received_bytes)} · ↑ ${prettyBytes(traffic.sent_bytes)}`:"—";
+ };
+ const checkRoutes=async()=>{
+  if(busy)return;
+  busy=true;
+  buttons();
+  routeResult.hidden=false;
+  routeDetails.hidden=true;
+  routeSummary.textContent="Читаем таблицу маршрутизации…";
+  try{
+   const report=await api("telegram/routes");
+   if(!current())return;
+   const samples=report.flatMap(network=>network.samples);
+   const through=samples.filter(sample=>sample.status==="tunnel").length;
+   const other=samples.filter(sample=>sample.status==="other").length;
+   const unknown=samples.length-through-other;
+   routeSummary.textContent=`Через туннель: ${through} из ${samples.length} адресов. Другой интерфейс: ${other}. Маршрут не определён: ${unknown}.`;
+   routeList.replaceChildren(...report.map(({network,samples})=>{
+    const item=document.createElement("li");
+    const labels={tunnel:"туннель Pilot",other:"другой интерфейс",unavailable:"маршрут не определён"};
+    item.textContent=`${network} — ${samples.map(sample=>`${sample.address}: ${labels[sample.status]}${sample.outputs?.length?" ("+sample.outputs.join(", ")+")":""}`).join(" · ")}`;
+    return item;
+   }));
+   routeDetails.hidden=false;
+   routeDetails.open=other>0||unknown>0;
+  }catch(error){
+   if(current())routeSummary.textContent=error.message;
+  }finally{
+   busy=false;
+   if(current())buttons();
+  }
  };
  const measureTraffic=async()=>{
   if(busy)return;
@@ -841,7 +883,10 @@ function bindTelegramTunnel(){
   busy=true;
   buttons();
   status.textContent="Выполняется…";
-  if(action)measureResult.hidden=true;
+  if(action){
+   measureResult.hidden=true;
+   routeResult.hidden=true;
+  }
   try{
    const data=action?await api("telegram/tunnel","POST",{action,profile}):await api("telegram/tunnel");
    if(!current())return;
@@ -872,6 +917,7 @@ function bindTelegramTunnel(){
  };
  refresh.onclick=()=>run();
  measure.onclick=measureTraffic;
+ routeCheck.onclick=checkRoutes;
  run();
 }
 
@@ -1563,6 +1609,7 @@ const releaseNotes={
  "0.2.0-beta.5":["Самодиагностика, предупреждения и диапазоны количества событий","Закрытие всплывающих окон вне области и по Esc; описание версии сохраняет раскрытие","Ручная очистка старой истории и восстановление наблюдений из копии; срок хранения 1–365 суток, по умолчанию выключено","Резервное копирование и восстановление настроек; облегчённый режим фоновых проверок","Импорт одной VPN-подписки, ручное и опциональное ежедневное обновление; без запуска туннелей","Уведомления текущего сеанса","Защитный откат при отказе службы или повторной потере двух контрольных HTTPS-подключений во время обновления; не проверяет скорость"],
  "0.2.0-beta.6":["Импорт и экспорт HostList для каждого сервиса; применение только после сохранения","Импорт локального файла VPN-подписки и предварительный просмотр TXT/base64; без запуска VPN","Приоритет ручных операций над фоновым поиском","Geo Routing: план маршрутов Telegram через существующий туннель; независимый VPS-туннель пока не реализован"],
  "0.2.0-beta.7":["Smart VPN Auto: поле пароля, проверка SSH-входа через защищённую панель; туннель автоматически не запускается","Экспериментальный CLI-помощник WireGuard для IPv4-сетей Telegram; требуется настроенный VPS и проверка на роутере","Ограниченный API Telegram-бота: состояние, управление обходом, проверка и подбор YouTube; отдельный ключ, доступ только через localhost"],
+ "0.2.0-beta.21":["Проверка маршрутов Telegram через ядро роутера и список выходных интерфейсов"],
  "0.2.0-beta.20":["Проверка трафика туннеля Telegram за 10 секунд","Отдельные показатели профиля, интерфейса и рукопожатия WireGuard"],
  "0.2.0-beta.19":["Совместимый формат передачи сетей Telegram в WireGuard ядра","Сообщение об этапе настройки, на котором возникла ошибка"],
  "0.2.0-beta.18":["Исправлен вход на HTTP после посещения HTTPS","Туннель через WireGuard ядра без wg, wg-quick и bash","Удаление туннеля и сохранённого профиля"],
