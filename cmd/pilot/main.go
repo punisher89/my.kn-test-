@@ -295,6 +295,28 @@ func run() error {
 	watchCtx, stopWatch := context.WithCancel(ctx)
 	go m.Watch(watchCtx)
 	server := &http.Server{Handler: pilot.Handler(m, strings.TrimSpace(string(token)), pilot.NewAuth(filepath.Dir(*configPath))), BaseContext: func(net.Listener) context.Context { return ctx }, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 6 * time.Minute, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8 << 10}
+	var secureServer *http.Server
+	if *mode == "router" {
+		host, _, _ := net.SplitHostPort(c.Listen)
+		tlsConfig, tlsErr := pilot.PanelTLSConfig(filepath.Dir(*configPath), host)
+		if tlsErr == nil {
+			var secureListener net.Listener
+			secureListener, tlsErr = net.Listen("tcp", net.JoinHostPort(host, pilot.HTTPSPanelPort))
+			if tlsErr == nil {
+				secureServer = &http.Server{Handler: pilot.Handler(m, strings.TrimSpace(string(token)), pilot.NewAuth(filepath.Dir(*configPath))), TLSConfig: tlsConfig,
+					BaseContext: server.BaseContext, ReadHeaderTimeout: server.ReadHeaderTimeout, ReadTimeout: server.ReadTimeout,
+					WriteTimeout: server.WriteTimeout, IdleTimeout: server.IdleTimeout, MaxHeaderBytes: server.MaxHeaderBytes}
+				go func() {
+					if err := secureServer.ServeTLS(secureListener, "", ""); err != nil && err != http.ErrServerClosed {
+						buffer.Add("HTTPS панели: " + err.Error())
+					}
+				}()
+			}
+		}
+		if tlsErr != nil {
+			buffer.Add("HTTPS панели: " + tlsErr.Error())
+		}
+	}
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
 	controlServer := &http.Server{Handler: pilot.ControlHandler(m), ReadHeaderTimeout: 3 * time.Second, IdleTimeout: 5 * time.Second, WriteTimeout: 30 * time.Second}
@@ -316,6 +338,9 @@ func run() error {
 	m.CancelTune()
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer shutdownCancel()
+	if secureServer != nil {
+		_ = secureServer.Shutdown(shutdownCtx)
+	}
 	_ = server.Shutdown(shutdownCtx)
 	_ = controlServer.Shutdown(shutdownCtx)
 	return errorsJoin(err, m.Close())

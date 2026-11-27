@@ -204,6 +204,12 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 		jsonReply(w,200, map[string]any{"services":geoServices,"tunnels":geoTunnels(),"applied":false})
 	})
 	// Serialize manual tunnel probes; they must not compete with each other.
+	api("GET /api/vpn/vless-routing", func(w http.ResponseWriter, r *http.Request) {
+		dir := filepath.Dir(m.path)
+		selected, err := loadVLESSSelection(dir)
+		if err != nil { replyError(w, err); return }
+		jsonReply(w,200,map[string]any{"selection":selected,"devices":vlessLANDevices(m.Config()),"services":vlessServiceCatalog()})
+	})
 	vlessSlot := make(chan struct{}, 1)
 	api("GET /api/vpn/vless", func(w http.ResponseWriter, r *http.Request) {
 		jsonReply(w, 200, m.vless.status(filepath.Dir(m.path)))
@@ -211,6 +217,8 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 	api("POST /api/vpn/vless", func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			Action string `json:"action"`
+			Link string `json:"link,omitempty"`
+			Selection vlessSelection `json:"selection,omitempty"`
 		}
 		if !read(w, r, &input) {
 			return
@@ -224,18 +232,54 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 		}
 		var err error
 		switch input.Action {
+		case "save":
+			if r.TLS == nil {
+				replyError(w, errors.New("сохраняйте VLESS через HTTPS-панель"))
+				return
+			}
+			dir := filepath.Dir(m.path)
+			c := m.Config()
+			if m.vless.status(dir).Running { replyError(w, errors.New("сначала отключите VLESS")); return }
+			if _, _, err = validateVLESSSelection(input.Selection,c,vlessLANDevices(c)); err != nil { break }
+			if input.Link != "" {
+				if err = SaveVLESSFromSSH(dir,strings.NewReader(input.Link)); err != nil { break }
+			}
+			err = WriteJSON(vlessSelectionPath(dir),input.Selection)
 		case "start":
 			if m.backend.Kind() != "router" {
 				replyError(w, errors.New("запуск VLESS доступен в режиме роутера"))
 				return
 			}
-			err = m.vless.start(r.Context(), filepath.Dir(m.path))
+			dir := filepath.Dir(m.path)
+			var selected vlessSelection
+			selected, err = loadVLESSSelection(dir)
+			if err != nil { break }
+			if len(selected.Devices) == 0 && len(selected.Services) == 0 {
+				err = m.vless.start(r.Context(),dir)
+				break
+			}
+			if r.TLS == nil {
+				err = errors.New("запускайте маршрутизацию VLESS через HTTPS-панель")
+				break
+			}
+			c := m.Config()
+			lan,_,_ := net.SplitHostPort(c.Listen)
+			ip := net.ParseIP(lan)
+			if ip == nil || ip.To4() == nil || !ip.IsPrivate() {
+				err = errors.New("для маршрутизации нужен локальный IPv4-адрес панели")
+				break
+			}
+			var devices []vlessDevice
+			var domains []string
+			devices,domains,err = validateVLESSSelection(selected,c,vlessLANDevices(c))
+			if err == nil { err = m.vless.startWithRoutes(r.Context(),dir,&vlessRules{LAN:lan,Devices:devices},domains) }
 		case "check":
 			err = m.vless.check(r.Context())
 		case "stop":
 			ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 			defer cancel()
 			err = m.vless.stop(ctx, false)
+			if err == nil && m.backend.Kind() == "router" { err = cleanupVLESSRoutes(filepath.Dir(m.path)) }
 		default:
 			err = errors.New("неизвестное действие VLESS")
 		}

@@ -25,6 +25,10 @@ let subscriptionRequests=0;
     : request.protocol==='system' ? [{protocol:'System',server:'Системный резолвер ОС',status:'ok',milliseconds:2}]
     : [{protocol:'DoT',server:request.server,status:'unavailable',error:'kdig не найден в PATH'}]);
   }
+  if(url.pathname==='/api/vpn/vless-routing')return json({
+   selection:{devices:['192.168.1.44'],services:['tmdb']},
+   devices:[{ip:'192.168.1.44',interface:'br0'}],services:[{id:'tmdb',name:'TMDB / Seerr'}]
+  });
   if(url.pathname==='/api/vpn/vless'){
    if(req.method()==="POST") {
     const {action}=req.postDataJSON();
@@ -207,6 +211,11 @@ let subscriptionRequests=0;
  assert.deepEqual(dnsRequests.at(-1),{protocol:'system'});
  assert.match(await page.locator('#dns-probe-result').innerText(),/192.168.44.1/);
 
+ await page.locator('#vless-route-devices label').waitFor();
+ assert.equal(await page.locator('#vless-route-devices input').isChecked(),true);
+ assert.equal(await page.locator('#vless-route-services input').isChecked(),true);
+ assert.equal(await page.locator('#vless-route-link').isDisabled(),true);
+ assert.equal(await page.locator('#vless-routing-form button').isDisabled(),true);
  await page.getByRole('button',{name:'Подключить VLESS',exact:true}).click();
  await page.locator('#vless-connection-status').getByText(/Xray запущен/).waitFor();
  await page.getByRole('button',{name:'Проверить выход',exact:true}).click();

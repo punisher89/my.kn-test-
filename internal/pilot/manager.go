@@ -266,6 +266,11 @@ func (m *Manager) SetEnabled(enabled bool) error {
 	return m.setError(nil)
 }
 func (m *Manager) Boot() {
+	if m.backend.Kind() == "router" {
+		if err := cleanupVLESSRoutes(filepath.Dir(m.path)); err != nil {
+			m.log.Add("Очистка маршрутов VLESS: " + err.Error())
+		}
+	}
 	if m.Config().Enabled {
 		if err := m.backend.Start(m.Config()); err != nil {
 			m.setError(err)
