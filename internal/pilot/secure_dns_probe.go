@@ -88,6 +88,7 @@ func secureDNSProbe(ctx context.Context, inputs ...secureDNSRequest) []secureDNS
 		ips, e := net.DefaultResolver.LookupIP(qctx, "ip4", "example.com")
 		if qctx.Err() != nil {
 			r.Status = "timeout"
+			r.Error = "Таймаут системного резолвера"
 		} else if e == nil {
 			for _, ip := range ips {
 				if dnsProbeAnswer(ip.String()) {
@@ -97,7 +98,11 @@ func secureDNSProbe(ctx context.Context, inputs ...secureDNSRequest) []secureDNS
 			}
 		}
 		if r.Status == "failed" {
-			r.Error = "Системный резолвер не вернул пригодный A-ответ"
+			if e != nil {
+				r.Error = e.Error()
+			} else {
+				r.Error = "Системный резолвер не вернул пригодный A-ответ"
+			}
 		}
 		r.Milliseconds = time.Since(start).Milliseconds()
 		cancel()

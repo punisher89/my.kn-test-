@@ -3,13 +3,13 @@ package pilot
 import (
 	"bufio"
 	"context"
+	"errors"
 	"net"
 	"net/netip"
 	"net/url"
 	"os"
 	"os/exec"
 	"strings"
-	"sync/atomic"
 	"time"
 )
 
@@ -184,30 +184,15 @@ func lookupDNSAt(ctx context.Context, address, protocol string) secureDNSResult 
 	start := time.Now()
 	qctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	// Explicit endpoint: Go DNS client uses UDP and retries with TCP on a
-	// truncated response. No kdig, and no substitution of public DNS servers.
-	var dialed atomic.Bool
-	resolver := &net.Resolver{PreferGo: true, Dial: func(c context.Context, network, _ string) (net.Conn, error) {
-		conn, err := (&net.Dialer{}).DialContext(c, network, net.JoinHostPort(address, "53"))
-		if err == nil {
-			dialed.Store(true)
+	endpoint := net.JoinHostPort(address, "53")
+	if err := queryRouterDNS(qctx, endpoint); err != nil {
+		r.Error = err.Error()
+		var networkError net.Error
+		if qctx.Err() == context.DeadlineExceeded || (errors.As(err, &networkError) && networkError.Timeout()) {
+			r.Status = "timeout"
 		}
-		return conn, err
-	}}
-	ips, err := resolver.LookupIP(qctx, "ip4", "example.com.")
-	if err == nil && dialed.Load() {
-		for _, ip := range ips {
-			if dnsProbeAnswer(ip.String()) {
-				r.Status = "ok"
-				break
-			}
-		}
-	}
-	if qctx.Err() != nil {
-		r.Status = "timeout"
-	}
-	if r.Status != "ok" {
-		r.Error = "Нет подтверждённого A-ответа от указанного резолвера"
+	} else {
+		r.Status = "ok"
 	}
 	r.Milliseconds = time.Since(start).Milliseconds()
 	return r
