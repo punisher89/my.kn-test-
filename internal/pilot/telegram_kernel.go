@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/vishvananda/netlink"
-	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
@@ -63,7 +62,7 @@ func (m *Manager) startTelegramTunnel(ctx context.Context, marker string) (resul
 	keepalive := 25 * time.Second
 	peer := wgtypes.PeerConfig{
 		PublicKey: publicKey, Endpoint: &net.UDPAddr{IP: endpoint, Port: endpointPort},
-		ReplaceAllowedIPs: true, AllowedIPs: networks, PersistentKeepaliveInterval: &keepalive,
+		AllowedIPs: networks, PersistentKeepaliveInterval: &keepalive,
 	}
 	if settings["PresharedKey"] != "" {
 		key, _ := wgtypes.ParseKey(settings["PresharedKey"])
@@ -99,19 +98,12 @@ func (m *Manager) startTelegramTunnel(ctx context.Context, marker string) (resul
 	if err := os.WriteFile(marker, nil, 0600); err != nil {
 		return errors.New("не удалось записать состояние интерфейса Telegram")
 	}
-	client, err := wgctrl.New()
-	if err != nil {
-		return fmt.Errorf("не удалось открыть WireGuard ядра: %w", err)
-	}
-	defer client.Close()
-	if err := client.ConfigureDevice(telegramWGName, wgtypes.Config{
-		PrivateKey: &privateKey, ReplacePeers: true, Peers: []wgtypes.PeerConfig{peer},
-	}); err != nil {
-		return fmt.Errorf("ядро отклонило конфигурацию WireGuard: %w", err)
-	}
 	// Reading the just-created link fills the index on every architecture.
 	kernelLink, err := netlink.LinkByName(telegramWGName)
 	if err != nil {
+		return err
+	}
+	if err := configureTelegramWireGuard(kernelLink.Attrs().Index, privateKey, peer); err != nil {
 		return err
 	}
 	address := netip.MustParsePrefix(settings["Address"]).Addr().AsSlice()
