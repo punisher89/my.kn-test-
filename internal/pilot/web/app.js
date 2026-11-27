@@ -709,8 +709,49 @@ function showSubscriptionDialog(message){
  if(!dialog.open)dialog.showModal();
 }
 document.addEventListener("pilot-logout",()=>{$("#subscription-dialog")?.remove();});
+function vlessConnectionPanel(){
+ return `<section class="panel" id="vless-connection"><h2>Подключение VLESS</h2>
+ <p id="vless-connection-status" aria-live="polite">Проверка Xray…</p>
+ <div class="form-actions">
+ <button id="vless-start" type="button" disabled>Подключить VLESS</button>
+ <button id="vless-check" type="button" disabled>Проверить выход</button>
+ <button id="vless-stop" type="button" disabled>Отключить</button>
+ </div>
+ <details><summary>Первый запуск с ПК</summary>
+ <p>Установите Xray в Entware и импортируйте одну ссылку через SSH. В PowerShell на ПК:</p>
+ <pre>(Read-Host "Вставьте ссылку vless://") | ssh -p 222 root@192.168.1.1 "/opt/keenetic-pilot/bin/pilot --vless-import-stdin"</pre>
+ <p>После импорта обновите страницу, нажмите «Подключить VLESS», затем «Проверить выход». Для доступа к SOCKS с ПК:</p>
+ <pre>ssh -N -p 222 -L 127.0.0.1:10891:127.0.0.1:10891 root@192.168.1.1</pre>
+ <p>Укажите SOCKS5 <code>127.0.0.1:10891</code> в программе на ПК. Используйте адрес и порт своего Entware SSH.</p>
+ </details></section>`;
+}
+function bindVLESSConnection(current){
+ const status=$("#vless-connection-status");
+ const controls=[["start",$("#vless-start")],["check",$("#vless-check")],["stop",$("#vless-stop")]];
+ const render=value=>{
+  if(!current())return;
+  controls[0][1].disabled=!(value.available && value.configured) || value.running;
+  controls[1][1].disabled=controls[2][1].disabled=!value.running;
+  if(value.verified)status.textContent=`HTTPS через VLESS подтверждён · ${value.milliseconds} мс · SOCKS ${value.socks}`;
+  else if(value.running)status.textContent=`Xray запущен · SOCKS ${value.socks} · нажмите «Проверить выход»`;
+  else if(!value.available)status.textContent="В Entware установите xray-core командой opkg install xray-core.";
+  else if(!value.configured)status.textContent="Импортируйте ссылку VLESS через SSH.";
+  else status.textContent="Профиль готов к запуску.";
+ };
+ const refresh=()=>api("vpn/vless").then(render);
+ refresh().catch(error=>{if(current())status.textContent=error.message;});
+ for(const [action,button] of controls)button.addEventListener("click",async()=>{
+  for(const [,item] of controls)item.disabled=true;
+  try{
+   render(await api("vpn/vless","POST",{action}));
+  }catch(error){
+   await refresh().catch(()=>{});
+   if(current())status.textContent=error.message;
+  }
+ });
+}
 function geoPage(){
- return heading("Geo Routing","План выборочной маршрутизации KeeneticOS 5.2 через собственный VPN. Pilot не применяет команды автоматически.")+dnsProbePanel()+`<section class="panel">
+ return heading("Geo Routing","План выборочной маршрутизации KeeneticOS 5.2 через собственный VPN. Pilot не применяет команды автоматически.")+vlessConnectionPanel()+dnsProbePanel()+`<section class="panel">
  <details class="geo-fold"><summary>Туннель и политика</summary><p id="geo-tunnels" class="subtle">Поиск VPN-интерфейсов…</p>
  <form id="geo-form"><div class="field"><label for="geo-interface">Имя интерфейса KeeneticOS</label><input id="geo-interface" required maxlength="32" placeholder="OpkgTun10" value="OpkgTun10" autocomplete="off"></div>
  <div class="field"><label for="geo-policy">Имя существующей политики доступа (CLI)</label><input id="geo-policy" required maxlength="32" placeholder="Policy0" autocomplete="off"><small>Проверь имя в конфигурации Keenetic. Не название Wi-Fi.</small></div>
@@ -740,6 +781,7 @@ function bindGeo(){
  const target=$("#geo-services"),status=$("#geo-tunnels"),button=$("#geo-build"),output=$("#geo-output"),commands=$("#geo-commands");
  const session=panelSession;
  const current=()=>signedIn&&panelSession===session&&form===$("#geo-form");
+ bindVLESSConnection(current);
  const routerDNS=$("#dns-probe"), systemDNS=$("#dns-system-probe"), manualDNS=$("#dns-manual-probe");
  const runDNS=async(result,input)=>{
   routerDNS.disabled=systemDNS.disabled=manualDNS.disabled=true;
@@ -1595,6 +1637,7 @@ const releaseNotes={
  "0.2.0-beta.5":["Самодиагностика, предупреждения и диапазоны количества событий","Закрытие всплывающих окон вне области и по Esc; описание версии сохраняет раскрытие","Ручная очистка старой истории и восстановление наблюдений из копии; срок хранения 1–365 суток, по умолчанию выключено","Резервное копирование и восстановление настроек; облегчённый режим фоновых проверок","Импорт одной VPN-подписки, ручное и опциональное ежедневное обновление; без запуска туннелей","Уведомления текущего сеанса","Защитный откат при отказе службы или повторной потере двух контрольных HTTPS-подключений во время обновления; не проверяет скорость"],
  "0.2.0-beta.6":["Импорт и экспорт HostList для каждого сервиса; применение только после сохранения","Импорт локального файла VPN-подписки и предварительный просмотр TXT/base64; без запуска VPN","Приоритет ручных операций над фоновым поиском","Geo Routing: план маршрутов Telegram через существующий туннель; независимый VPS-туннель пока не реализован"],
  "0.2.0-beta.7":["Smart VPN Auto: поле пароля, проверка SSH-входа через защищённую панель; туннель автоматически не запускается","Экспериментальный CLI-помощник WireGuard для IPv4-сетей Telegram; требуется настроенный VPS и проверка на роутере","Ограниченный API Telegram-бота: состояние, управление обходом, проверка и подбор YouTube; отдельный ключ, доступ только через localhost"],
+ "0.2.0-beta.14":["Pilot запускает VLESS TCP/RAW с TLS или REALITY через установленный Xray","Проверка HTTPS через локальный SOCKS и проброс на ПК по SSH"],
  "0.2.0-beta.13":["Вставка одной или нескольких vless:// ссылок с предпросмотром прямо в браузере","Сохранение вставленного списка через защищённую панель"],
  "0.2.0-beta.12":["Прямая проверка DNS Keenetic простым A-запросом","Диагностика показывает код ответа DNS или сетевую ошибку"],
  "0.2.0-beta.11":["Обновления Codex для общей бета-ветки Pilot","Отдельная проверка системного DNS процесса Pilot для сравнения с ответом Keenetic"],

@@ -1,6 +1,7 @@
 package pilot
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"embed"
@@ -11,8 +12,10 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 //go:embed web/*
@@ -201,6 +204,47 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 		jsonReply(w,200, map[string]any{"services":geoServices,"tunnels":geoTunnels(),"applied":false})
 	})
 	// Serialize manual tunnel probes; they must not compete with each other.
+	vlessSlot := make(chan struct{}, 1)
+	api("GET /api/vpn/vless", func(w http.ResponseWriter, r *http.Request) {
+		jsonReply(w, 200, m.vless.status(filepath.Dir(m.path)))
+	})
+	api("POST /api/vpn/vless", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			Action string `json:"action"`
+		}
+		if !read(w, r, &input) {
+			return
+		}
+		select {
+		case vlessSlot <- struct{}{}:
+			defer func() { <-vlessSlot }()
+		default:
+			replyError(w, ErrBusy)
+			return
+		}
+		var err error
+		switch input.Action {
+		case "start":
+			if m.backend.Kind() != "router" {
+				replyError(w, errors.New("запуск VLESS доступен в режиме роутера"))
+				return
+			}
+			err = m.vless.start(r.Context(), filepath.Dir(m.path))
+		case "check":
+			err = m.vless.check(r.Context())
+		case "stop":
+			ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+			defer cancel()
+			err = m.vless.stop(ctx, false)
+		default:
+			err = errors.New("неизвестное действие VLESS")
+		}
+		if err != nil {
+			replyError(w, err)
+			return
+		}
+		jsonReply(w, 200, m.vless.status(filepath.Dir(m.path)))
+	})
 	vpnProbeSlot := make(chan struct{}, 1)
  api("GET /api/vpn/subscription",func(w http.ResponseWriter,r *http.Request){
   state,err:=m.SubscriptionState();if err!=nil{replyError(w,err);return};jsonReply(w,200,state)
