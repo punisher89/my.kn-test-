@@ -20,7 +20,7 @@ const labels = {
   connect: "Первый запуск",
   adaptive: "Коробки обхода",
   strategies: "Каталог методов",
-  geo: "Geo Routing",
+  telegram: "Туннель Telegram",
 };
 let state,
   page = "overview",
@@ -32,7 +32,7 @@ let signedIn = false,
   authInfo = { configured: true },
   networkInfo;
 
-const pollingEndpoints = new Set(["geo", "device", "adaptive", "preflight", "updates", "updates/sources"]);
+const pollingEndpoints = new Set(["telegram/tunnel", "device", "adaptive", "preflight", "updates", "updates/sources"]);
 async function api(path, method = "GET", data, signal) {
   const session = panelSession;
   const deadline = !signal && method === "GET" && pollingEndpoints.has(path) ? new AbortController() : null;
@@ -472,9 +472,9 @@ function telegramNativePanel(){
   const legacy=Boolean(state.config.telegram_mtproto);
   return `<section class="panel" id="telegram-native-panel">
     <div class="panel-head"><h2>Telegram · сквозная маршрутизация</h2></div>
-    <p>Направление Telegram через существующий VPN на роутере: без прокси в приложении, секретов и Cloudflare Worker. Настрой IP-маршруты и домены в Geo Routing. Маршруты применяются вручную в KeeneticOS.</p>
+    <p>Отдельный WireGuard-туннель направляет IPv4-трафик к сетям Telegram через ваш сервер.</p>
     ${legacy?'<p class="subtle">Старый экспериментальный режим обработки MTProto включён. После подтверждения рабочих маршрутов его можно выключить отдельно.</p><button id="telegram-native-toggle" type="button">Выключить старую обработку MTProto</button>':'<p class="subtle">Старая обработка MTProto выключена.</p>'}
-    <a href="#geo">Открыть Geo Routing ↗</a>
+    <a href="#telegram">Открыть туннель Telegram ↗</a>
   </section>`;
 }
 function bindTelegramNative(){
@@ -547,7 +547,7 @@ function settings() {
       "Настройки",
       "Сетевые параметры и правила автоматического подбора.",
     ) +
-    `<form id="settings-form"><div class="settings-grid"><div class="panel"><div class="panel-head"><h2>Подключение</h2></div><div class="field"><label for="wan">WAN-интерфейс</label><input id="wan" value="${esc(c.wan)}" placeholder="Например: ppp0"><small>Имя активного интерфейса провайдера на роутере.</small></div>${toggle("ipv6", "Обрабатывать IPv6", "Включайте при наличии работающего IPv6 у провайдера.", c.ipv6)}${toggle("ppe", "Сохранять видимость handshake", "Первые пакеты без аппаратного ускорения: окно 48 при автоподборе по трафику, иначе 30.", c.ppe)}${toggle("quic", "Обрабатывать QUIC", "Статическая стратегия UDP/443. Подбор HTTPS её не проверяет.", c.quic)}${toggle("discord_voice", "Discord Voice · экспериментально", "Обработка UDP 50000–50099. Нужна проверка реального звонка.", c.discord_voice)}${toggle("youtube_stable", "YouTube · сохранить выбранную стратегию", "Выбранный метод профиля YouTube не будет автоматически заменяться по HTTPS-пробе. Для восстановления используйте кнопку в «Сервисах и доменах».", c.youtube_stable)}</div><div class="panel"><div class="panel-head"><h2>Автоматический подбор</h2></div>${toggle("adaptive", "Автоподбор по трафику", "Обнаруживать повторные ошибки HTTPS и менять метод отдельно для каждого сайта. Сохранённый метод используется первым.", c.adaptive)}<div class="info-note">Новые наблюдения и выбранные методы — в разделе «Коробки обхода». Сетевые ошибки не всегда означают блокировку.</div>${toggle("adaptive_fast_start","Быстрый старт автоподбора","Первые три смены метода в каждом 10-минутном окне: пауза 10 секунд вместо обычной. Затем действует заданная ниже пауза. Два сбоя перед сменой и общие лимиты сохраняются.",c.adaptive_fast_start)}${toggle("adaptive_active","Полный автоподбор","После повторных сбоев самостоятельно проверить прямое подключение и весь каталог на изолированных пробах. Применять только подтверждённый HTTPS-результат без перезапуска движка.",c.adaptive_active)}${toggle("subscription_auto_refresh","Обновлять сохранённую VPN-подписку","Не чаще раза в сутки, при разрешённых фоновых проверках. Маршруты и туннели не меняются.",Boolean(c.subscription_auto_refresh))}${toggle("lightweight","Облегчённый режим (MIPS / слабые роутеры)","Проверка очереди фонового подбора каждые 30 секунд вместо 10. Действующие методы не меняются.",Boolean(c.lightweight))}${toggle("background_paused","Пауза фоновых проверок","Приостановить автоматические проверки и подбор, не перезапуская nfqws2, QUIC и текущие стратегии.",Boolean(c.background_paused))}${toggle("background_other_domains","Проверять посторонние сайты автоматически","По умолчанию выключено для снижения нагрузки. Полный автоподбор работает на настроенных сервисах; неизвестные сайты можно поставить на проверку вручную. Включайте только на мощном роутере.",Boolean(c.background_other_domains))}${toggle("adaptive_reuse", "Использовать опыт коробок", "После повторных сбоев сначала пробовать до трёх методов, давших ответ в похожем контексте за последние семь дней.", c.adaptive_reuse)}<div class="two-fields"><div class="field"><label for="adaptive-cooldown">Пауза между сменами, с</label><input id="adaptive-cooldown" type="number" min="10" max="300" value="${c.adaptive_cooldown_seconds}"></div><div class="field"><label for="adaptive-max-switches">Максимум смен за 10 минут</label><input id="adaptive-max-switches" type="number" min="1" max="20" value="${c.adaptive_max_switches}"></div></div><div class="field"><label for="adaptive-global-max">Общий лимит смен движка за 10 минут</label><input id="adaptive-global-max" type="number" min="1" max="300" value="${c.adaptive_global_max_switches??30}"><small>Для всех коробок вместе. Рабочие методы сохраняются; при достижении лимита смена ждёт окончания окна.</small></div>${toggle("probe_load_guard","Защита фоновых проверок","Откладывать плановые проверки, подбор и загрузку каталогов при CPU ≥65%, load ≥ числу ядер или нехватке памяти. Работающий обход продолжается.",c.probe_load_guard!==false)}${toggle("auto_catalog", "Обновлять каталог стратегий", "Подписанный каталог Pilot: проверка раз в сутки. Новые варианты проверяются при подборе.", c.auto_catalog)}<div class="form-actions"><button type="button" id="catalog-update">Загрузить стратегии сейчас</button></div>${toggle("auto", "Следить за доступностью", "После двух неудачных циклов проверок начинается новый подбор.", c.auto)}<div class="field"></div><div class="two-fields"><div class="field"><label for="interval">Интервал, мин</label><input id="interval" type="number" min="5" max="1440" value="${c.interval_minutes}"></div><div class="field"><label for="timeout">Таймаут запроса, с</label><input id="timeout" type="number" min="2" max="20" value="${c.timeout_seconds}"></div></div><div class="field"><label for="history-retention">Хранение истории, суток (0 — без очистки по сроку)</label><input id="history-retention" type="number" min="0" max="365" value="${c.history_retention_days??0}"><small>Удаляются только группы, последний результат которых старше срока. Настройки и текущие наблюдения сохраняются.</small></div><div class="field"><label for="attempts">Попыток на протокол и адрес</label><input id="attempts" type="number" min="1" max="3" value="${c.attempts}"></div><div class="field"><label for="exclusions">Исключения · по одному домену на строку</label><textarea id="exclusions" rows="6" placeholder="example.com">${esc(c.exclusions.join("\n"))}</textarea><small>Исключённые домены не обрабатываются движком.</small></div></div></div><div class="form-actions"><button type="submit" class="primary" ${manualBlocked() ? "disabled" : ""}>Сохранить настройки ↗</button><small>Изменение параметров обработки трафика перезапустит движок. Параметры фоновых проверок применяются сразу.</small></div></form>` + `<section class="panel"><h2>Резервная копия настроек</h2><p>Включает профили и ручные правила, но не пароли панели и не файлы обучения. Может содержать частные домены и URL — храните локально.</p><div class="form-actions"><button id="settings-backup-download" type="button">Скачать JSON</button><input type="file" id="settings-backup-file" accept=".json,application/json"><button id="settings-backup-restore" type="button">Восстановить настройки</button></div></section>`
+    `<form id="settings-form"><div class="settings-grid"><div class="panel"><div class="panel-head"><h2>Подключение</h2></div><div class="field"><label for="wan">WAN-интерфейс</label><input id="wan" value="${esc(c.wan)}" placeholder="Например: ppp0"><small>Имя активного интерфейса провайдера на роутере.</small></div>${toggle("ipv6", "Обрабатывать IPv6", "Включайте при наличии работающего IPv6 у провайдера.", c.ipv6)}${toggle("ppe", "Сохранять видимость handshake", "Первые пакеты без аппаратного ускорения: окно 48 при автоподборе по трафику, иначе 30.", c.ppe)}${toggle("quic", "Обрабатывать QUIC", "Статическая стратегия UDP/443. Подбор HTTPS её не проверяет.", c.quic)}${toggle("discord_voice", "Discord Voice · экспериментально", "Обработка UDP 50000–50099. Нужна проверка реального звонка.", c.discord_voice)}${toggle("youtube_stable", "YouTube · сохранить выбранную стратегию", "Выбранный метод профиля YouTube не будет автоматически заменяться по HTTPS-пробе. Для восстановления используйте кнопку в «Сервисах и доменах».", c.youtube_stable)}</div><div class="panel"><div class="panel-head"><h2>Автоматический подбор</h2></div>${toggle("adaptive", "Автоподбор по трафику", "Обнаруживать повторные ошибки HTTPS и менять метод отдельно для каждого сайта. Сохранённый метод используется первым.", c.adaptive)}<div class="info-note">Новые наблюдения и выбранные методы — в разделе «Коробки обхода». Сетевые ошибки не всегда означают блокировку.</div>${toggle("adaptive_fast_start","Быстрый старт автоподбора","Первые три смены метода в каждом 10-минутном окне: пауза 10 секунд вместо обычной. Затем действует заданная ниже пауза. Два сбоя перед сменой и общие лимиты сохраняются.",c.adaptive_fast_start)}${toggle("adaptive_active","Полный автоподбор","После повторных сбоев самостоятельно проверить прямое подключение и весь каталог на изолированных пробах. Применять только подтверждённый HTTPS-результат без перезапуска движка.",c.adaptive_active)}${toggle("lightweight","Облегчённый режим (MIPS / слабые роутеры)","Проверка очереди фонового подбора каждые 30 секунд вместо 10. Действующие методы не меняются.",Boolean(c.lightweight))}${toggle("background_paused","Пауза фоновых проверок","Приостановить автоматические проверки и подбор, не перезапуская nfqws2, QUIC и текущие стратегии.",Boolean(c.background_paused))}${toggle("background_other_domains","Проверять посторонние сайты автоматически","По умолчанию выключено для снижения нагрузки. Полный автоподбор работает на настроенных сервисах; неизвестные сайты можно поставить на проверку вручную. Включайте только на мощном роутере.",Boolean(c.background_other_domains))}${toggle("adaptive_reuse", "Использовать опыт коробок", "После повторных сбоев сначала пробовать до трёх методов, давших ответ в похожем контексте за последние семь дней.", c.adaptive_reuse)}<div class="two-fields"><div class="field"><label for="adaptive-cooldown">Пауза между сменами, с</label><input id="adaptive-cooldown" type="number" min="10" max="300" value="${c.adaptive_cooldown_seconds}"></div><div class="field"><label for="adaptive-max-switches">Максимум смен за 10 минут</label><input id="adaptive-max-switches" type="number" min="1" max="20" value="${c.adaptive_max_switches}"></div></div><div class="field"><label for="adaptive-global-max">Общий лимит смен движка за 10 минут</label><input id="adaptive-global-max" type="number" min="1" max="300" value="${c.adaptive_global_max_switches??30}"><small>Для всех коробок вместе. Рабочие методы сохраняются; при достижении лимита смена ждёт окончания окна.</small></div>${toggle("probe_load_guard","Защита фоновых проверок","Откладывать плановые проверки, подбор и загрузку каталогов при CPU ≥65%, load ≥ числу ядер или нехватке памяти. Работающий обход продолжается.",c.probe_load_guard!==false)}${toggle("auto_catalog", "Обновлять каталог стратегий", "Подписанный каталог Pilot: проверка раз в сутки. Новые варианты проверяются при подборе.", c.auto_catalog)}<div class="form-actions"><button type="button" id="catalog-update">Загрузить стратегии сейчас</button></div>${toggle("auto", "Следить за доступностью", "После двух неудачных циклов проверок начинается новый подбор.", c.auto)}<div class="field"></div><div class="two-fields"><div class="field"><label for="interval">Интервал, мин</label><input id="interval" type="number" min="5" max="1440" value="${c.interval_minutes}"></div><div class="field"><label for="timeout">Таймаут запроса, с</label><input id="timeout" type="number" min="2" max="20" value="${c.timeout_seconds}"></div></div><div class="field"><label for="history-retention">Хранение истории, суток (0 — без очистки по сроку)</label><input id="history-retention" type="number" min="0" max="365" value="${c.history_retention_days??0}"><small>Удаляются только группы, последний результат которых старше срока. Настройки и текущие наблюдения сохраняются.</small></div><div class="field"><label for="attempts">Попыток на протокол и адрес</label><input id="attempts" type="number" min="1" max="3" value="${c.attempts}"></div><div class="field"><label for="exclusions">Исключения · по одному домену на строку</label><textarea id="exclusions" rows="6" placeholder="example.com">${esc(c.exclusions.join("\n"))}</textarea><small>Исключённые домены не обрабатываются движком.</small></div></div></div><div class="form-actions"><button type="submit" class="primary" ${manualBlocked() ? "disabled" : ""}>Сохранить настройки ↗</button><small>Изменение параметров обработки трафика перезапустит движок. Параметры фоновых проверок применяются сразу.</small></div></form>` + `<section class="panel"><h2>Резервная копия настроек</h2><p>Включает профили и ручные правила, но не пароли панели и не файлы обучения. Может содержать частные домены и URL — храните локально.</p><div class="form-actions"><button id="settings-backup-download" type="button">Скачать JSON</button><input type="file" id="settings-backup-file" accept=".json,application/json"><button id="settings-backup-restore" type="button">Восстановить настройки</button></div></section>`
   );
 }
 function lines(value) {
@@ -694,7 +694,6 @@ kdig -V</pre><p>Поддержка DoQ зависит от сборки kdig.</p
  <pre id="dns-manual-result" aria-live="polite">Проверка ещё не запускалась</pre>
  </details></section>`;
 }
-let subscriptionBusy=false;
 function describeSubscription(d){return "Записей: "+d.total+" · "+Object.entries(d.types||{}).map(([k,v])=>k+": "+v).join(", ")+" · неизвестных: "+d.unknown+". Доступность серверов не проверена.";}
 function previewLocalSubscription(raw){
  let value=raw.trim();if(!value.includes("://")){try{const decoded=new TextDecoder().decode(Uint8Array.from(atob(value.replace(/\s/g,"").replace(/-/g,"+").replace(/_/g,"/")),c=>c.charCodeAt(0)));if(decoded.includes("://"))value=decoded;}catch{}}
@@ -709,132 +708,10 @@ function showSubscriptionDialog(message){
  if(!dialog.open)dialog.showModal();
 }
 document.addEventListener("pilot-logout",()=>{$("#subscription-dialog")?.remove();});
-function vlessConnectionPanel(){
- return `<section class="panel" id="vless-connection"><h2>Подключение VLESS</h2>
- <p id="vless-connection-status" aria-live="polite">Проверка Xray…</p>
- <div class="form-actions">
- <button id="vless-start" type="button" disabled>Подключить VLESS</button>
- <button id="vless-check" type="button" disabled>Проверить выход</button>
- <button id="vless-stop" type="button" disabled>Отключить</button>
- </div>
- <form id="vless-routing-form">
- <p id="vless-https-note"></p>
- <div class="field"><label for="vless-route-link">Ссылка VLESS</label>
- <input type="password" id="vless-route-link" placeholder="vless://…" maxlength="8192" autocomplete="off" spellcheck="false">
- <small>Пустое поле сохраняет существующий профиль.</small></div>
- <fieldset><legend>Устройства в локальной сети</legend><div id="vless-route-devices">Загрузка…</div></fieldset>
- <fieldset><legend>Сервисы через VLESS</legend><div id="vless-route-services">Загрузка…</div></fieldset>
- <p>Экспериментальная маршрутизация HTTP и HTTPS по TCP/IPv4. Остальной веб-трафик выбранных устройств Xray открывает напрямую от роутера; это может изменить путь для клиентов с политиками Keenetic. Устройствам нужны постоянные IP. Отключение действует на новые соединения.</p>
- <button type="submit">Сохранить выбор</button></form>
- <details><summary>Первый запуск с ПК</summary>
- <p>Установите Xray в Entware и импортируйте одну ссылку через SSH. В PowerShell на ПК:</p>
- <pre>(Read-Host "Вставьте ссылку vless://") | ssh -p 222 root@192.168.1.1 "/opt/keenetic-pilot/bin/pilot --vless-import-stdin"</pre>
- <p>После импорта обновите страницу, нажмите «Подключить VLESS», затем «Проверить выход». Для доступа к SOCKS с ПК:</p>
- <pre>ssh -N -p 222 -L 127.0.0.1:10891:127.0.0.1:10891 root@192.168.1.1</pre>
- <p>Укажите SOCKS5 <code>127.0.0.1:10891</code> в программе на ПК. Используйте адрес и порт своего Entware SSH.</p>
- </details></section>`;
-}
-function bindVLESSConnection(current){
- const status=$("#vless-connection-status");
- const controls=[["start",$("#vless-start")],["check",$("#vless-check")],["stop",$("#vless-stop")]];
- const render=value=>{
-  if(!current())return;
-  controls[0][1].disabled=!(value.available && value.configured) || value.running;
-  controls[1][1].disabled=controls[2][1].disabled=!value.running;
-  if(value.running&&value.routing)status.textContent="VLESS подключён. Правила для выбранных устройств активны.";
-  else if(value.verified)status.textContent=`HTTPS через VLESS подтверждён · ${value.milliseconds} мс · SOCKS ${value.socks}`;
-  else if(value.running)status.textContent=`Xray запущен · SOCKS ${value.socks} · нажмите «Проверить выход»`;
-  else if(!value.available)status.textContent="В Entware установите xray-core командой opkg install xray-core.";
-  else if(!value.configured)status.textContent="Добавьте ссылку VLESS через HTTPS-панель.";
-  else status.textContent="Профиль готов к запуску.";
- };
- const form=$("#vless-routing-form");
- const secure=location.protocol==="https:";
- if(!secure){
-  const url=new URL(location.href);
-  url.protocol="https:";
-  url.port="9443";
-  const link=document.createElement("a");
-  link.href=url.href;
-  link.textContent="Открыть HTTPS-панель Pilot для ввода ссылки";
-  $("#vless-https-note").replaceChildren(link);
-  $("#vless-route-link").disabled=form.querySelector("button").disabled=true;
- }
- api("vpn/vless-routing").then(value=>{
-  if(!current())return;
-  const devices=value.selection.devices??[],services=value.selection.services??[];
-  const available=new Map(value.devices.map(item=>[item.ip,item.interface]));
-  for(const ip of devices)if(!available.has(ip))available.set(ip,"вне сети");
-  $("#vless-route-devices").innerHTML=[...available].map(([ip,iface])=>
-   `<label class="check-label"><input type="checkbox" name="device" value="${esc(ip)}" ${devices.includes(ip)?"checked":""}> ${esc(ip)} · ${esc(iface)}</label>`
-  ).join("")||"<p>Подключите устройство к сети и обновите страницу.</p>";
-  $("#vless-route-services").innerHTML=value.services.map(item=>
-   `<label class="check-label"><input type="checkbox" name="service" value="${esc(item.id)}" ${services.includes(item.id)?"checked":""}> ${esc(item.name)}</label>`
-  ).join("");
- }).catch(error=>{
-  if(current())$("#vless-route-devices").textContent=error.message;
- });
- form.addEventListener("submit",async event=>{
-  event.preventDefault();
-  if(!secure)return;
-  const submit=form.querySelector("button");
-  const field=$("#vless-route-link"),values=new FormData(form);
-  submit.disabled=true;
-  try{
-   const next=await api("vpn/vless","POST",{
-    action:"save",link:field.value.trim(),
-    selection:{devices:values.getAll("device"),services:values.getAll("service")},
-   });
-   field.value="";
-   render(next);
-   if(current())status.textContent="Выбор сохранён. Нажмите «Подключить VLESS».";
-  }catch(error){if(current())status.textContent=error.message;}
-  finally{submit.disabled=false;}
- });
- const refresh=()=>api("vpn/vless").then(render);
- refresh().catch(error=>{if(current())status.textContent=error.message;});
- for(const [action,button] of controls)button.addEventListener("click",async()=>{
-  for(const [,item] of controls)item.disabled=true;
-  try{
-   render(await api("vpn/vless","POST",{action}));
-  }catch(error){
-   await refresh().catch(()=>{});
-   if(current())status.textContent=error.message;
-  }
- });
-}
-function geoPage(){
- return heading("Geo Routing","План выборочной маршрутизации KeeneticOS 5.2 через собственный VPN. Pilot не применяет команды автоматически.")+vlessConnectionPanel()+dnsProbePanel()+`<section class="panel">
- <details class="geo-fold"><summary>Туннель и политика</summary><p id="geo-tunnels" class="subtle">Поиск VPN-интерфейсов…</p>
- <form id="geo-form"><div class="field"><label for="geo-interface">Имя интерфейса KeeneticOS</label><input id="geo-interface" required maxlength="32" placeholder="OpkgTun10" value="OpkgTun10" autocomplete="off"></div>
- <div class="field"><label for="geo-policy">Имя существующей политики доступа (CLI)</label><input id="geo-policy" required maxlength="32" placeholder="Policy0" autocomplete="off"><small>Проверь имя в конфигурации Keenetic. Не название Wi-Fi.</small></div>
- <div class="form-actions"><button id="geo-probe" type="button">Проверить VPN</button></div><p id="geo-probe-result" class="subtle" aria-live="polite"></p><div id="geo-services">Загрузка списка…</div><div class="form-actions"><button type="submit" id="geo-build" disabled>Создать план</button></div></form>
- <p class="subtle">Ни одна служба не направляется в VPN до ручного применения. Список доменов стартовый и не гарантирует охват всех CDN/авторизации. Учитывай правила доступности сервисов. DNS клиентов должен обслуживать Keenetic. Telegram дополнительно использует официальные IP-сети; проверь поддержку IPv6 в туннеле и назначение политики всем нужным клиентам.</p>
- <div id="geo-output" hidden><label for="geo-commands">Предпросмотр команд CLI</label><textarea id="geo-commands" readonly rows="12" spellcheck="false"></textarea><button id="geo-download" type="button">Скачать команды TXT</button>
- <p>Проверь отсутствие существующих групп pilot-geo-*, резервную копию конфигурации, туннель и политику. Применяй в CLI самой KeeneticOS, не в Entware shell. Проверь доступ из клиента политики перед сохранением конфигурации. Для отката удали только созданные маршруты и группы в настройках Keenetic. Автоматического отката нет.</p></div>
- </details></section><section class="panel" id="vpn-standalone">
- <details class="geo-fold"><summary>Smart VPN Auto · независимое подключение (разработка)</summary>
- <p class="subtle">Проверка формата на устройстве пользователя. SSH-проверка проверяет вход на VPS, но не запускает туннель. Пароль не сохраняется. Ввод и вставка пароля доступны в локальной панели. Для отправки пароля открой панель через HTTPS или защищённый SSH-проброс на localhost.</p>
- <p id="vpn-engines" class="subtle">Поиск VPN-движков…</p>
- <form id="vpn-prepare"><div class="field"><label for="vpn-type">Тип подключения</label><select id="vpn-type"><option value="ssh">VPS по SSH</option><option value="wg">WireGuard</option><option value="awg">AmneziaWG</option><option value="openvpn">OpenVPN</option></select></div>
- <div id="vpn-ssh-fields"><div class="field"><label for="vpn-host">IP или домен сервера</label><input id="vpn-host" maxlength="253" autocomplete="off"></div><div class="field"><label for="vpn-port">Порт SSH</label><input id="vpn-port" type="number" min="1" max="65535" value="22"></div><div class="field"><label for="vpn-user">Логин</label><input id="vpn-user" maxlength="64" autocomplete="off"></div><div class="field"><label for="vpn-password">Пароль VPS</label><input id="vpn-password" type="password" maxlength="512" autocomplete="new-password" spellcheck="false"><div class="form-actions"><button id="vpn-password-toggle" type="button">Показать пароль</button><button id="vpn-ssh-test" type="button" disabled>Проверить вход на VPS</button></div><small id="vpn-password-hint">Ввод доступен; отправка пароля только через защищённое подключение.</small></div></div>
- <div id="vpn-config-fields" hidden><label for="vpn-config">Локальный файл конфигурации</label><input id="vpn-config" type="file" accept=".conf,.ovpn,.txt"><p class="subtle">Файл проверяется только в браузере, не отправляется на роутер.</p></div>
- <button type="submit">Проверить формат</button><p id="vpn-prepare-result" aria-live="polite"></p></form></details></section><section class="panel"><h2>VPN-подписки · импорт и обновление</h2><p>Предпросмотр не меняет маршруты и не запускает VPN. Поддерживаются TXT и base64 со списком URI. Для передачи приватных данных используйте HTTPS или SSH-проброс панели на localhost.</p><form id="vpn-subscription-paste">
- <div class="field"><label for="vpn-subscription-text">Вставить VLESS</label>
- <textarea id="vpn-subscription-text" rows="3" maxlength="524288" placeholder="vless://…" autocomplete="off" spellcheck="false" required></textarea>
- <small>Одна ссылка или список по одной ссылке на строку. Предпросмотр выполняется в браузере.</small></div>
- <div class="form-actions"><button type="submit" value="preview">Проверить VLESS</button><button type="submit" value="save">Сохранить как подписку</button></div>
- </form>
- <h3>Ссылка на подписку с автообновлением</h3>
- <form id="vpn-subscription-form"><label>HTTPS-ссылка <input id="vpn-subscription-url" type="password" autocomplete="off" maxlength="4096" required></label><div class="form-actions"><button type="submit" value="preview">Предпросмотр ссылки</button><button type="submit" value="save">Сохранить ссылку</button></div></form><div class="field"><label for="vpn-subscription-file">Импорт с компьютера</label><input id="vpn-subscription-file" type="file" accept=".txt,.conf,.b64,.base64,text/plain"><div class="form-actions"><button id="vpn-file-preview" type="button">Предпросмотр файла</button><button id="vpn-file-import" type="button">Импортировать файл</button></div></div><div class="form-actions"><button id="vpn-subscription-show" type="button">Открыть последнее окно</button><button id="vpn-subscription-refresh" type="button">Обновить сохранённую</button><button id="vpn-subscription-delete" type="button">Удалить сохранённую</button></div><p id="vpn-subscription-saved" aria-live="polite"></p><p id="vpn-subscription-result" aria-live="polite"></p></section>`;
-}
-function bindGeo(){
- const form=$("#geo-form");
- if(!form)return;
- const target=$("#geo-services"),status=$("#geo-tunnels"),button=$("#geo-build"),output=$("#geo-output"),commands=$("#geo-commands");
+function bindDNSProbes(){
+ const panel=$("#dns-probe-result");
  const session=panelSession;
- const current=()=>signedIn&&panelSession===session&&form===$("#geo-form");
- bindVLESSConnection(current);
+ const current=()=>signedIn&&panelSession===session&&panel===$("#dns-probe-result");
  const routerDNS=$("#dns-probe"), systemDNS=$("#dns-system-probe"), manualDNS=$("#dns-manual-probe");
  const runDNS=async(result,input)=>{
   routerDNS.disabled=systemDNS.disabled=manualDNS.disabled=true;
@@ -855,156 +732,85 @@ function bindGeo(){
  manualDNS.addEventListener("click",()=>runDNS($("#dns-manual-result"),{
   server:$("#dns-server").value,address:$("#dns-address").value,protocol:$("#dns-protocol").value,
  }));
- const subscription=$("#vpn-subscription-form");
- const renderSaved=d=>{if(!current())return;$("#vpn-subscription-saved").textContent=d.saved?(d.local?"Локальный импорт: ":"Сохранённая ссылка: ")+new Date(d.updated).toLocaleString("ru-RU")+" · "+describeSubscription(d.preview):"Сохранённой подписки нет.";$("#vpn-subscription-refresh").disabled=!d.saved||d.local;$("#vpn-subscription-delete").disabled=!d.saved;};
- const show=message=>{if(!signedIn||panelSession!==session)return;showSubscriptionDialog(message);if(current())$("#vpn-subscription-result").textContent=message;};
- const run=async(fn)=>{if(subscriptionBusy)return;subscriptionBusy=true;show("Выполняется…");try{await fn();}catch(err){show("Ошибка: "+err.message);}finally{subscriptionBusy=false;}};
- if(subscription){
-  $("#vpn-subscription-refresh").disabled=true;$("#vpn-subscription-delete").disabled=true;
-  api("vpn/subscription").then(renderSaved).catch(e=>{if(current())$("#vpn-subscription-saved").textContent=e.message;});
-  $("#vpn-subscription-show").onclick=()=>showSubscriptionDialog();
-  for(const [id,act] of [["vpn-subscription-refresh","refresh"],["vpn-subscription-delete","delete"]]){
-   $("#"+id).onclick=()=>{if(act==="delete"&&!window.confirm("Удалить сохранённую подписку?"))return;run(async()=>{renderSaved(await api("vpn/subscription","POST",{action:act}));show(act==="delete"?"Подписка удалена.":"Подписка обновлена.");});};
-  }
-  subscription.addEventListener("submit",e=>{
-   e.preventDefault();const field=$("#vpn-subscription-url"),url=field.value.trim(),save=e.submitter?.value==="save";
-   if(!url||subscriptionBusy)return;
-   if(save&&!window.confirm("Заменить сохранённую подписку? Маршруты не изменятся."))return;
-   field.value="";
-   run(async()=>{const d=await api(save?"vpn/subscription":"vpn/subscription/preview","POST",save?{url,action:"save"}:{url});if(save)renderSaved(d);show((save?"Подписка сохранена. ":"")+describeSubscription(save?d.preview:d));});
-  });
-  const importLocalSubscription=async body=>{
-   if(location.protocol!=="https:"&&!["localhost","127.0.0.1","[::1]"].includes(location.hostname)) {
-    throw Error("Сохранение доступно через HTTPS или SSH-проброс на localhost. Проверить VLESS можно прямо здесь.");
-   }
-   const response=await fetch("/api/vpn/subscription/file",{
-    method:"POST",headers:{Authorization:"Bearer "+token,"Content-Type":"application/octet-stream"},body,
-   });
-   const data=await response.json().catch(()=>({}));
-   if(!response.ok)throw Error(data.error||"HTTP "+response.status);
-   renderSaved(data);
-   show("Подписка сохранена. "+describeSubscription(data.preview));
-  };
-  $("#vpn-subscription-paste").addEventListener("submit",event=>{
-   event.preventDefault();
-   if(subscriptionBusy)return;
-   const field=$("#vpn-subscription-text"), value=field.value.trim();
-   const save=event.submitter?.value==="save";
-   run(async()=>{
-    const body=new Blob([value],{type:"application/octet-stream"});
-    if(body.size>512*1024)throw Error("Список ссылок превышает 512 КиБ.");
-    const preview=previewLocalSubscription(value);
-    if(!save){
-     show(describeSubscription(preview));
-     return;
-    }
-    if(!window.confirm("Заменить сохранённую подписку вставленным списком?")){
-     show("Сохранение отменено.");
-     return;
-    }
-    await importLocalSubscription(body);
-    field.value="";
-   });
-  });
-  const fileInput=$("#vpn-subscription-file");
-  const fileAction=save=>{
-   if(subscriptionBusy)return;
-   const file=fileInput.files[0];
-   if(!file||file.size>512*1024){show("Выберите файл до 512 КиБ.");return;}
-   if(save&&!window.confirm("Заменить сохранённую подписку локальным файлом? Маршруты не изменятся."))return;
-   run(async()=>{
-    if(!save){show(describeSubscription(previewLocalSubscription(await file.text())));return;}
-    await importLocalSubscription(file);
-    fileInput.value="";
-   });
-  };
-  $("#vpn-file-preview").onclick=()=>fileAction(false);
-  $("#vpn-file-import").onclick=()=>fileAction(true);
- }
- const prep=$("#vpn-prepare"),type=$("#vpn-type"),result=$("#vpn-prepare-result"),file=$("#vpn-config");
- let prepSerial=0;
- const password=$("#vpn-password"), showPassword=$("#vpn-password-toggle"), sshTest=$("#vpn-ssh-test");
- const secureSSH=location.protocol==="https:"||["localhost","127.0.0.1","[::1]"].includes(location.hostname);
- password.disabled=showPassword.disabled=false;sshTest.disabled=false;
- if(secureSSH)$("#vpn-password-hint").textContent="Пароль передаётся только для проверки входа, после проверки очищается. Нужен предварительно проверенный ключ сервера.";
- showPassword.onclick=()=>{const visible=password.type==="password";password.type=visible?"text":"password";showPassword.textContent=visible?"Скрыть пароль":"Показать пароль";};
- sshTest.onclick=async()=>{
-  if(type.value!=="ssh")return;
-  if(!secureSSH){result.textContent="Пароль не отправлен: открой панель через HTTPS или SSH-проброс на localhost. Ввод и вставка доступны.";return;}
-  const serial=++prepSerial;
-  sshTest.disabled=true;result.textContent="Проверяем SSH-вход с роутера…";
-  try{
-   const data={host:$("#vpn-host").value.trim(),user:$("#vpn-user").value.trim(),port:$("#vpn-port").value,password:password.value};
-   validateIndependentVPN("ssh",data);
-   if(!data.password)throw Error("Введи пароль VPS.");
-   const promise=api("vpn/ssh-check","POST",data);
-   data.password="";password.value="";password.type="password";showPassword.textContent="Показать пароль";
-   const answer=await promise;
-   if(current()&&serial===prepSerial)result.textContent=answer.status==="authenticated"?"SSH-вход подтверждён. Туннель не запущен.": "Вход не подтверждён: "+(answer.message||"ошибка");
-  }catch(err){if(current()&&serial===prepSerial)result.textContent=err.message;}
-  finally{if(current()){password.value="";password.type="password";showPassword.textContent="Показать пароль";sshTest.disabled=false;}}
- };
- const changeVPN=()=>{prepSerial++;result.textContent="";$("#vpn-ssh-fields").hidden=type.value!=="ssh";$("#vpn-config-fields").hidden=type.value==="ssh";file.value="";password.value="";password.type="password";showPassword.textContent="Показать пароль";};
- type.addEventListener("change",changeVPN);
- prep.addEventListener("input",()=>{prepSerial++;result.textContent="";});
- prep.addEventListener("submit",async e=>{
-  e.preventDefault();const serial=++prepSerial,kind=type.value;result.textContent="";
-  try{
-   let config="";
-   if(kind!=="ssh"){
-    const f=file.files[0];if(!f||f.size>65536)throw Error("Выбери файл до 64 КБ.");
-    config=await f.text();
-   }
-   if(!current()||serial!==prepSerial)return;
-   result.textContent=validateIndependentVPN(kind,{host:$("#vpn-host").value,user:$("#vpn-user").value,port:$("#vpn-port").value,config});
-  }catch(err){if(current()&&serial===prepSerial)result.textContent=err.message;}
- });
- api("vpn/capabilities").then(d=>{
-  if(!current())return;
-  const found=Object.entries(d.engines||{}).filter(([,v])=>v).map(([k])=>k);
-  $("#vpn-engines").textContent=found.length?"Найдены исполняемые файлы: "+found.join(", ")+". Поддержка туннелей ядром ещё не проверена.":"VPN-движки не найдены.";
- }).catch(()=>{if(current())$("#vpn-engines").textContent="Не удалось получить сведения о VPN-движках.";});
-
- api("geo").then(d=>{
-  if(!current())return;
-  status.textContent=d.tunnels.length?"Обнаружены активные интерфейсы Linux: "+d.tunnels.join(", ")+". Это не подтверждение доступности VPN.":"Поддерживаемые активные интерфейсы не обнаружены. Проверь AWG Manager и имя CLI.";
-  target.innerHTML=d.services.map(s=>`<div class="toggle-row"><div><label for="geo-${esc(s.id)}">${esc(s.name)}</label><p>${s.domains.map(esc).join(", ")}${s.networks?.length?` · ${s.networks.length} IP-сетей (IPv4/IPv6)`:""}</p></div><input id="geo-${esc(s.id)}" type="checkbox" value="${esc(s.id)}"></div>`).join("");
-  button.disabled=false;
- }).catch(e=>{if(current())status.textContent="Не удалось загрузить: "+e.message;});
- const probeButton=$("#geo-probe"),probeResult=$("#geo-probe-result");
- probeButton.addEventListener("click",async ()=>{
-  const name=$("#geo-interface").value.trim();
-  probeButton.disabled=true;probeResult.textContent="Проверка HTTPS через "+name+"…";
-  try{
-   const d=await api("geo/probe","POST",{interface:name});
-   if(!current())return;
-   const messages={reachable:"HTTPS через туннель доступен",unreachable:"Нет ответа HTTPS",down:"Интерфейс не обнаружен или выключен",unknown:"Доступность не подтверждена"};
-   probeResult.textContent=d.interface+": "+(messages[d.state]||messages.unknown)+". Маршруты не менялись.";
-  }catch(e){if(current())probeResult.textContent="Ошибка проверки: "+e.message;}
-  finally{if(current())probeButton.disabled=false;}
- });
- let serial=0;
- form.addEventListener("input",()=>{serial++;output.hidden=true;commands.value="";button.disabled=false;});
- form.addEventListener("submit",async e=>{
-  e.preventDefault();
-  const selected=[...target.querySelectorAll("input:checked")].map(n=>n.value);
-  const attempt=++serial;button.disabled=true;output.hidden=true;commands.value="";
-  try{
-   const d=await api("geo/plan","POST",{interface:$("#geo-interface").value.trim(),policy:$("#geo-policy").value.trim(),services:selected});
-   if(!current()||attempt!==serial)return;
-   commands.value=d.commands;output.hidden=false;notify("План готов. Маршрутизация не изменена.");
-  }catch(err){if(current()&&attempt===serial)notify(err.message,true);}
-  finally{if(current()&&attempt===serial)button.disabled=false;}
- });
- $("#geo-download").addEventListener("click",()=>{
-  if(!commands.value)return;
-  const url=URL.createObjectURL(new Blob([commands.value],{type:"text/plain;charset=utf-8"}));
-  const a=document.createElement("a");a.href=url;a.download="keenetic-pilot-geo-plan.txt";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
- });
 }
+
+function telegramTunnelPage(){
+ const secure=location.protocol==="https:";
+ const url=new URL(location.href);
+ url.protocol="https:";
+ url.port="9443";
+ url.hash="telegram";
+ return heading("Туннель Telegram","Отдельный WireGuard-туннель для IPv4-сетей Telegram.")+`<section class="panel">
+ <p id="telegram-tunnel-status" role="status">Загрузка…</p>
+ <div class="actions">
+ <button type="button" id="telegram-tunnel-start" disabled>Запустить туннель</button>
+ <button type="button" id="telegram-tunnel-stop" disabled>Остановить туннель</button>
+ <button type="button" id="telegram-tunnel-refresh">Обновить состояние</button>
+ </div>
+ ${secure?'<form id="telegram-tunnel-form"><label>Клиентский профиль WireGuard<textarea name="profile" rows="7" maxlength="8192" required autocomplete="off" spellcheck="false"></textarea></label><button type="submit" disabled>Сохранить профиль</button></form>':`<p><a href="${esc(url.href)}">Открыть HTTPS-панель для сохранения профиля</a></p>`}
+ <details><summary>Шаблон профиля Telegram</summary>
+ <pre>[Interface]
+ PrivateKey = КЛЮЧ_КЛИЕНТА
+ Address = 10.77.66.2/32
+
+ [Peer]
+ PublicKey = ПУБЛИЧНЫЙ_КЛЮЧ_VPS
+ Endpoint = vps.example.org:51820
+ AllowedIPs = 91.108.56.0/22,91.108.4.0/22,91.108.8.0/22,91.108.16.0/22,91.108.12.0/22,149.154.160.0/20,91.105.192.0/23,91.108.20.0/22,185.76.151.0/24
+ PersistentKeepalive = 25</pre>
+ <p>Подставьте адрес, назначенный на вашем VPS, и ключи WireGuard. После запуска проверьте Telegram на устройстве в домашней сети.</p>
+ </details></section>`;
+}
+function bindTelegramTunnel(){
+ const status=$("#telegram-tunnel-status");
+ const form=$("#telegram-tunnel-form");
+ const start=$("#telegram-tunnel-start");
+ const stop=$("#telegram-tunnel-stop");
+ const refresh=$("#telegram-tunnel-refresh");
+ const save=form?.querySelector("button");
+ const session=panelSession;
+ let busy=false;
+ let tunnel={};
+ const current=()=>signedIn&&session===panelSession&&status===$("#telegram-tunnel-status");
+ const buttons=()=>{
+  refresh.disabled=busy;
+  start.disabled=busy||!tunnel.available||!tunnel.configured||tunnel.managed;
+  stop.disabled=busy||!tunnel.managed;
+  if(save)save.disabled=busy||!tunnel.available||tunnel.managed;
+ };
+ const run=async(action,profile)=>{
+  if(busy)return;
+  busy=true;
+  buttons();
+  status.textContent="Выполняется…";
+  try{
+   const data=action?await api("telegram/tunnel","POST",{action,profile}):await api("telegram/tunnel");
+   if(!current())return;
+   tunnel=data;
+   if(action==="save")form.reset();
+   const handshake=data.handshake? ` · последнее рукопожатие ${new Date(data.handshake).toLocaleString("ru-RU")}`:"";
+   if(data.running)status.textContent="Туннель запущен"+(handshake||" · ожидается рукопожатие WireGuard");
+   else if(data.managed)status.textContent="Интерфейс отсутствует. Остановите туннель, чтобы снять правила перед повторным запуском.";
+   else if(!data.available)status.textContent="Для туннеля нужны WireGuard (wg, wg-quick), bash, ip и iptables на роутере.";
+   else status.textContent=data.configured?"Профиль сохранён · туннель остановлен":"Добавьте профиль WireGuard.";
+  }catch(error){
+   if(current())status.textContent=error.message;
+  }finally{
+   busy=false;
+   if(current())buttons();
+  }
+ };
+ form?.addEventListener("submit",e=>{e.preventDefault();run("save",form.elements.profile.value);});
+ start.onclick=()=>run("start");
+ stop.onclick=()=>run("stop");
+ refresh.onclick=()=>run();
+ run();
+}
+
 function renderPage() {
   if (batch && location.hash && location.hash !== "#overview") cancelBatch();
   page = location.hash.slice(1);
+  if (page === "geo") page = "telegram";
   if (!labels[page]) page = "overview";
   $("#breadcrumb").textContent = labels[page];
   document
@@ -1021,7 +827,7 @@ function renderPage() {
             ? settings()
             : page === "device" ? devicePage()
             : page === "updates" ? updatesPage()
-            : page === "geo" ? geoPage()
+            : page === "telegram" ? telegramTunnelPage()
             : page === "strategies"
               ? strategyCatalog()
               : page === "adaptive"
@@ -1039,9 +845,9 @@ function renderPage() {
                     ) +
                     '<div class="panel"><h2>Уведомления текущего сеанса</h2><div id="notification-center"></div></div><div class="panel"><pre id="log-view" class="log-view">Загрузка…</pre></div>';
   bindActions();
-  if(page==="geo")bindGeo();
+  if(page==="telegram")bindTelegramTunnel();
   if(page==="overview"){loadTelemetry();loadOverviewBoxes();}
-  if(page==="device")loadDevice();
+  if(page==="device"){loadDevice();bindDNSProbes();}
   if(page==="updates"){loadUpdates();loadSourceUpdates();}
   if (page === "logs") loadLogs();
   if (page === "adaptive") loadAdaptive();
@@ -1231,7 +1037,6 @@ function bindActions() {
         "adaptive_reuse",
         "adaptive_active",
         "background_paused",
-        "subscription_auto_refresh",
         "lightweight",
         "background_other_domains",
         "adaptive_fast_start",
@@ -1690,6 +1495,7 @@ const releaseNotes={
  "0.2.0-beta.5":["Самодиагностика, предупреждения и диапазоны количества событий","Закрытие всплывающих окон вне области и по Esc; описание версии сохраняет раскрытие","Ручная очистка старой истории и восстановление наблюдений из копии; срок хранения 1–365 суток, по умолчанию выключено","Резервное копирование и восстановление настроек; облегчённый режим фоновых проверок","Импорт одной VPN-подписки, ручное и опциональное ежедневное обновление; без запуска туннелей","Уведомления текущего сеанса","Защитный откат при отказе службы или повторной потере двух контрольных HTTPS-подключений во время обновления; не проверяет скорость"],
  "0.2.0-beta.6":["Импорт и экспорт HostList для каждого сервиса; применение только после сохранения","Импорт локального файла VPN-подписки и предварительный просмотр TXT/base64; без запуска VPN","Приоритет ручных операций над фоновым поиском","Geo Routing: план маршрутов Telegram через существующий туннель; независимый VPS-туннель пока не реализован"],
  "0.2.0-beta.7":["Smart VPN Auto: поле пароля, проверка SSH-входа через защищённую панель; туннель автоматически не запускается","Экспериментальный CLI-помощник WireGuard для IPv4-сетей Telegram; требуется настроенный VPS и проверка на роутере","Ограниченный API Telegram-бота: состояние, управление обходом, проверка и подбор YouTube; отдельный ключ, доступ только через localhost"],
+ "0.2.0-beta.16":["Отдельный WireGuard-туннель для IPv4-сетей Telegram","Снятие правил экспериментальной VLESS-маршрутизации","Проверка DNS перенесена в раздел «Роутер»"],
  "0.2.0-beta.15":["Защищённая панель для ввода VLESS и выбора устройств и сервисов","Экспериментальная маршрутизация TCP/IPv4 через Xray после проверки соединения"],
  "0.2.0-beta.14":["Pilot запускает VLESS TCP/RAW с TLS или REALITY через установленный Xray","Проверка HTTPS через локальный SOCKS и проброс на ПК по SSH"],
  "0.2.0-beta.13":["Вставка одной или нескольких vless:// ссылок с предпросмотром прямо в браузере","Сохранение вставленного списка через защищённую панель"],
@@ -1714,7 +1520,7 @@ function releaseNotesHTML(version,scope="installed",defaultOpen=false){
  return `<details class="release-notes" data-release-notes="${esc(key)}" ${open?"open":""}><summary>Что нового${version?" · "+esc(version):""}</summary>${Array.isArray(notes)?`<ul>${notes.map(note=>`<li>${esc(note)}</li>`).join("")}</ul><small>Локальное описание выпуска ChatGPT, не подтверждение источника установленного пакета.</small>`:"<p>Описание этого выпуска пока отсутствует в панели.</p>"}</details>`;
 }
 const prettyBytes=n=>n==null?"недоступно":n>=1048576?(n/1048576).toFixed(1)+" МиБ":n>=1024?(n/1024).toFixed(1)+" КиБ":Math.round(n)+" Б";
-function devicePage(){return heading("Роутер","Данные устройства, на котором запущен Pilot. Недоступные датчики не заменяются примерными значениями.")+`<p class="panel-address">Адрес этой панели · <a href="#overview">${esc(location.origin)}</a></p><div id="device-data">Загрузка…</div><section class="panel"><h2>Проверка среды Keenetic / Entware</h2><p class="subtle">Пассивная проверка по идеям MY.KN. Никакие службы, правила NFQUEUE и подключённые носители не изменяются.</p><div id="preflight-data">Загрузка…</div></section>`;}
+function devicePage(){return heading("Роутер","Данные устройства, на котором запущен Pilot. Недоступные датчики не заменяются примерными значениями.")+`<p class="panel-address">Адрес этой панели · <a href="#overview">${esc(location.origin)}</a></p><div id="device-data">Загрузка…</div><section class="panel"><h2>Проверка среды Keenetic / Entware</h2><p class="subtle">Пассивная проверка по идеям MY.KN. Никакие службы, правила NFQUEUE и подключённые носители не изменяются.</p><div id="preflight-data">Загрузка…</div></section>`+dnsProbePanel();}
 async function loadDevice(){const target=$("#device-data");if(!target||deviceLoading)return;deviceLoading=true;try{const d=await api("device");if(target!==$("#device-data"))return;deviceData=d;target.innerHTML=`<div class="stats-grid"><div class="panel"><h3>Процессор</h3><strong>${d.cpu_percent==null?(d.cpu_sample_available?"ожидается второй замер":"недоступно"):d.cpu_percent.toFixed(1)+" %"}</strong><p>Ядер: ${d.cpu_cores}</p><small>Load 1/5/15 мин: ${d.load.length?d.load.map(v=>v.toFixed(2)).join(" / "):"недоступно"}</small><p class="subtle">Из общего CPU: Pilot ${d.pilot_cpu_percent==null?"ожидается замер":d.pilot_cpu_percent.toFixed(1)+" %"} · nfqws2 ${d.engine_cpu_percent==null?"не измерено":d.engine_cpu_percent.toFixed(1)+" %"}</p><small>Доли от всех ядер суммарно, не от одного ядра. Остальная нагрузка — системные и другие процессы.</small></div><div class="panel"><h3>Память</h3><strong>${d.memory_available==null?"недоступно":prettyBytes(d.memory_total-d.memory_available)+" занято"}</strong><p>Всего: ${prettyBytes(d.memory_total||null)}</p><small>Доступно: ${prettyBytes(d.memory_available)}</small></div><div class="panel"><h3>Температура</h3>${d.temperatures.length?d.temperatures.map(t=>`<p><strong>${t.celsius.toFixed(1)} °C</strong> · ${esc(t.name)}</p>`).join(""):'<p>Недоступно: прошивка не предоставляет датчик Pilot.</p>'}</div></div><div class="panel"><h3>${esc(d.model||"Модель не предоставлена прошивкой")}</h3><p>${esc(d.platform)} · ядро ${esc(d.kernel||"неизвестно")}</p><p>Время работы: ${d.uptime_seconds==null?"недоступно":Math.floor(d.uptime_seconds/86400)+" д "+Math.floor(d.uptime_seconds%86400/3600)+" ч "+Math.floor(d.uptime_seconds%3600/60)+" мин"}</p><p>WAN ${esc(d.wan||"не задан")}: получено ${prettyBytes(d.rx_bytes)}, передано ${prettyBytes(d.tx_bytes)}</p><p>Сейчас: ↓ ${prettyBytes(d.rx_bytes_per_second)}/с · ↑ ${prettyBytes(d.tx_bytes_per_second)}/с</p></div>`;}catch(e){if(target===$("#device-data"))target.textContent="Не удалось получить данные: "+e.message;}finally{deviceLoading=false;loadPreflight();}}
 let preflightCached="",preflightUpdated=0,preflightLoading=false;
 async function loadPreflight(){
