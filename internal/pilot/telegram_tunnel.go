@@ -18,6 +18,8 @@ const telegramWGName = "pilotwg0"
 
 type telegramTunnelState struct {
 	Available  bool      `json:"available"`
+	CanSave    bool      `json:"can_save"`
+	Missing    []string  `json:"missing,omitempty"`
 	Configured bool      `json:"configured"`
 	Managed    bool      `json:"managed"`
 	Running    bool      `json:"running"`
@@ -33,15 +35,16 @@ func (m *Manager) telegramScript() string {
 }
 
 func (m *Manager) telegramTunnelStatus(ctx context.Context) telegramTunnelState {
-	state := telegramTunnelState{Available: m.backend.Kind() == "router"}
+	state := telegramTunnelState{CanSave: m.backend.Kind() == "router"}
 	if _, err := os.Stat(m.telegramScript()); err != nil {
-		state.Available = false
+		state.Missing = append(state.Missing, "vps-telegram-wg.sh")
 	}
 	for _, name := range []string{"wg", "wg-quick", "iptables", "ip", "bash"} {
 		if _, err := exec.LookPath(name); err != nil {
-			state.Available = false
+			state.Missing = append(state.Missing, name)
 		}
 	}
+	state.Available = state.CanSave && len(state.Missing) == 0
 	if file, err := os.Lstat(m.telegramProfilePath()); err == nil {
 		state.Configured = file.Mode().IsRegular() && file.Mode().Perm() == 0600
 	}
@@ -68,8 +71,9 @@ func (m *Manager) telegramTunnelStatus(ctx context.Context) telegramTunnelState 
 }
 
 func (m *Manager) saveTelegramProfile(ctx context.Context, input string) error {
-	if len(input) == 0 || len(input) > 8192 {
-		return errors.New("размер WireGuard-профиля должен быть от 1 байта до 8 КиБ")
+	profile, err := normalizeTelegramProfile(input)
+	if err != nil {
+		return err
 	}
 	dir := filepath.Dir(m.path)
 	if _, err := os.Stat(filepath.Join(dir, telegramWGName+".active")); !os.IsNotExist(err) {
@@ -80,17 +84,18 @@ func (m *Manager) saveTelegramProfile(ctx context.Context, input string) error {
 		return errors.New("не удалось создать временный файл профиля")
 	}
 	defer os.Remove(file.Name())
-	_, err = file.WriteString(input)
+	_, err = file.WriteString(profile)
 	closeErr := file.Close()
 	if err != nil || closeErr != nil {
 		return errors.New("не удалось записать профиль")
 	}
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	if err := exec.CommandContext(ctx, "sh", m.telegramScript(), "validate", file.Name()).Run(); err != nil {
-		return errors.New("профиль отклонён: нужен один WireGuard-пир, частный IPv4 /32 и список сетей Telegram из шаблона")
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	return os.Rename(file.Name(), m.telegramProfilePath())
+	if err := os.Rename(file.Name(), m.telegramProfilePath()); err != nil {
+		return errors.New("не удалось сохранить профиль в каталоге настроек Pilot")
+	}
+	return nil
 }
 
 func (m *Manager) changeTelegramTunnel(action string) error {

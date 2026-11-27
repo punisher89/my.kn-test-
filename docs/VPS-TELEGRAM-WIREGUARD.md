@@ -8,7 +8,7 @@ Set up a dedicated WireGuard peer on your own VPS (Linux with WireGuard, UDP por
 
 ## Router
 
-Requires wg, wg-quick (and its bash/ip dependencies), a supported kernel WireGuard implementation, and iptables. Availability varies with KeeneticOS/Entware. The helper does not install packages or touch existing tunnels. Save the following template via the local HTTPS panel (port 9443). The CLI alternative is to create /opt/etc/keenetic-pilot/pilotwg0.conf with mode 600:
+Requires wg, wg-quick (and its bash/ip dependencies), a supported kernel WireGuard implementation, and iptables. Availability varies with KeeneticOS/Entware. The helper does not install packages or touch existing tunnels. Paste the ordinary single-peer client .conf in the local HTTPS panel (port 9443). Pilot keeps the IPv4 client address as /32, replaces AllowedIPs with Telegram routes, sets keepalive to 25, and leaves router DNS and routing tables under their current configuration. Saving is available before the runtime tools are installed. For manual CLI setup, create /opt/etc/keenetic-pilot/pilotwg0.conf with mode 600 using this template:
 
 ```ini
 [Interface]

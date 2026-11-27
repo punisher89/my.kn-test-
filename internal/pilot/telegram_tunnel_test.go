@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -36,7 +37,7 @@ func TestTelegramProfileSaveRequiresHTTPSAndKeepsInvalidReplacementOut(t *testin
 		handler.ServeHTTP(w, r)
 		return w
 	}
-	const profile = `{"action":"save","profile":"[Interface]\nPrivateKey = AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\nAddress = 10.77.66.2/32\n[Peer]\nPublicKey = BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=\nEndpoint = vpn.example.org:51820\nAllowedIPs = 91.108.56.0/22,91.108.4.0/22,91.108.8.0/22,91.108.16.0/22,91.108.12.0/22,149.154.160.0/20,91.105.192.0/23,91.108.20.0/22,185.76.151.0/24\nPersistentKeepalive = 25\n"}`
+	const profile = `{"action":"save","profile":"[Interface]\nPrivateKey = AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\nAddress = 10.77.66.2/24, fd00::2/64\nDNS = 1.1.1.1\nTable = auto\n[Peer]\nPublicKey = BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=\nEndpoint = vpn.example.org:51820\nAllowedIPs = 0.0.0.0/0, ::/0\n"}`
 	if w := post(profile, false); w.Code != http.StatusForbidden {
 		t.Fatalf("HTTP: %d", w.Code)
 	}
@@ -46,11 +47,35 @@ func TestTelegramProfileSaveRequiresHTTPSAndKeepsInvalidReplacementOut(t *testin
 	if info, err := os.Stat(m.telegramProfilePath()); err != nil || info.Mode().Perm() != 0600 {
 		t.Fatalf("profile was not stored privately: %v", err)
 	}
-	if w := post(strings.Replace(profile, "/32", "/0", 1), true); w.Code != http.StatusBadRequest {
+	if w := post(strings.Replace(profile, "/24", "/0", 1), true); w.Code != http.StatusBadRequest {
 		t.Fatalf("invalid replacement: %d", w.Code)
+	}
+	for _, invalid := range []string{
+		strings.Replace(profile, "DNS = 1.1.1.1", "PostUp = secret-hook", 1),
+		strings.Replace(profile, "DNS = 1.1.1.1", "Jc = 4", 1),
+		strings.Replace(profile, "Table = auto", "[Peer]", 1),
+		`{"action":"save","profile":"vless://secret-link"}`,
+	} {
+		w := post(invalid, true)
+		if w.Code != http.StatusBadRequest || strings.Contains(w.Body.String(), "secret-") {
+			t.Fatalf("invalid import: status %d or leaked input", w.Code)
+		}
 	}
 	got, err := os.ReadFile(m.telegramProfilePath())
 	if err != nil || !strings.Contains(string(got), "Address = 10.77.66.2/32") {
 		t.Fatal("invalid replacement changed saved profile")
+	}
+	for _, item := range []string{"Address = 10.77.66.2/32", "AllowedIPs = " + telegramAllowedIPs, "PersistentKeepalive = 25"} {
+		if !strings.Contains(string(got), item) {
+			t.Fatalf("normalized profile missing %s", item)
+		}
+	}
+	for _, item := range []string{"DNS", "Table", "0.0.0.0/0", "fd00::"} {
+		if strings.Contains(string(got), item) {
+			t.Fatalf("normalized profile contains %s", item)
+		}
+	}
+	if err := exec.Command("sh", m.telegramScript(), "validate", m.telegramProfilePath()).Run(); err != nil {
+		t.Fatalf("installed shell helper rejects normalized profile: %v", err)
 	}
 }

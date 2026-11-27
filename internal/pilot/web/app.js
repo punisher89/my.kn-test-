@@ -748,7 +748,8 @@ function telegramTunnelPage(){
  <button type="button" id="telegram-tunnel-refresh">Обновить состояние</button>
  </div>
  ${secure?'<form id="telegram-tunnel-form"><label>Клиентский профиль WireGuard<textarea name="profile" rows="7" maxlength="8192" required autocomplete="off" spellcheck="false"></textarea></label><button type="submit" disabled>Сохранить профиль</button></form>':`<p><a href="${esc(url.href)}">Открыть HTTPS-панель для сохранения профиля</a></p>`}
- <details><summary>Шаблон профиля Telegram</summary>
+ <p class="subtle">Вставьте клиентский .conf WireGuard. Pilot подставит маршруты Telegram и сохранит текущий DNS роутера.</p>
+ <details><summary>Пример клиентского профиля</summary>
  <pre>[Interface]
  PrivateKey = КЛЮЧ_КЛИЕНТА
  Address = 10.77.66.2/32
@@ -776,7 +777,7 @@ function bindTelegramTunnel(){
   refresh.disabled=busy;
   start.disabled=busy||!tunnel.available||!tunnel.configured||tunnel.managed;
   stop.disabled=busy||!tunnel.managed;
-  if(save)save.disabled=busy||!tunnel.available||tunnel.managed;
+  if(save)save.disabled=busy||!tunnel.can_save||tunnel.managed;
  };
  const run=async(action,profile)=>{
   if(busy)return;
@@ -791,8 +792,12 @@ function bindTelegramTunnel(){
    const handshake=data.handshake? ` · последнее рукопожатие ${new Date(data.handshake).toLocaleString("ru-RU")}`:"";
    if(data.running)status.textContent="Туннель запущен"+(handshake||" · ожидается рукопожатие WireGuard");
    else if(data.managed)status.textContent="Интерфейс отсутствует. Остановите туннель, чтобы снять правила перед повторным запуском.";
-   else if(!data.available)status.textContent="Для туннеля нужны WireGuard (wg, wg-quick), bash, ip и iptables на роутере.";
-   else status.textContent=data.configured?"Профиль сохранён · туннель остановлен":"Добавьте профиль WireGuard.";
+   else if(!data.can_save)status.textContent="Туннель доступен в режиме роутера.";
+   else {
+    const message=data.configured?"Профиль сохранён · туннель остановлен":"Добавьте профиль WireGuard.";
+    const missing=data.missing?.length?` Для запуска не хватает: ${data.missing.join(", ")}.`:"";
+    status.textContent=message+missing;
+   }
   }catch(error){
    if(current())status.textContent=error.message;
   }finally{
@@ -1495,6 +1500,7 @@ const releaseNotes={
  "0.2.0-beta.5":["Самодиагностика, предупреждения и диапазоны количества событий","Закрытие всплывающих окон вне области и по Esc; описание версии сохраняет раскрытие","Ручная очистка старой истории и восстановление наблюдений из копии; срок хранения 1–365 суток, по умолчанию выключено","Резервное копирование и восстановление настроек; облегчённый режим фоновых проверок","Импорт одной VPN-подписки, ручное и опциональное ежедневное обновление; без запуска туннелей","Уведомления текущего сеанса","Защитный откат при отказе службы или повторной потере двух контрольных HTTPS-подключений во время обновления; не проверяет скорость"],
  "0.2.0-beta.6":["Импорт и экспорт HostList для каждого сервиса; применение только после сохранения","Импорт локального файла VPN-подписки и предварительный просмотр TXT/base64; без запуска VPN","Приоритет ручных операций над фоновым поиском","Geo Routing: план маршрутов Telegram через существующий туннель; независимый VPS-туннель пока не реализован"],
  "0.2.0-beta.7":["Smart VPN Auto: поле пароля, проверка SSH-входа через защищённую панель; туннель автоматически не запускается","Экспериментальный CLI-помощник WireGuard для IPv4-сетей Telegram; требуется настроенный VPS и проверка на роутере","Ограниченный API Telegram-бота: состояние, управление обходом, проверка и подбор YouTube; отдельный ключ, доступ только через localhost"],
+ "0.2.0-beta.17":["Импорт обычного .conf WireGuard с автоматической настройкой маршрутов Telegram","Сохранение профиля до установки компонентов для запуска"],
  "0.2.0-beta.16":["Отдельный WireGuard-туннель для IPv4-сетей Telegram","Снятие правил экспериментальной VLESS-маршрутизации","Проверка DNS перенесена в раздел «Роутер»"],
  "0.2.0-beta.15":["Защищённая панель для ввода VLESS и выбора устройств и сервисов","Экспериментальная маршрутизация TCP/IPv4 через Xray после проверки соединения"],
  "0.2.0-beta.14":["Pilot запускает VLESS TCP/RAW с TLS или REALITY через установленный Xray","Проверка HTTPS через локальный SOCKS и проброс на ПК по SSH"],
