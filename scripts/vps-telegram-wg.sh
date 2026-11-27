@@ -3,7 +3,7 @@
 # No default route, no DNS changes, no Keenetic/AWG Manager changes.
 set -eu
 umask 077
-base=/opt/etc/keenetic-pilot
+base=${PILOT_WG_CONFIG_DIR:-/opt/etc/keenetic-pilot}
 iface=pilotwg0
 config=$base/$iface.conf
 state=$base/$iface.active
@@ -16,6 +16,12 @@ validate(){
  # Exact allowlist, single peer, no shell hooks, DNS, Table or default route.
  awk -v allowed="$allowed" '
  function fail(){bad=1; exit 1}
+ function address(v, a,n) {
+  if(v !~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\/32$/)return 0
+  sub(/\/32$/,"",v); n=split(v,a,".")
+  if(n!=4||a[1]>255||a[2]>255||a[3]>255||a[4]>255)return 0
+  return (a[1]==10)||(a[1]==172&&a[2]>=16&&a[2]<=31)||(a[1]==192&&a[2]==168)
+ }
  function key(v){return length(v)==44 && v ~ /^[A-Za-z0-9+\/]+=$/}
  /^[[:space:]]*($|#)/ {next}
  {
@@ -25,13 +31,13 @@ validate(){
    if($0=="[Peer]"){if(section!="i")fail();section="p";next}
    pos=index($0,"=");if(!pos)fail()
    k=substr($0,1,pos-1); v=substr($0,pos+1)
-   gsub(/[[:space:]]/,"",k);gsub(/^[[:space:]]+|[[:space:]]+$/,"",v)
+   gsub(/^[[:space:]]+|[[:space:]]+$/,"",k);gsub(/^[[:space:]]+|[[:space:]]+$/,"",v)
    if(seen[section,k]++)fail()
    if(section=="i" && k=="PrivateKey"){if(!key(v))fail();next}
-   if(section=="i" && k=="Address"){if(v !~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\/[0-9]+$/)fail();next}
+   if(section=="i" && k=="Address"){if(!address(v))fail();next}
    if(section=="i" && k=="MTU"){if(v !~ /^[0-9]+$/||v<1280||v>1500)fail();next}
    if(section=="p" && (k=="PublicKey"||k=="PresharedKey")){if(!key(v))fail();next}
-   if(section=="p" && k=="Endpoint"){if(v !~ /^[A-Za-z0-9.-]+:[0-9]+$/||v ~ /^-/)fail();next}
+   if(section=="p" && k=="Endpoint"){if(v !~ /^[A-Za-z0-9.-]+:[0-9]+$/||v ~ /^-/)fail(); port=substr(v,index(v,":")+1)+0; if(port<1||port>65535)fail();next}
    if(section=="p" && k=="PersistentKeepalive"){if(v!="25")fail();next}
    if(section=="p" && k=="AllowedIPs"){gsub(/[[:space:]]/,"",v);if(v!=allowed)fail();next}
    fail()

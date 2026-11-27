@@ -1,7 +1,6 @@
 package pilot
 
 import (
-	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"embed"
@@ -12,10 +11,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 )
 
 //go:embed web/*
@@ -200,94 +197,44 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 	api("GET /api/vpn/capabilities", func(w http.ResponseWriter, r *http.Request) {
 		jsonReply(w, 200, map[string]any{"engines": independentVPNCapabilities(), "managed_tunnels": false})
 	})
-	api("GET /api/geo", func(w http.ResponseWriter, r *http.Request) {
-		jsonReply(w,200, map[string]any{"services":geoServices,"tunnels":geoTunnels(),"applied":false})
+	telegramSlot := make(chan struct{}, 1)
+	api("GET /api/telegram/tunnel", func(w http.ResponseWriter, r *http.Request) {
+		jsonReply(w, 200, m.telegramTunnelStatus(r.Context()))
 	})
-	// Serialize manual tunnel probes; they must not compete with each other.
-	api("GET /api/vpn/vless-routing", func(w http.ResponseWriter, r *http.Request) {
-		dir := filepath.Dir(m.path)
-		selected, err := loadVLESSSelection(dir)
-		if err != nil { replyError(w, err); return }
-		jsonReply(w,200,map[string]any{"selection":selected,"devices":vlessLANDevices(m.Config()),"services":vlessServiceCatalog()})
-	})
-	vlessSlot := make(chan struct{}, 1)
-	api("GET /api/vpn/vless", func(w http.ResponseWriter, r *http.Request) {
-		jsonReply(w, 200, m.vless.status(filepath.Dir(m.path)))
-	})
-	api("POST /api/vpn/vless", func(w http.ResponseWriter, r *http.Request) {
+	api("POST /api/telegram/tunnel", func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
-			Action string `json:"action"`
-			Link string `json:"link,omitempty"`
-			Selection vlessSelection `json:"selection,omitempty"`
+			Action  string `json:"action"`
+			Profile string `json:"profile,omitempty"`
 		}
 		if !read(w, r, &input) {
 			return
 		}
+		if m.backend.Kind() != "router" {
+			replyError(w, errors.New("Telegram-туннель доступен в режиме роутера"))
+			return
+		}
 		select {
-		case vlessSlot <- struct{}{}:
-			defer func() { <-vlessSlot }()
+		case telegramSlot <- struct{}{}:
+			defer func() { <-telegramSlot }()
 		default:
 			replyError(w, ErrBusy)
 			return
 		}
 		var err error
-		switch input.Action {
-		case "save":
+		if input.Action == "save" {
 			if r.TLS == nil {
-				replyError(w, errors.New("сохраняйте VLESS через HTTPS-панель"))
+				jsonReply(w, http.StatusForbidden, map[string]string{"error": "WireGuard-профиль сохраняется через HTTPS-панель"})
 				return
 			}
-			dir := filepath.Dir(m.path)
-			c := m.Config()
-			if m.vless.status(dir).Running { replyError(w, errors.New("сначала отключите VLESS")); return }
-			if _, _, err = validateVLESSSelection(input.Selection,c,vlessLANDevices(c)); err != nil { break }
-			if input.Link != "" {
-				if err = SaveVLESSFromSSH(dir,strings.NewReader(input.Link)); err != nil { break }
-			}
-			err = WriteJSON(vlessSelectionPath(dir),input.Selection)
-		case "start":
-			if m.backend.Kind() != "router" {
-				replyError(w, errors.New("запуск VLESS доступен в режиме роутера"))
-				return
-			}
-			dir := filepath.Dir(m.path)
-			var selected vlessSelection
-			selected, err = loadVLESSSelection(dir)
-			if err != nil { break }
-			if len(selected.Devices) == 0 && len(selected.Services) == 0 {
-				err = m.vless.start(r.Context(),dir)
-				break
-			}
-			if r.TLS == nil {
-				err = errors.New("запускайте маршрутизацию VLESS через HTTPS-панель")
-				break
-			}
-			c := m.Config()
-			lan,_,_ := net.SplitHostPort(c.Listen)
-			ip := net.ParseIP(lan)
-			if ip == nil || ip.To4() == nil || !ip.IsPrivate() {
-				err = errors.New("для маршрутизации нужен локальный IPv4-адрес панели")
-				break
-			}
-			var devices []vlessDevice
-			var domains []string
-			devices,domains,err = validateVLESSSelection(selected,c,vlessLANDevices(c))
-			if err == nil { err = m.vless.startWithRoutes(r.Context(),dir,&vlessRules{LAN:lan,Devices:devices},domains) }
-		case "check":
-			err = m.vless.check(r.Context())
-		case "stop":
-			ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-			defer cancel()
-			err = m.vless.stop(ctx, false)
-			if err == nil && m.backend.Kind() == "router" { err = cleanupVLESSRoutes(filepath.Dir(m.path)) }
-		default:
-			err = errors.New("неизвестное действие VLESS")
+			err = m.saveTelegramProfile(r.Context(), input.Profile)
+		} else {
+			err = m.changeTelegramTunnel(input.Action)
 		}
 		if err != nil {
 			replyError(w, err)
 			return
 		}
-		jsonReply(w, 200, m.vless.status(filepath.Dir(m.path)))
+		jsonReply(w, 200, m.telegramTunnelStatus(r.Context()))
 	})
 	vpnProbeSlot := make(chan struct{}, 1)
  api("GET /api/vpn/subscription",func(w http.ResponseWriter,r *http.Request){
@@ -344,25 +291,6 @@ func Handler(m *Manager, token string, authOptions ...*Auth) http.Handler {
 			input.panelIP, _, _ = net.SplitHostPort(local.String())
 		}
 		jsonReply(w,200,secureDNSProbe(r.Context(),input))
-	})
-	api("POST /api/geo/probe", func(w http.ResponseWriter, r *http.Request) {
-		var input struct { Interface string `json:"interface"` }
-		if !read(w,r,&input){return}
-		if !geoTunnelRE.MatchString(input.Interface){jsonReply(w,400,map[string]string{"error":"Некорректный VPN-интерфейс"});return}
-		select {
-		case vpnProbeSlot <- struct{}{}:
-			defer func(){<-vpnProbeSlot}()
-		default:
-			replyError(w,ErrBusy);return
-		}
-		jsonReply(w,200,probeVPN(r.Context(),input.Interface))
-	})
-	api("POST /api/geo/plan", func(w http.ResponseWriter, r *http.Request) {
-		var input GeoPlanRequest
-		if !read(w,r,&input){return}
-		plan,err:=buildGeoPlan(input)
-		if err!=nil{replyError(w,err);return}
-		jsonReply(w,200,plan)
 	})
 	api("GET /api/network", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, 200, DetectNetwork()) })
 	api("POST /api/services/custom", func(w http.ResponseWriter, r *http.Request) {

@@ -49,7 +49,6 @@ type Snapshot struct {
 	Strategies      []Strategy              `json:"strategies"`
 }
 type Manager struct {
-	vless vlessProcess
 	domainJob        *DomainSearch
 	domainQueue      int
 	domainTasks      map[DomainScope]*domainTask
@@ -485,7 +484,6 @@ func (m *Manager) Watch(ctx context.Context) {
     nextCatalog := time.Now().Add(catalogStartDelay)
     nextDomains := map[string]time.Time{}
     nextRepair := time.Now()
-    nextSubscription := time.Now().Add(10*time.Minute)
     nextStartRetry := time.Time{}
     startRetryDelay := 30 * time.Second
     failures := make(recoveryFailures)
@@ -508,10 +506,6 @@ func (m *Manager) Watch(ctx context.Context) {
             allowed := m.backgroundAllowed(c)
             now := time.Now()
 
-            if allowed && c.SubscriptionAutoRefresh && !now.Before(nextSubscription) {
-                nextSubscription=now.Add(24*time.Hour)
-                if err:=m.refreshSubscriptionIfDue(ctx,now);err!=nil {m.log.Add("VPN-подписка: "+err.Error())}
-            }
             if allowed && c.AutoCatalog && !now.Before(nextCatalog) {
                 nextCatalog = now.Add(24 * time.Hour)
                 if err := m.updateCatalog(ctx); err != nil {
@@ -615,9 +609,6 @@ func (m *Manager) Watch(ctx context.Context) {
     }
 }
 func (m *Manager) Close() error {
-	vlessCtx, cancelVLESS := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancelVLESS()
-	vlessErr := m.vless.stop(vlessCtx, true)
 	m.mu.Lock()
 	m.closed = true
 	if m.cancel != nil {
@@ -625,11 +616,11 @@ func (m *Manager) Close() error {
 	}
 	m.mu.Unlock()
 	if m.updating.Load() {
-		return errors.Join(vlessErr, m.backend.Stop())
+		return m.backend.Stop()
 	}
 	m.op.Lock()
 	defer m.op.Unlock()
-	return errors.Join(vlessErr, m.backend.Stop())
+	return m.backend.Stop()
 }
 
 // reserveManual gives an authenticated foreground request a bounded opportunity

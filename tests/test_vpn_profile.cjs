@@ -41,7 +41,7 @@ assert.throws(()=>merge(Array.from({length:300},(_,i)=>"a"+i+".example.com"),["e
 console.log("HostList: 6 checks passed");
 
 const dnsPanelStart=source.indexOf("function dnsProbePanel(){");
-const dnsPanelEnd=source.indexOf("let subscriptionBusy",dnsPanelStart);
+const dnsPanelEnd=source.indexOf("function describeSubscription(",dnsPanelStart);
 assert.ok(dnsPanelStart>=0&&dnsPanelEnd>dnsPanelStart);
 const dnsPanel=new Function(source.slice(dnsPanelStart,dnsPanelEnd)+";return dnsProbePanel();")();
 assert.ok(dnsPanel.includes("opkg install knot-dig ca-certificates"));

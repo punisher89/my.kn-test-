@@ -23,6 +23,10 @@ class Config(unittest.TestCase):
     def test_rejected(self):
         for value in (CONFIG.replace("MTU = 1380","PostUp = echo bad"),
                       CONFIG.replace("91.108.56.0/22","0.0.0.0/0"),
+                      CONFIG.replace("10.77.66.2/32","10.77.66.2/0"),
+                      CONFIG.replace("10.77.66.2/32","10.77.66.2/24"),
+                      CONFIG.replace("10.77.66.2/32","1.2.3.4/32"),
+                      CONFIG.replace(":51820",":65536"),
                       CONFIG.replace("PersistentKeepalive = 25","DNS = 1.1.1.1"),
                       CONFIG+"[Peer]\n",CONFIG.replace("Endpoint = vpn.example.org:51820","Endpoint = -x:22")):
             self.assertNotEqual(self.validate(value),0)

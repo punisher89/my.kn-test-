@@ -124,6 +124,7 @@ let relay={worker_host:'',status:'draft_only',can_route:false,source:'t0fox/d2o 
    const nativePanel=page.locator("#telegram-native-panel");
    await nativePanel.waitFor();
    assert.match(await nativePanel.locator("h2").textContent(),/сквозная маршрутизация/);
+   assert.equal(await nativePanel.getByRole("link").getAttribute("href"),"#telegram");
    assert.equal(await page.locator("#telegram-proxy-panel").count(),0);
    assert.equal(await page.locator("#telegram-relay-panel").count(),0);
    assert.equal(await page.locator("#telegram-native-toggle").count(),0);
